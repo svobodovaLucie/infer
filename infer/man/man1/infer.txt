@@ -111,6 +111,74 @@ OPTIONS
            Additional Buck flavors to append to targets discovered by the
            --buck-compilation-database option.           See also infer-capture(1).
 
+       --atomic-sets
+           Activates: checker atomic-sets: Atomicity violations analysis -
+           detection of atomic sets. (Conversely: --no-atomic-sets)       
+    See also infer-analyze(1).
+
+       --atomic-sets-file-append bool
+           Activates: Specify whether functions should be appended to the
+           atomic sets file instead of overriding in the 'atomic-sets'
+           checker. (Conversely: --no-atomic-sets-file-append)       
+    See also infer-analyze(1).
+
+       --atomic-sets-functions-depth-limit int
+           Specify the maximum depth in the hierarchy of function calls to
+           which function calls will be considered during the 'atomic-sets'
+           checker analysis. The default value is 10.           See also infer-analyze(1).
+
+       --atomic-sets-locked-functions-limit int
+           Specify the maximum number of function calls that could appear in
+           a critical section in the 'atomic-sets' checker. Critical sections
+           with more function names will be ignored. The default value is 20.       
+    See also infer-analyze(1).
+
+       --atomic-sets-only
+           Activates: Enable atomic-sets and disable all other checkers
+           (Conversely: --no-atomic-sets-only)           See also infer-analyze(1).
+
+       --atomic-sets-widen-limit int
+           Specify the maximum number of iterations in a widening operator in
+           the 'atomic-sets' checker. Under-approximation after specified
+           loop iterations. The default value is 5.           See also infer-analyze(1).
+
+       --atomicity-allowed-function-analyses file
+           Specify a file with function names whose analysis should be
+           allowed during the analysis of 'atomic-sets' and
+           'atomicity-violations' checkers. Other functions will be ignored.       
+    See also infer-analyze(1).
+
+       --atomicity-allowed-function-calls file
+           Specify a file with function names whose calls should be allowed
+           during the analysis of 'atomic-sets' and 'atomicity-violations'
+           checkers. Other functions will be ignored.           See also infer-analyze(1).
+
+       --atomicity-ignored-function-analyses file
+           Specify a file with function names whose analysis should be
+           ignored during the analysis of 'atomic-sets' and
+           'atomicity-violations' checkers.           See also infer-analyze(1).
+
+       --atomicity-ignored-function-calls file
+           Specify a file with function names whose calls should be ignored
+           during the analysis of 'atomic-sets' and 'atomicity-violations'
+           checkers.           See also infer-analyze(1).
+
+       --atomicity-violations
+           Activates: checker atomicity-violations: Atomicity violations
+           analysis - detection of atomicity violations. (Conversely:
+           --no-atomicity-violations)           See also infer-analyze(1).
+
+       --atomicity-violations-only
+           Activates: Enable atomicity-violations and disable all other
+           checkers (Conversely: --no-atomicity-violations-only)       
+    See also infer-analyze(1).
+
+       --atomicity-violations-widen-limit int
+           Specify the maximum number of iterations in a widening operator in
+           the 'atomicity-violations' checker. Under-approximation after
+           specified loop iterations. The default value is 1000.       
+    See also infer-analyze(1).
+
        --no-biabduction
            Deactivates: checker biabduction: This analysis deals with a range
            of issues, many linked to memory safety. (Conversely:
@@ -434,6 +502,7 @@ OPTIONS
              ARRAY_OUT_OF_BOUNDS_L2 (disabled by default),
              ARRAY_OUT_OF_BOUNDS_L3 (disabled by default),
              ASSIGN_POINTER_WARNING (enabled by default),
+             ATOMICITY_VIOLATION (enabled by default),
              AUTORELEASEPOOL_SIZE_COMPLEXITY_INCREASE (enabled by default),
              AUTORELEASEPOOL_SIZE_COMPLEXITY_INCREASE_UI_THREAD (enabled by
            default),

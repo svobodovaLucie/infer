@@ -1089,6 +1089,13 @@ let wrong_argument_number =
 
 let unreachable_cost_call ~kind = register_cost ~enabled:false ~kind "%s_UNREACHABLE_AT_EXIT"
 
+let atomicity_violation : t =
+  register ~id:"ATOMICITY_VIOLATION" ~enabled:true Error AtomicityViolations
+    ~hum:"Atomicity Violation"
+    ~user_documentation:
+      "See https://github.com/harmim/infer/wiki/Atomer:-Atomicity-Violations-Analyser."
+
+
 (* register enabled cost issues *)
 let is_autoreleasepool_size_issue =
   let autoreleasepool_size_issues = ref IssueSet.empty in

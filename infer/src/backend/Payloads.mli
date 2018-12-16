@@ -31,7 +31,9 @@ include sig
     ; siof: SiofDomain.Summary.t option
     ; starvation: StarvationDomain.summary option
     ; nullsafe: NullsafeSummary.t option
-    ; uninit: UninitDomain.Summary.t option }
+    ; uninit: UninitDomain.Summary.t option
+    ; atomic_sets: AtomicSetsDomain.Summary.t option
+    ; atomicity_violations: AtomicityViolationsDomain.Summary.t option }
   [@@deriving fields, yojson_of]
 end
 

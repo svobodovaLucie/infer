@@ -105,6 +105,7 @@ OPTIONS
              ARRAY_OUT_OF_BOUNDS_L2 (disabled by default),
              ARRAY_OUT_OF_BOUNDS_L3 (disabled by default),
              ASSIGN_POINTER_WARNING (enabled by default),
+             ATOMICITY_VIOLATION (enabled by default),
              AUTORELEASEPOOL_SIZE_COMPLEXITY_INCREASE (enabled by default),
              AUTORELEASEPOOL_SIZE_COMPLEXITY_INCREASE_UI_THREAD (enabled by
            default),

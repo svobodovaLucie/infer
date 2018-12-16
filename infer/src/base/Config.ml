@@ -170,6 +170,8 @@ let manual_racerd = "RACERD CHECKER OPTIONS"
 
 let manual_siof = "SIOF CHECKER OPTIONS"
 
+let manual_atomicity_violations : string = "ATOMICITY VIOLATIONS CHECKER OPTIONS"
+
 let max_narrows = 5
 
 (** Maximum number of widens that can be performed before the analysis will intentionally crash.
@@ -2631,6 +2633,79 @@ and tv_limit_filtered =
     "The maximum number of traces for issues filtered out by --report-filter to submit to Traceview"
 
 
+and type_size =
+  CLOpt.mk_bool ~deprecated:["type_size"] ~long:"type-size"
+    "Consider the size of types during analysis, e.g. cannot use an int pointer to write to a char"
+
+
+and atomic_sets_widen_limit : int ref =
+  CLOpt.mk_int ~default:5 ~meta:"int" ~long:"atomic-sets-widen-limit"
+    ~in_help:[(Analyze, manual_atomicity_violations)]
+    ~default_to_string:string_of_int
+    "Specify the maximum number of iterations in a widening operator in the 'atomic-sets' checker. \
+     Under-approximation after specified loop iterations. The default value is 5."
+
+
+and atomicity_violations_widen_limit : int ref =
+  CLOpt.mk_int ~default:1000 ~meta:"int" ~long:"atomicity-violations-widen-limit"
+    ~in_help:[(Analyze, manual_atomicity_violations)]
+    ~default_to_string:string_of_int
+    "Specify the maximum number of iterations in a widening operator in the 'atomicity-violations' \
+     checker. Under-approximation after specified loop iterations. The default value is 1000."
+
+
+and atomicity_ignored_function_calls_file : string option ref =
+  CLOpt.mk_path_opt ~long:"atomicity-ignored-function-calls" ~meta:"file"
+    ~in_help:[(Analyze, manual_atomicity_violations)]
+    "Specify a file with function names whose calls should be ignored during the analysis of \
+     'atomic-sets' and 'atomicity-violations' checkers."
+
+
+and atomicity_ignored_function_analyses_file : string option ref =
+  CLOpt.mk_path_opt ~long:"atomicity-ignored-function-analyses" ~meta:"file"
+    ~in_help:[(Analyze, manual_atomicity_violations)]
+    "Specify a file with function names whose analysis should be ignored during the analysis of \
+     'atomic-sets' and 'atomicity-violations' checkers."
+
+
+and atomicity_allowed_function_calls_file : string option ref =
+  CLOpt.mk_path_opt ~long:"atomicity-allowed-function-calls" ~meta:"file"
+    ~in_help:[(Analyze, manual_atomicity_violations)]
+    "Specify a file with function names whose calls should be allowed during the analysis of \
+     'atomic-sets' and 'atomicity-violations' checkers. Other functions will be ignored."
+
+
+and atomicity_allowed_function_analyses_file : string option ref =
+  CLOpt.mk_path_opt ~long:"atomicity-allowed-function-analyses" ~meta:"file"
+    ~in_help:[(Analyze, manual_atomicity_violations)]
+    "Specify a file with function names whose analysis should be allowed during the analysis of \
+     'atomic-sets' and 'atomicity-violations' checkers. Other functions will be ignored."
+
+
+and atomic_sets_locked_functions_limit : int ref =
+  CLOpt.mk_int ~default:20 ~meta:"int" ~long:"atomic-sets-locked-functions-limit"
+    ~in_help:[(Analyze, manual_atomicity_violations)]
+    ~default_to_string:string_of_int
+    "Specify the maximum number of function calls that could appear in a critical section in the \
+     'atomic-sets' checker. Critical sections with more function names will be ignored. The \
+     default value is 20."
+
+
+and atomic_sets_file_append : bool ref =
+  CLOpt.mk_bool ~default:false ~long:"atomic-sets-file-append" ~meta:"bool"
+    ~in_help:[(Analyze, manual_atomicity_violations)]
+    "Specify whether functions should be appended to the atomic sets file instead of overriding in \
+     the 'atomic-sets' checker."
+
+
+and atomic_sets_functions_depth_limit : int ref =
+  CLOpt.mk_int ~default:10 ~meta:"int" ~long:"atomic-sets-functions-depth-limit"
+    ~in_help:[(Analyze, manual_atomicity_violations)]
+    ~default_to_string:string_of_int
+    "Specify the maximum depth in the hierarchy of function calls to which function calls will be \
+     considered during the 'atomic-sets' checker analysis. The default value is 10."
+
+
 and uninit_interproc =
   CLOpt.mk_bool ~long:"uninit-interproc" "Run uninit check in the experimental interprocedural mode"
 
@@ -3595,6 +3670,34 @@ and tv_limit = !tv_limit
 and tv_limit_filtered = !tv_limit_filtered
 
 and uninit_interproc = !uninit_interproc
+
+and atomic_sets_widen_limit : int = !atomic_sets_widen_limit
+
+and atomicity_violations_widen_limit : int = !atomicity_violations_widen_limit
+
+and atomicity_ignored_function_calls_file : string option = !atomicity_ignored_function_calls_file
+
+and atomicity_ignored_function_analyses_file : string option =
+  !atomicity_ignored_function_analyses_file
+
+
+and atomicity_allowed_function_calls_file : string option = !atomicity_allowed_function_calls_file
+
+and atomicity_allowed_function_analyses_file : string option =
+  !atomicity_allowed_function_analyses_file
+
+
+and atomic_sets_locked_functions_limit : int = !atomic_sets_locked_functions_limit
+
+and atomic_sets_file_append : bool = !atomic_sets_file_append
+
+and atomic_sets_functions_depth_limit : int = !atomic_sets_functions_depth_limit
+
+and unsafe_malloc = !unsafe_malloc
+
+and incremental_analysis = !incremental_analysis
+
+and worklist_mode = !worklist_mode
 
 and workspace = !workspace
 

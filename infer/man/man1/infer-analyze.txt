@@ -25,6 +25,23 @@ OPTIONS
            Activates: Enable annotation-reachability and disable all other
            checkers (Conversely: --no-annotation-reachability-only)
 
+       --atomic-sets
+           Activates: checker atomic-sets: Atomicity violations analysis -
+           detection of atomic sets. (Conversely: --no-atomic-sets)
+
+       --atomic-sets-only
+           Activates: Enable atomic-sets and disable all other checkers
+           (Conversely: --no-atomic-sets-only)
+
+       --atomicity-violations
+           Activates: checker atomicity-violations: Atomicity violations
+           analysis - detection of atomicity violations. (Conversely:
+           --no-atomicity-violations)
+
+       --atomicity-violations-only
+           Activates: Enable atomicity-violations and disable all other
+           checkers (Conversely: --no-atomicity-violations-only)
+
        --no-biabduction
            Deactivates: checker biabduction: This analysis deals with a range
            of issues, many linked to memory safety. (Conversely:
@@ -467,6 +484,51 @@ OPTIONS
        --xcode-isysroot-suffix string
            Specify the suffix of Xcode isysroot directory, to avoid absolute
            paths in tests
+ATOMICITY VIOLATIONS CHECKER OPTIONS
+       --atomic-sets-file-append bool
+           Activates: Specify whether functions should be appended to the
+           atomic sets file instead of overriding in the 'atomic-sets'
+           checker. (Conversely: --no-atomic-sets-file-append)
+
+       --atomic-sets-functions-depth-limit int
+           Specify the maximum depth in the hierarchy of function calls to
+           which function calls will be considered during the 'atomic-sets'
+           checker analysis. The default value is 10.
+
+       --atomic-sets-locked-functions-limit int
+           Specify the maximum number of function calls that could appear in
+           a critical section in the 'atomic-sets' checker. Critical sections
+           with more function names will be ignored. The default value is 20.
+
+       --atomic-sets-widen-limit int
+           Specify the maximum number of iterations in a widening operator in
+           the 'atomic-sets' checker. Under-approximation after specified
+           loop iterations. The default value is 5.
+
+       --atomicity-allowed-function-analyses file
+           Specify a file with function names whose analysis should be
+           allowed during the analysis of 'atomic-sets' and
+           'atomicity-violations' checkers. Other functions will be ignored.
+
+       --atomicity-allowed-function-calls file
+           Specify a file with function names whose calls should be allowed
+           during the analysis of 'atomic-sets' and 'atomicity-violations'
+           checkers. Other functions will be ignored.
+
+       --atomicity-ignored-function-analyses file
+           Specify a file with function names whose analysis should be
+           ignored during the analysis of 'atomic-sets' and
+           'atomicity-violations' checkers.
+
+       --atomicity-ignored-function-calls file
+           Specify a file with function names whose calls should be ignored
+           during the analysis of 'atomic-sets' and 'atomicity-violations'
+           checkers.
+
+       --atomicity-violations-widen-limit int
+           Specify the maximum number of iterations in a widening operator in
+           the 'atomicity-violations' checker. Under-approximation after
+           specified loop iterations. The default value is 1000.
 BUCK OPTIONS
        --merge
            Activates: Merge the captured results directories specified in the

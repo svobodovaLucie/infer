@@ -1,0 +1,51 @@
+(* Author: Dominik Harmim <xharmi00@stud.fit.vutbr.cz> *)
+
+open! IStd
+module F = Format
+
+(** Detection of atomic sets domain interface. *)
+
+(* ************************************ Astate ************************************************** *)
+
+(** An abstract state of a function. *)
+type t [@@deriving compare]
+
+(** An alias for the type 't'. *)
+type astate = t [@@deriving compare]
+
+include AbstractDomain.S with type t := t
+
+val initial : t
+(** An initial abstract state of an analysed function. *)
+
+val apply_call : t -> string -> t
+(** Updates an abstract state on a function call. *)
+
+val apply_lock : ?ap:AccessPath.t option -> t -> t
+(** Updates an abstract state on a lock call. *)
+
+val apply_unlock : ?ap:AccessPath.t option -> t -> t
+(** Updates an abstract state on an unlock call. *)
+
+val update_at_the_end_of_function : t -> t
+(** Updates an abstract state at the end of a function. *)
+
+(* ************************************ Summary ************************************************* *)
+
+(** A module that encapsulates a summary of a function. *)
+module Summary : sig
+  (** A summary of a function. *)
+  type t [@@deriving compare]
+
+  val pp : F.formatter -> t -> unit
+  (** A pretty printer of a summary. *)
+
+  val make : astate -> t
+  (** Converts an abstract state to a summary. *)
+
+  val print_atomic_sets : t -> f_name:string -> Out_channel.t -> unit
+  (** Prints atomic sets from a given summary and a function name to a given output channel. *)
+end
+
+val apply_summary : t -> Summary.t -> t
+(** Updates an abstract state on a function call with its summary. *)

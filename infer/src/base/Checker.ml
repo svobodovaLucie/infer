@@ -40,6 +40,8 @@ type t =
   | Starvation
   | Topl
   | Uninit
+  | AtomicSets
+  | AtomicityViolations
 [@@deriving equal, enumerate]
 
 type support = NoSupport | ExperimentalSupport | Support
@@ -457,6 +459,32 @@ let config_unsafe checker =
             ; deprecation_message= "Uninitialized value checking has moved to Pulse." }
       ; support= supports_clang
       ; short_documentation= "Warns when values are used before having been initialized."
+      ; cli_flags= Some {deprecated= []; show_in_help= true}
+      ; enabled_by_default= false
+      ; activates= [] }
+  | AtomicSets ->
+      let title : string = "Atomicity violations analysis - detection of atomic sets." in
+      { id= "atomic-sets"
+      ; kind=
+          UserFacing
+            { title
+            ; markdown_body=
+                "See https://github.com/harmim/infer/wiki/Atomer:-Atomicity-Violations-Analyser." }
+      ; support= supports_clang_and_java
+      ; short_documentation= title
+      ; cli_flags= Some {deprecated= []; show_in_help= true}
+      ; enabled_by_default= false
+      ; activates= [] }
+  | AtomicityViolations ->
+      let title : string = "Atomicity violations analysis - detection of atomicity violations." in
+      { id= "atomicity-violations"
+      ; kind=
+          UserFacing
+            { title
+            ; markdown_body=
+                "See https://github.com/harmim/infer/wiki/Atomer:-Atomicity-Violations-Analyser." }
+      ; support= supports_clang_and_java
+      ; short_documentation= title
       ; cli_flags= Some {deprecated= []; show_in_help= true}
       ; enabled_by_default= false
       ; activates= [] }

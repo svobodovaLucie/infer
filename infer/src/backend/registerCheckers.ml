@@ -207,7 +207,22 @@ let all_checkers =
              Payloads.Fields.buffer_overrun_analysis Payloads.Fields.config_impact_analysis
              Payloads.Fields.cost ConfigImpactAnalysis.checker
          in
-         [(checker, Clang); (checker, Java)] ) } ]
+         [(checker, Clang); (checker, Java)] ) }
+  ; { checker= AtomicSets
+    ; callbacks=
+        (let checker : callback_fun =
+           interprocedural Payloads.Fields.atomic_sets AtomicSets.analyse_procedure
+         and checkerFile : callback_fun =
+           file Temporary Payloads.Fields.atomic_sets AtomicSets.print_atomic_sets
+         in
+         [(checker, Clang); (checker, Java); (checkerFile, Clang); (checkerFile, Java)]) }
+  ; { checker= AtomicityViolations
+    ; callbacks=
+        (let checker : callback_fun =
+           interprocedural Payloads.Fields.atomicity_violations
+             AtomicityViolations.analyse_procedure
+         in
+         [(checker, Clang); (checker, Java)]) } ]
 
 
 let get_active_checkers () =

@@ -163,8 +163,14 @@ end = struct
     fun pname -> QualifiedCppName.Match.match_qualifiers matcher (Procname.get_qualifiers pname)
 
 
-  let is_lock, is_unlock, is_trylock, is_std_lock =
-    (* TODO std::try_lock *)
+  let ( is_lock
+      , is_unlock
+      , is_trylock
+      , is_std_lock
+      , (is_std_trylock : Procname.t -> bool)
+      , (is_pthread_lock : Procname.t -> bool)
+      , (is_pthread_unlock : Procname.t -> bool)
+      , (is_pthread_trylock : Procname.t -> bool) ) =
     let mk_model_matcher ~f =
       let lock_methods =
         List.concat_map lock_models ~f:(fun mdl ->
@@ -175,7 +181,11 @@ end = struct
     ( mk_model_matcher ~f:(fun mdl -> mdl.lock)
     , mk_model_matcher ~f:(fun mdl -> mdl.unlock)
     , mk_model_matcher ~f:(fun mdl -> mdl.trylock)
-    , mk_matcher ["std::lock"] )
+    , mk_matcher ["std::lock"]
+    , mk_matcher ["std::try_lock"]
+    , mk_matcher ["pthread_mutex_lock"]
+    , mk_matcher ["pthread_mutex_unlock"]
+    , mk_matcher ["pthread_mutex_trylock"] )
 
 
   (** C++ guard classes used for scope-based lock management. NB we pretend all classes below
@@ -255,8 +265,12 @@ end = struct
   let get_lock_effect pname actuals =
     let fst_arg = match actuals with x :: _ -> [x] | _ -> [] in
     if is_std_lock pname then make_lock pname actuals
+    else if is_pthread_lock pname then make_lock pname fst_arg
     else if is_lock pname then make_lock pname fst_arg
+    else if is_pthread_unlock pname then make_unlock pname fst_arg
     else if is_unlock pname then make_unlock pname fst_arg
+    else if is_std_trylock pname then make_trylock pname actuals
+    else if is_pthread_trylock pname then make_trylock pname fst_arg
     else if is_trylock pname then make_trylock pname fst_arg
     else if is_guard_constructor pname then make_guard_construct pname actuals
     else if is_guard_lock pname then make_guard_lock pname actuals

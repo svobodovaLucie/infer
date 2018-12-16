@@ -27,7 +27,9 @@ type t =
   ; siof: SiofDomain.Summary.t option
   ; starvation: StarvationDomain.summary option
   ; nullsafe: NullsafeSummary.t option
-  ; uninit: UninitDomain.Summary.t option }
+  ; uninit: UninitDomain.Summary.t option
+  ; atomic_sets: AtomicSetsDomain.Summary.t option
+  ; atomicity_violations: AtomicityViolationsDomain.Summary.t option }
 [@@deriving fields]
 
 let yojson_of_t {pulse} =
@@ -62,6 +64,10 @@ let fields =
     ~starvation:(fun f -> mk f "Starvation" StarvationDomain.pp_summary)
     ~nullsafe:(fun f -> mk f "Nullsafe" NullsafeSummary.pp)
     ~uninit:(fun f -> mk f "Uninitialised" UninitDomain.Summary.pp)
+    ~atomic_sets:(fun (f : (t, AtomicSetsDomain.Summary.t option) Field.t) ->
+      mk f "AtomicSets" AtomicSetsDomain.Summary.pp)
+    ~atomicity_violations:(fun (f : (t, AtomicityViolationsDomain.Summary.t option) Field.t) ->
+      mk f "AtomicityViolations" AtomicityViolationsDomain.Summary.pp)
 
 
 let pp pe f payloads =
@@ -88,4 +94,6 @@ let empty =
   ; siof= None
   ; starvation= None
   ; nullsafe= None
-  ; uninit= None }
+  ; uninit= None
+  ; atomic_sets= None
+  ; atomicity_violations= None }

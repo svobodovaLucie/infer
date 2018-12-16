@@ -395,3 +395,5 @@ val unreachable_cost_call : kind:CostKind.t -> t
 val is_autoreleasepool_size_issue : t -> bool
 
 module Map : PrettyPrintable.PPMap with type key = t
+
+val atomicity_violation : t

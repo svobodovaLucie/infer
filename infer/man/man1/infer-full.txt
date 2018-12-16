@@ -91,7 +91,7 @@ OPTIONS
                  }
                }
              }
-           
+
            This will cause us to create a new ISOLATED_REACHING_CONNECT
            issue for every function whose source path starts with "isolated/"
            that may reach the function named "connect", ignoring paths that
@@ -104,12 +104,80 @@ OPTIONS
 
        --annotation-reachability-only
            Activates: Enable annotation-reachability and disable all other
-           checkers (Conversely: --no-annotation-reachability-only)       
+           checkers (Conversely: --no-annotation-reachability-only)
     See also infer-analyze(1).
 
        --append-buck-flavors +string
            Additional Buck flavors to append to targets discovered by the
            --buck-compilation-database option.           See also infer-capture(1).
+
+       --atomic-sets
+           Activates: checker atomic-sets: Atomicity violations analysis -
+           detection of atomic sets. (Conversely: --no-atomic-sets)
+    See also infer-analyze(1).
+
+       --atomic-sets-file-append bool
+           Activates: Specify whether functions should be appended to the
+           atomic sets file instead of overriding in the 'atomic-sets'
+           checker. (Conversely: --no-atomic-sets-file-append)
+    See also infer-analyze(1).
+
+       --atomic-sets-functions-depth-limit int
+           Specify the maximum depth in the hierarchy of function calls to
+           which function calls will be considered during the 'atomic-sets'
+           checker analysis. The default value is 10.           See also infer-analyze(1).
+
+       --atomic-sets-locked-functions-limit int
+           Specify the maximum number of function calls that could appear in
+           a critical section in the 'atomic-sets' checker. Critical sections
+           with more function names will be ignored. The default value is 20.
+    See also infer-analyze(1).
+
+       --atomic-sets-only
+           Activates: Enable atomic-sets and disable all other checkers
+           (Conversely: --no-atomic-sets-only)           See also infer-analyze(1).
+
+       --atomic-sets-widen-limit int
+           Specify the maximum number of iterations in a widening operator in
+           the 'atomic-sets' checker. Under-approximation after specified
+           loop iterations. The default value is 5.           See also infer-analyze(1).
+
+       --atomicity-allowed-function-analyses file
+           Specify a file with function names whose analysis should be
+           allowed during the analysis of 'atomic-sets' and
+           'atomicity-violations' checkers. Other functions will be ignored.
+    See also infer-analyze(1).
+
+       --atomicity-allowed-function-calls file
+           Specify a file with function names whose calls should be allowed
+           during the analysis of 'atomic-sets' and 'atomicity-violations'
+           checkers. Other functions will be ignored.           See also infer-analyze(1).
+
+       --atomicity-ignored-function-analyses file
+           Specify a file with function names whose analysis should be
+           ignored during the analysis of 'atomic-sets' and
+           'atomicity-violations' checkers.           See also infer-analyze(1).
+
+       --atomicity-ignored-function-calls file
+           Specify a file with function names whose calls should be ignored
+           during the analysis of 'atomic-sets' and 'atomicity-violations'
+           checkers.           See also infer-analyze(1).
+
+       --atomicity-violations
+           Activates: checker atomicity-violations: Atomicity violations
+           analysis - detection of atomicity violations. (Conversely:
+           --no-atomicity-violations)           See also infer-analyze(1).
+
+       --atomicity-violations-only
+           Activates: Enable atomicity-violations and disable all other
+           checkers (Conversely: --no-atomicity-violations-only)
+    See also infer-analyze(1).
+
+       --atomicity-violations-widen-limit int
+           Specify the maximum number of iterations in a widening operator in
+           the 'atomicity-violations' checker. Under-approximation after
+           specified loop iterations. The default value is 1000.
+    See also infer-analyze(1).
 
        --no-biabduction
            Deactivates: checker biabduction: This analysis deals with a range
@@ -126,7 +194,7 @@ OPTIONS
 
        --biabduction-write-dotty
            Activates: Produce dotty files for specs and retain cycles reports
-           in infer-out/captured. (Conversely: --no-biabduction-write-dotty)       
+           in infer-out/captured. (Conversely: --no-biabduction-write-dotty)
     See also infer-analyze(1).
 
        --bo-debug int
@@ -146,7 +214,7 @@ OPTIONS
 
        --buck-clang
            Activates: Buck integration for clang-based targets
-           (C/C++/Objective-C/Objective-C++). (Conversely: --no-buck-clang)       
+           (C/C++/Objective-C/Objective-C++). (Conversely: --no-buck-clang)
     See also infer-capture(1).
 
        --buck-clang-use-toolchain-config
@@ -162,7 +230,7 @@ OPTIONS
 
        --buck-compilation-database-depth int
            Depth of dependencies used by the --buck-compilation-database deps
-           option. By default, all recursive dependencies are captured.       
+           option. By default, all recursive dependencies are captured.
     See also infer-capture(1).
 
        --buck-java-flavor
@@ -173,7 +241,7 @@ OPTIONS
        --buck-java-flavor-suppress-config
            Activates: Suppress setting buck config values for the infer
            binary and its version in the buck-java-flavor integration.
-           (Conversely: --no-buck-java-flavor-suppress-config)       
+           (Conversely: --no-buck-java-flavor-suppress-config)
     See also infer-capture(1).
 
        --buck-java-heap-size-gb int
@@ -188,12 +256,12 @@ OPTIONS
 
        --buck-targets-block-list +regex
            Skip capture of buck targets matched by the specified regular
-           expression. Only valid for --buck-compilation-database.       
+           expression. Only valid for --buck-compilation-database.
     See also infer-capture(1) and infer-run(1).
 
        --bufferoverrun
            Activates: checker bufferoverrun: InferBO is a detector for
-           out-of-bounds array accesses. (Conversely: --no-bufferoverrun)       
+           out-of-bounds array accesses. (Conversely: --no-bufferoverrun)
     See also infer-analyze(1).
 
        --bufferoverrun-only
@@ -202,7 +270,7 @@ OPTIONS
 
        --capture-block-list regex
            Skip capture of files matched by the specified OCaml regular
-           expression (only supported by the javac integration for now).       
+           expression (only supported by the javac integration for now).
     See also infer-capture(1) and infer-run(1).
 
        --no-censor-report +issue_type_regex
@@ -284,14 +352,14 @@ OPTIONS
 
        --config-impact-analysis-only
            Activates: Enable config-impact-analysis and disable all other
-           checkers (Conversely: --no-config-impact-analysis-only)       
+           checkers (Conversely: --no-config-impact-analysis-only)
     See also infer-analyze(1).
 
        --config-impact-current path
            Config impact report of the latest revision           See also infer-reportdiff(1).
 
        --config-impact-data-file file
-           [ConfigImpact] Specify the file containing the config data       
+           [ConfigImpact] Specify the file containing the config data
     See also infer-report(1).
 
        --config-impact-issues-tests file
@@ -303,7 +371,7 @@ OPTIONS
            config impact checker           See also infer-report(1) and infer-reportdiff(1).
 
        --config-impact-previous path
-           Config impact report of the base revision to use for comparison       
+           Config impact report of the base revision to use for comparison
     See also infer-reportdiff(1).
 
        --continue
@@ -316,7 +384,7 @@ OPTIONS
            Activates: Continue the analysis after more targets are captured
            by --continue. The other analysis options should be given the same
            before. Not compatible with --reanalyze and
-           --incremental-analysis. (Conversely: --no-continue-analysis)       
+           --incremental-analysis. (Conversely: --no-continue-analysis)
     See also infer-analyze(1).
 
        --cost
@@ -338,21 +406,21 @@ OPTIONS
 
        --cost-tests-only-autoreleasepool
            Activates: [EXPERIMENTAL] Report only autoreleasepool size results
-           in cost tests (Conversely: --no-cost-tests-only-autoreleasepool)       
+           in cost tests (Conversely: --no-cost-tests-only-autoreleasepool)
     See also infer-report(1) and infer-reportdiff(1).
 
        --costs-current path
            Costs report of the latest revision           See also infer-reportdiff(1).
 
        --costs-previous path
-           Costs report of the base revision to use for comparison       
+           Costs report of the base revision to use for comparison
     See also infer-reportdiff(1).
 
        --custom-symbols json
            Specify named lists of symbols available to rules           See also infer-analyze(1).
 
        --no-cxx
-           Deactivates: Analyze C++ methods (Conversely: --cxx)       
+           Deactivates: Analyze C++ methods (Conversely: --cxx)
     See also infer-capture(1).
 
        --cxx-scope-guards json
@@ -369,7 +437,7 @@ OPTIONS
 
        --debug-level level
            Debug level (sets --bo-debug level, --debug-level-analysis level,
-           --debug-level-capture level, --debug-level-linters level):       
+           --debug-level-capture level, --debug-level-linters level):
       - 0: only basic debugging enabled
              - 1: verbose debugging enabled
              - 2: very verbose debugging enabled
@@ -404,7 +472,7 @@ OPTIONS
            Deactivates: Default checkers: --biabduction,
            --fragment-retains-view, --inefficient-keyset-iterator, --linters,
            --liveness, --racerd, --dotnet-resource-leak, --siof,
-           --self-in-block, --starvation (Conversely: --default-checkers)       
+           --self-in-block, --starvation (Conversely: --default-checkers)
     See also infer-analyze(1).
 
        --no-default-linters
@@ -428,12 +496,13 @@ OPTIONS
            reported once the checkers have run. In particular, note that
            disabling issue types does not make the corresponding checker not
            run.           Available issue types are as follows:
-             
+
            ARBITRARY_CODE_EXECUTION_UNDER_LOCK (enabled by default),
              ARRAY_OUT_OF_BOUNDS_L1 (disabled by default),
              ARRAY_OUT_OF_BOUNDS_L2 (disabled by default),
              ARRAY_OUT_OF_BOUNDS_L3 (disabled by default),
              ASSIGN_POINTER_WARNING (enabled by default),
+             ATOMICITY_VIOLATION (enabled by default),
              AUTORELEASEPOOL_SIZE_COMPLEXITY_INCREASE (enabled by default),
              AUTORELEASEPOOL_SIZE_COMPLEXITY_INCREASE_UI_THREAD (enabled by
            default),
@@ -609,12 +678,12 @@ OPTIONS
              VECTOR_INVALIDATION (enabled by default),
              WEAK_SELF_IN_NO_ESCAPE_BLOCK (enabled by default),
              Wrong_argument_number (enabled by default).
-           
+
            See also infer-report(1).
 
        --dump-duplicate-symbols
            Activates: Dump all symbols with the same name that are defined in
-           more than one file. (Conversely: --no-dump-duplicate-symbols)       
+           more than one file. (Conversely: --no-dump-duplicate-symbols)
     See also infer-capture(1).
 
        --enable-issue-type +issue_type
@@ -634,12 +703,12 @@ OPTIONS
 
        --erlang-ast-dir dir
            Also load AST from all .json files in the given path. These .json
-           files usually come from a previous run with --debug.       
+           files usually come from a previous run with --debug.
     See also infer-capture(1).
 
        --erlang-skip-rebar3
            Activates: Skip running rebar, to save time. It is useful together
-           with --erlang-ast-dir. (Conversely: --no-erlang-skip-rebar3)       
+           with --erlang-ast-dir. (Conversely: --no-erlang-skip-rebar3)
     See also infer-capture(1).
 
        --external-java-packages +prefix
@@ -677,20 +746,20 @@ OPTIONS
 
        --fragment-retains-view-only
            Activates: Enable fragment-retains-view and disable all other
-           checkers (Conversely: --no-fragment-retains-view-only)       
+           checkers (Conversely: --no-fragment-retains-view-only)
     See also infer-analyze(1).
 
        --from-json-config-impact-report config-impact-report.json
-           Load costs analysis results from a config-impact-report file.       
+           Load costs analysis results from a config-impact-report file.
     See also infer-report(1).
 
        --from-json-costs-report costs-report.json
-           Load costs analysis results from a costs-report file.       
+           Load costs analysis results from a costs-report file.
     See also infer-report(1).
 
        --from-json-report report.json
            Load analysis results from a report file (default is to load the
-           results from the specs files generated by the analysis).       
+           results from the specs files generated by the analysis).
     See also infer-report(1).
 
        --frontend-tests
@@ -706,7 +775,7 @@ OPTIONS
            --no-global-tenv)           See also infer-debug(1).
 
        --headers
-           Activates: Analyze code in header files (Conversely: --no-headers)       
+           Activates: Analyze code in header files (Conversely: --no-headers)
     See also infer-capture(1).
 
        --help
@@ -752,7 +821,7 @@ OPTIONS
            Activates: checker immutable-cast: Detection of object cast from
            immutable types to mutable types. For instance, it will detect
            casts from `ImmutableList` to `List`, `ImmutableMap` to `Map`, and
-           `ImmutableSet` to `Set`. (Conversely: --no-immutable-cast)       
+           `ImmutableSet` to `Set`. (Conversely: --no-immutable-cast)
     See also infer-analyze(1).
 
        --immutable-cast-only
@@ -781,11 +850,11 @@ OPTIONS
 
        --inefficient-keyset-iterator-only
            Activates: Enable inefficient-keyset-iterator and disable all
-           other checkers (Conversely: --no-inefficient-keyset-iterator-only)       
+           other checkers (Conversely: --no-inefficient-keyset-iterator-only)
     See also infer-analyze(1).
 
        --issues-tests file
-           Write a list of issues in a format suitable for tests to file       
+           Write a list of issues in a format suitable for tests to file
     See also infer-report(1).
 
        --issues-tests-fields ,-separated sequence of { bug_type | bucket |
@@ -795,7 +864,7 @@ OPTIONS
            Fields to emit with --issues-tests           See also infer-report(1).
 
        --java-jar-compiler path
-           Specify the Java compiler jar used to generate the bytecode       
+           Specify the Java compiler jar used to generate the bytecode
     See also infer-capture(1).
 
        --java-version int
@@ -803,7 +872,7 @@ OPTIONS
            is failing.           See also infer-analyze(1) and infer-capture(1).
 
        --jobs,-j int
-           Run the specified number of analysis jobs simultaneously       
+           Run the specified number of analysis jobs simultaneously
     See also infer-analyze(1).
 
        --keep-going
@@ -823,18 +892,18 @@ OPTIONS
            the Clang AST. (Conversely: --linters)           See also infer-analyze(1).
 
        --linters-def-file +file
-           Specify the file containing linters definition (e.g. 'linters.al')       
+           Specify the file containing linters definition (e.g. 'linters.al')
     See also infer-capture(1).
 
        --linters-def-folder +dir
-           Specify the folder containing linters files with extension .al       
+           Specify the folder containing linters files with extension .al
     See also infer-capture(1).
 
        --linters-developer-mode
            Activates: Debug mode for developing new linters. (Sets the
            analyzer to linters; also sets --debug, --debug-level-linters 2,
            --developer-mode, and unsets --allowed-failures and
-           --default-linters. (Conversely: --no-linters-developer-mode)       
+           --default-linters. (Conversely: --no-linters-developer-mode)
     See also infer-capture(1).
 
        --linters-doc-url +string
@@ -867,12 +936,12 @@ OPTIONS
        --litho-required-props
            Activates: checker litho-required-props: Checks that all
            non-optional `@Prop`s have been specified when constructing Litho
-           components. (Conversely: --no-litho-required-props)       
+           components. (Conversely: --no-litho-required-props)
     See also infer-analyze(1).
 
        --litho-required-props-only
            Activates: Enable litho-required-props and disable all other
-           checkers (Conversely: --no-litho-required-props-only)       
+           checkers (Conversely: --no-litho-required-props-only)
     See also infer-analyze(1).
 
        --no-liveness
@@ -887,7 +956,7 @@ OPTIONS
            not read explicitly by the program.           See also infer-analyze(1).
 
        --liveness-ignored-constant +string
-           List of integer constants to be ignored by liveness analysis       
+           List of integer constants to be ignored by liveness analysis
     See also infer-analyze(1).
 
        --liveness-only
@@ -912,7 +981,7 @@ OPTIONS
            capture (Conversely: --mask-sawja-exceptions)           See also infer-capture(1).
 
        --max-jobs int
-           Maximum number of analysis jobs running simultaneously       
+           Maximum number of analysis jobs running simultaneously
     See also infer-analyze(1).
 
        --max-nesting int
@@ -926,7 +995,7 @@ OPTIONS
            --no-memtrace-analysis-profiling)           See also infer-analyze(1).
 
        --memtrace-sampling-rate float
-           Sampling rate for Memtrace allocation profiling. Default is 1e-6.       
+           Sampling rate for Memtrace allocation profiling. Default is 1e-6.
     See also infer-analyze(1).
 
        --merge
@@ -962,13 +1031,13 @@ OPTIONS
 
        --procedures-attributes
            Activates: Print the attributes of each procedure in the output of
-           --procedures (Conversely: --no-procedures-attributes)       
+           --procedures (Conversely: --no-procedures-attributes)
     See also infer-debug(1).
 
        --procedures-cfg
            Activates: Output a dotty file in
            infer-out/captured/<file_name>/<proc_name>.dot for each procedure
-           in the output of --procedures (Conversely: --no-procedures-cfg)       
+           in the output of --procedures (Conversely: --no-procedures-cfg)
     See also infer-debug(1).
 
        --no-procedures-definedness
@@ -983,7 +1052,7 @@ OPTIONS
            matching the specified filter. A procedure filter is of the form
            path_pattern:procedure_name. Patterns are interpreted as OCaml Str
            regular expressions. For instance, to keep only methods named
-           "foo", one can use the filter ".*:foo", or "foo" for short.       
+           "foo", one can use the filter ".*:foo", or "foo" for short.
     See also infer-debug(1).
 
        --procedures-name
@@ -1001,11 +1070,11 @@ OPTIONS
 
        --procedures-summary-json
            Activates: Emit the summaries of each procedure in the output of
-           --procedures as JSON (Conversely: --no-procedures-summary-json)       
+           --procedures as JSON (Conversely: --no-procedures-summary-json)
     See also infer-debug(1).
 
        --no-progress-bar,-P
-           Deactivates: Show a progress bar (Conversely: --progress-bar | -p)       
+           Deactivates: Show a progress bar (Conversely: --progress-bar | -p)
     See also infer-run(1).
 
        --progress-bar-style { auto | plain | multiline }
@@ -1029,7 +1098,7 @@ OPTIONS
            Methods that should be modelled as abort in Pulse           See also infer-analyze(1).
 
        --pulse-model-alloc-pattern string
-           Regex of methods that should be modelled as allocs in Pulse       
+           Regex of methods that should be modelled as allocs in Pulse
     See also infer-analyze(1).
 
        --pulse-model-free-pattern string
@@ -1037,13 +1106,13 @@ OPTIONS
            Pulse. The pointer to be freed should be the first argument of the
            function. This should only be needed if the code of the wrapper is
            not visible to infer or if Pulse somehow doesn't understand it
-           (e.g. the call is dispatched to global function pointers).       
+           (e.g. the call is dispatched to global function pointers).
     See also infer-analyze(1).
 
        --pulse-model-malloc-pattern string
            Regex of methods that should be modelled as wrappers to malloc(3)
            in Pulse. The size to allocate should be the first argument of the
-           function. See --pulse-model-free-pattern for more information.       
+           function. See --pulse-model-free-pattern for more information.
     See also infer-analyze(1).
 
        --pulse-model-realloc-pattern string
@@ -1053,7 +1122,7 @@ OPTIONS
            --pulse-model-free-pattern for more information.           See also infer-analyze(1).
 
        --pulse-model-release-pattern string
-           Regex of methods that should be modelled as release in Pulse       
+           Regex of methods that should be modelled as release in Pulse
     See also infer-analyze(1).
 
        --pulse-model-return-first-arg string
@@ -1065,12 +1134,12 @@ OPTIONS
            Pulse           See also infer-analyze(1).
 
        --pulse-model-skip-pattern string
-           Regex of methods that should be modelled as "skip" in Pulse       
+           Regex of methods that should be modelled as "skip" in Pulse
     See also infer-analyze(1).
 
        --pulse-model-transfer-ownership +string
            Methods that should be modelled as transfering memory ownership in
-           Pulse. Accepted formats are method or namespace::method       
+           Pulse. Accepted formats are method or namespace::method
     See also infer-analyze(1).
 
        --pulse-only
@@ -1084,7 +1153,7 @@ OPTIONS
            arithmetic fragment. To avoid false positives, Pulse tries to
            detect when there is a possibility of imprecise arithmetic
            treatment and if so pessimistically assumes the path is
-           infeasible. (Conversely: --no-pulse-prune-unsupported-arithmetic)       
+           infeasible. (Conversely: --no-pulse-prune-unsupported-arithmetic)
     See also infer-analyze(1).
 
        --pulse-report-ignore-unknown-java-methods-patterns +string
@@ -1093,7 +1162,7 @@ OPTIONS
            unless all the unknown method names match this pattern. If the
            empty list is provided with
            --pulse-report-ignore-unknown-java-methods-patterns-reset, all
-           issues will be reported regardless the presence of unknown code       
+           issues will be reported regardless the presence of unknown code
     See also infer-analyze(1).
 
        --purity
@@ -1163,7 +1232,7 @@ OPTIONS
            --report-block-list-path-regex)           See also infer-report(1) and infer-run(1).
 
        --report-block-list-files-containing +string
-           Do not report any issues on files containing the specified string       
+           Do not report any issues on files containing the specified string
     See also infer-report(1) and infer-run(1).
 
        --report-block-list-path-regex +path_regex
@@ -1180,7 +1249,7 @@ OPTIONS
 
        --report-force-relative-path
            Activates: Force converting an absolute path to a relative path to
-           the root directory (Conversely: --no-report-force-relative-path)       
+           the root directory (Conversely: --no-report-force-relative-path)
     See also infer-analyze(1) and infer-run(1).
 
        --report-formatter { none | phabricator }
@@ -1193,7 +1262,7 @@ OPTIONS
            do not report a type of errors           See also infer-report(1) and infer-run(1).
 
        --results-dir,-o dir
-           Write results and internal files in the specified directory       
+           Write results and internal files in the specified directory
     See also infer-analyze(1), infer-capture(1), infer-explore(1),
            infer-report(1), and infer-run(1).
 
@@ -1222,7 +1291,7 @@ OPTIONS
        --no-siof
            Deactivates: checker siof: Catches Static Initialization Order
            Fiascos in C++, that can lead to subtle,
-           compiler-version-dependent errors. (Conversely: --siof)       
+           compiler-version-dependent errors. (Conversely: --siof)
     See also infer-analyze(1).
 
        --siof-check-iostreams
@@ -1238,7 +1307,7 @@ OPTIONS
 
        --siof-safe-methods +string
            Methods that are SIOF-safe; "foo::bar" will match "foo::bar()",
-           "foo<int>::bar()", etc. (can be specified multiple times)       
+           "foo<int>::bar()", etc. (can be specified multiple times)
     See also infer-analyze(1).
 
        --skip-analysis-in-path +path_prefix_OCaml_regex
@@ -1257,7 +1326,7 @@ OPTIONS
 
        --skip-non-capture-clang-commands
            Activates: Skip clang commands that Infer doesn't use to capture
-           data (Conversely: --no-skip-non-capture-clang-commands)       
+           data (Conversely: --no-skip-non-capture-clang-commands)
     See also infer-capture(1).
 
        --skip-translation-headers +path_regex
@@ -1303,7 +1372,7 @@ OPTIONS
            follows formal of corresponding SQLite PRAGMA.           See also infer-analyze(1), infer-capture(1), and infer-run(1).
 
        --sqlite-lock-timeout int
-           Timeout for SQLite results database operations, in milliseconds.       
+           Timeout for SQLite results database operations, in milliseconds.
     See also infer-analyze(1), infer-capture(1), and infer-run(1).
 
        --sqlite-page-size int
@@ -1371,7 +1440,7 @@ OPTIONS
        --write-website path_to_website_dir
            Use to write website files documenting issue types and checkers
            under path_to_website_dir/. Meant to be used within the Infer
-           directory to generate its website at fbinfer.com at website/.       
+           directory to generate its website at fbinfer.com at website/.
     See also infer-help(1).
 
        --Xbuck +string
@@ -1384,7 +1453,7 @@ OPTIONS
            --buck-clang.           See also infer-capture(1).
 
        --Xclang +string
-           Pass values as command-line arguments to invocations of clang       
+           Pass values as command-line arguments to invocations of clang
     See also infer-capture(1).
 
        --xcode-developer-dir XCODE_DEVELOPER_DIR
@@ -1421,25 +1490,25 @@ INTERNAL OPTIONS
            Specify abstraction level for fields of structs:           - 0 = no
            - 1 = forget some fields during matching (and so lseg
            abstraction)
-           
+
 
        --biabduction-abs-val int
            Specify abstraction level for expressions:           - 0 = no abstraction
            - 1 = evaluate all expressions abstractly
            - 2 = 1 + abstract constant integer values during join
-           
+
 
        --biabduction-allow-leak
            Activates: Forget leaked memory during abstraction (Conversely:
            --no-biabduction-allow-leak)
 
        --biabduction-array-level int
-           Level of treating the array indexing and pointer arithmetic:       
+           Level of treating the array indexing and pointer arithmetic:
     - 0 = treats both features soundly
            - 1 = assumes that the size of every array is infinite
            - 2 = assumes that all heap dereferences via array indexing and
            pointer arithmetic are correct
-           
+
 
        --biabduction-coverage
            analysis mode to maximize coverage (can take longer)
@@ -1456,11 +1525,23 @@ INTERNAL OPTIONS
            Set the strength of the final information-loss check used by the
            join:           - 0 = use the most aggressive join for preconditions
            - 1 = use the least aggressive join for preconditions
-           
+
 
        --biabduction-memleak-buckets ,-separated sequence of { all | cf | arc
        | narc | cpp | unknown_origin }
            Specify the memory leak buckets to be checked in C++.
+
+       --atomicity-allowed-function-analyses-reset
+           Cancel the effect of --atomicity-allowed-function-analyses.
+
+       --atomicity-allowed-function-calls-reset
+           Cancel the effect of --atomicity-allowed-function-calls.
+
+       --atomicity-ignored-function-analyses-reset
+           Cancel the effect of --atomicity-ignored-function-analyses.
+
+       --atomicity-ignored-function-calls-reset
+           Cancel the effect of --atomicity-ignored-function-calls.
 
        --biabduction-models-mode
            Activates: Analysis of the biabduction models (Conversely:
@@ -2334,6 +2415,3 @@ SEE ALSO
        infer-analyze(1), infer-analyzejson(1), infer-capture(1),
        infer-compile(1), infer-debug(1), infer-explore(1), infer-help(1),
        infer-report(1), infer-reportdiff(1), infer-run(1)
-
-
-

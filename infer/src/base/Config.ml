@@ -2657,29 +2657,35 @@ and atomicity_violations_widen_limit : int ref =
 and atomicity_ignored_function_calls_file : string option ref =
   CLOpt.mk_path_opt ~long:"atomicity-ignored-function-calls" ~meta:"file"
     ~in_help:[(Analyze, manual_atomicity_violations)]
-    "Specify a file with function names whose calls should be ignored during the analysis of \
-     'atomic-sets' and 'atomicity-violations' checkers."
+    "Specify a file with function names (one function name per a line; considered as a regexp if \
+     the line starts with 'R' followed by a whitespace, an exact match otherwise) whose calls \
+     should be ignored during the analysis of 'atomic-sets' and 'atomicity-violations' checkers."
 
 
 and atomicity_ignored_function_analyses_file : string option ref =
   CLOpt.mk_path_opt ~long:"atomicity-ignored-function-analyses" ~meta:"file"
     ~in_help:[(Analyze, manual_atomicity_violations)]
-    "Specify a file with function names whose analysis should be ignored during the analysis of \
-     'atomic-sets' and 'atomicity-violations' checkers."
+    "Specify a file with function names (one function name per a line; considered as a regexp if \
+     the line starts with 'R' followed by a whitespace, an exact match otherwise) whose analysis \
+     should be ignored during the analysis of 'atomic-sets' and 'atomicity-violations' checkers."
 
 
 and atomicity_allowed_function_calls_file : string option ref =
   CLOpt.mk_path_opt ~long:"atomicity-allowed-function-calls" ~meta:"file"
     ~in_help:[(Analyze, manual_atomicity_violations)]
-    "Specify a file with function names whose calls should be allowed during the analysis of \
-     'atomic-sets' and 'atomicity-violations' checkers. Other functions will be ignored."
+    "Specify a file with function names (one function name per a line; considered as a regexp if \
+     the line starts with 'R' followed by a whitespace, an exact match otherwise) whose calls \
+     should be allowed during the analysis of 'atomic-sets' and 'atomicity-violations' checkers. \
+     Other functions will be ignored."
 
 
 and atomicity_allowed_function_analyses_file : string option ref =
   CLOpt.mk_path_opt ~long:"atomicity-allowed-function-analyses" ~meta:"file"
     ~in_help:[(Analyze, manual_atomicity_violations)]
-    "Specify a file with function names whose analysis should be allowed during the analysis of \
-     'atomic-sets' and 'atomicity-violations' checkers. Other functions will be ignored."
+    "Specify a file with function names (one function name per a line; considered as a regexp if \
+     the line starts with 'R' followed by a whitespace, an exact match otherwise) whose analysis \
+     should be allowed during the analysis of 'atomic-sets' and 'atomicity-violations' checkers. \
+     Other functions will be ignored."
 
 
 and atomic_sets_locked_functions_limit : int ref =

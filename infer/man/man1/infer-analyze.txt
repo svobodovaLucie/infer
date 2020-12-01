@@ -506,24 +506,32 @@ ATOMICITY VIOLATIONS CHECKER OPTIONS
            loop iterations. The default value is 5.
 
        --atomicity-allowed-function-analyses file
-           Specify a file with function names whose analysis should be
+           Specify a file with function names (one function name per a line;
+           considered as a regexp if the line starts with 'R' followed by a
+           whitespace, an exact match otherwise) whose analysis should be
            allowed during the analysis of 'atomic-sets' and
            'atomicity-violations' checkers. Other functions will be ignored.
 
        --atomicity-allowed-function-calls file
-           Specify a file with function names whose calls should be allowed
-           during the analysis of 'atomic-sets' and 'atomicity-violations'
-           checkers. Other functions will be ignored.
+           Specify a file with function names (one function name per a line;
+           considered as a regexp if the line starts with 'R' followed by a
+           whitespace, an exact match otherwise) whose calls should be
+           allowed during the analysis of 'atomic-sets' and
+           'atomicity-violations' checkers. Other functions will be ignored.
 
        --atomicity-ignored-function-analyses file
-           Specify a file with function names whose analysis should be
+           Specify a file with function names (one function name per a line;
+           considered as a regexp if the line starts with 'R' followed by a
+           whitespace, an exact match otherwise) whose analysis should be
            ignored during the analysis of 'atomic-sets' and
            'atomicity-violations' checkers.
 
        --atomicity-ignored-function-calls file
-           Specify a file with function names whose calls should be ignored
-           during the analysis of 'atomic-sets' and 'atomicity-violations'
-           checkers.
+           Specify a file with function names (one function name per a line;
+           considered as a regexp if the line starts with 'R' followed by a
+           whitespace, an exact match otherwise) whose calls should be
+           ignored during the analysis of 'atomic-sets' and
+           'atomicity-violations' checkers.
 
        --atomicity-violations-widen-limit int
            Specify the maximum number of iterations in a widening operator in

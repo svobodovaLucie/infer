@@ -18,6 +18,12 @@ val inferDir : string
 val atomicSetsFile : string
 (** A file for storing atomic sets. *)
 
+val fileCommentChar : char
+(** A character used for commenting in files. *)
+
+val is_line_empty : string -> bool
+(** Checks whether a line in a file is empty. *)
+
 (* ************************************ Functions *********************************************** *)
 
 val str_contains : haystack:string -> needle:string -> bool

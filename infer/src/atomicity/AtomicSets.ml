@@ -112,13 +112,26 @@ let print_atomic_sets (analysis_data : AtomicSetsDomain.Summary.t Interprocedura
   let oc : Out_channel.t =
     Out_channel.create ~binary:false ~append:Config.atomic_sets_file_append ~fail_if_exists:false
       AtomicityUtils.atomicSetsFile
-  in
+  and proceduresCount : int ref = ref 0
+  and atomicSetsCount : int ref = ref 0
+  and atomicFunctionsCount : int ref = ref 0 in
   let print_atomic_sets (pName : Procname.t) : unit =
-    Option.iter (analysis_data.analyze_file_dependency pName)
-      ~f:(fun ((_ : Procdesc.t), (summary : Domain.Summary.t)) ->
-        Domain.Summary.print_atomic_sets summary ~f_name:(Procname.to_string pName) oc)
+    let iterator ((_ : Procdesc.t), (summary : Domain.Summary.t)) : unit =
+      let (atomicSetsCount' : int), (atomicFunctionsCount' : int) =
+        Domain.Summary.print_atomic_sets summary ~f_name:(Procname.to_string pName) oc
+      in
+      if not (Int.equal atomicSetsCount' 0) then proceduresCount := !proceduresCount + 1 ;
+      atomicSetsCount := !atomicSetsCount + atomicSetsCount' ;
+      atomicFunctionsCount := !atomicFunctionsCount + atomicFunctionsCount'
+    in
+    Option.iter (analysis_data.analyze_file_dependency pName) ~f:iterator
   in
   List.iter analysis_data.procedures ~f:print_atomic_sets ;
+  (* Print stats. *)
+  if not (Int.equal !proceduresCount 0) then Out_channel.newline oc ;
+  Out_channel.fprintf oc
+    "%c Number of (analysed functions; atomic sets; atomic functions): (%i; %i; %i)\n"
+    AtomicityUtils.fileCommentChar !proceduresCount !atomicSetsCount !atomicFunctionsCount ;
   Out_channel.close oc ;
   F.fprintf F.std_formatter "The detection of atomic sets produced an output into the file '%s'.\n"
     AtomicityUtils.atomicSetsFile ;

@@ -79,8 +79,6 @@ module Analyser = LowerHil.MakeAbstractInterpreter (TransferFunctions (ProcCfg.N
 
 let analyse_procedure (analysis_data : Domain.Summary.t InterproceduralAnalysis.t) :
     Domain.Summary.t option =
-  (* Domain initialisation. *)
-  Domain.initialise () ;
   let pName : Procname.t = Procdesc.get_proc_name analysis_data.proc_desc in
   if AtomicityUtils.f_is_ignored pName then None
   else

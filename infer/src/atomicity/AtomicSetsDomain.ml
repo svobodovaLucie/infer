@@ -10,26 +10,16 @@ module SSet = AtomicityUtils.SSet
 (* ************************************ Types *************************************************** *)
 
 (** A pair of sets of calls. Calls without a lock followed by calls with a lock. *)
-type callsPair = SSet.t * SSet.t [@@deriving compare]
+type callsPair = SSet.t * SSet.t [@@deriving compare, equal]
 
 (** A pair of sets of calls with an access path. *)
-type callsPairWithPath = callsPair * AccessPath.t option [@@deriving compare]
-
-(* ************************************ Functions *********************************************** *)
-
-(** Checks whether calls pairs are equal. *)
-let calls_pairs_eq : callsPair -> callsPair -> bool = [%compare.equal: callsPair]
-
-(** Checks whether calls pairs with a path are equal. *)
-let calls_pairs_with_path_eq : callsPairWithPath -> callsPairWithPath -> bool =
-  [%compare.equal: callsPairWithPath]
-
+type callsPairWithPath = callsPair * AccessPath.t option [@@deriving compare, equal]
 
 (* ************************************ Modules ************************************************* *)
 
 (** A set of pairs of sets of calls. *)
 module CallsPairSet = Set.Make (struct
-  type t = callsPair [@@deriving compare]
+  type t = callsPair [@@deriving compare, equal]
 end)
 
 (** A set of sets of strings. *)
@@ -37,7 +27,7 @@ module SSSet = Set.Make (SSet)
 
 (** A set of pairs of sets of calls with an access path. *)
 module CallsPairWithPathSet = Set.Make (struct
-  type t = callsPairWithPath [@@deriving compare]
+  type t = callsPairWithPath [@@deriving compare, equal]
 end)
 
 (* ************************************ Astate ************************************************** *)
@@ -48,16 +38,16 @@ type tElement =
   ; callsPairs: CallsPairWithPathSet.t
   ; finalCallsPairs: CallsPairSet.t
   ; allOccurrences: SSet.t list }
-[@@deriving compare]
+[@@deriving compare, equal]
 
 (** A set of types tElement is an abstract state. *)
 module TSet = Set.Make (struct
-  type t = tElement [@@deriving compare]
+  type t = tElement [@@deriving compare, equal]
 end)
 
-type t = TSet.t [@@deriving compare]
+type t = TSet.t [@@deriving compare, equal]
 
-type astate = t [@@deriving compare]
+type astate = t [@@deriving compare, equal]
 
 let initial : t =
   (* An initial abstract state is a set with a single empty element. *)
@@ -88,7 +78,7 @@ let pp (fmt : F.formatter) (astate : t) : unit =
           F.fprintf fmt "%a: {%s} ( {%s} )" AccessPath.pp path withoutLock withLock
       | None ->
           F.fprintf fmt "{%s} ( {%s} )" withoutLock withLock ) ;
-      if not (calls_pairs_with_path_eq callsPair (Option.value_exn lastCallsPair)) then
+      if not (equal_callsPairWithPath callsPair (Option.value_exn lastCallsPair)) then
         F.pp_print_string fmt " | "
     in
     CallsPairWithPathSet.iter print_calls_pair astateEl.callsPairs ;
@@ -100,7 +90,7 @@ let pp (fmt : F.formatter) (astate : t) : unit =
       let withoutLock : string = String.concat (SSet.elements pFst) ~sep:", "
       and withLock : string = String.concat (SSet.elements pSnd) ~sep:", " in
       F.fprintf fmt "{%s} ( {%s} )" withoutLock withLock ;
-      if not (calls_pairs_eq callsPair (Option.value_exn lastFinalCallsPair)) then
+      if not (equal_callsPair callsPair (Option.value_exn lastFinalCallsPair)) then
         F.pp_print_string fmt " | "
     in
     CallsPairSet.iter print_final_calls_pair astateEl.finalCallsPairs ;
@@ -213,7 +203,7 @@ let widen ~prev:(p : t) ~next:(n : t) ~num_iters:(i : int) : t =
 (* ************************************ Summary ************************************************* *)
 
 module Summary = struct
-  type t = {atomicFunctions: SSSet.t; allOccurrences: SSet.t list} [@@deriving compare]
+  type t = {atomicFunctions: SSSet.t; allOccurrences: SSet.t list} [@@deriving compare, equal]
 
   let pp (fmt : F.formatter) (summary : t) : unit =
     F.pp_print_string fmt "\n" ;
@@ -264,8 +254,9 @@ module Summary = struct
     {atomicFunctions= !atomicFunctions; allOccurrences= !allOccurrences}
 
 
-  let print_atomic_sets (summary : t) ~f_name:(f : string) (oc : Out_channel.t) : unit =
-    if not (SSSet.is_empty summary.atomicFunctions) then (
+  let print_atomic_sets (summary : t) ~f_name:(f : string) (oc : Out_channel.t) : int * int =
+    if SSSet.is_empty summary.atomicFunctions then (0, 0)
+    else (
       Out_channel.fprintf oc "%s: " f ;
       let lastAtomicFunctions : SSet.t option = SSSet.max_elt_opt summary.atomicFunctions in
       let print_atomic_functions (atomicFunctions : SSet.t) : unit =
@@ -274,7 +265,11 @@ module Summary = struct
           Out_channel.output_string oc " "
       in
       SSSet.iter print_atomic_functions summary.atomicFunctions ;
-      Out_channel.newline oc )
+      Out_channel.newline oc ;
+      ( SSSet.cardinal summary.atomicFunctions
+      , SSSet.fold
+          (fun (atomicFunctions : SSet.t) (sum : int) -> sum + SSet.cardinal atomicFunctions)
+          summary.atomicFunctions 0 ) )
 end
 
 let apply_summary (astate : t) (summary : Summary.t) : t =

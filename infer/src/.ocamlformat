@@ -16,7 +16,7 @@ parse-docstrings = true
 # +++ b/lib/Version.ml
 # @@ -10,5 +10,6 @@
 #  (**************************************************************************)
-#  
+#
 #  let version =
 # -  let open Build_info.V1 in
 # +(*  let open Build_info.V1 in

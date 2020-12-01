@@ -5,18 +5,13 @@ module F = Format
 
 (** Detection of atomicity violations domain interface. *)
 
-(* ************************************ Initialisation ****************************************** *)
-
-val initialise : unit -> unit
-(** The initialisation of the abstract domain. *)
-
 (* ************************************ Astate ************************************************** *)
 
 (** An abstract state of a function. *)
-type t [@@deriving compare]
+type t [@@deriving compare, equal]
 
 (** An alias for the type 't'. *)
-type astate = t [@@deriving compare]
+type astate = t [@@deriving compare, equal]
 
 include AbstractDomain.S with type t := t
 
@@ -40,7 +35,7 @@ val report_atomicity_violations : t -> f:(Location.t -> msg:string -> unit) -> u
 (** A module that encapsulates a summary of a function. *)
 module Summary : sig
   (** A summary of a function. *)
-  type t [@@deriving compare]
+  type t [@@deriving compare, equal]
 
   val pp : F.formatter -> t -> unit
   (** A pretty printer of a summary. *)

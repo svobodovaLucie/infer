@@ -16,6 +16,85 @@ let inferDir : string = CommandLineOption.init_work_dir ^ "/infer-atomicity-out"
 
 let atomicSetsFile : string = inferDir ^ "/atomic-sets"
 
+let fileCommentChar : char = '#'
+
+let is_line_empty (l : string) : bool =
+  Str.string_match (Str.regexp "^[ \t]*$") l 0
+  || Str.string_match (Str.regexp ("^[ \t]*" ^ Char.to_string fileCommentChar)) l 0
+
+
+(* ************************************ Classes ************************************************* *)
+
+(** A class that works with functions loaded from a file. *)
+class functions_from_file (file : string option) =
+  object (self)
+    (** Is the class initialised? *)
+    val mutable initialised : bool = false
+
+    (** A list of regular expressions that represent functions loaded from a file. *)
+    val mutable functions : Str.regexp list = []
+
+    (** Initialises the class. *)
+    method init : unit =
+      if not initialised then (
+        initialised <- true ;
+        match file with
+        | Some (file : string) ->
+            ( match Sys.file_exists file with
+            | `Yes ->
+                ()
+            | _ ->
+                L.(die UserError)
+                  "File '%s' that should contain function names does not exist." file ) ;
+            let ic : In_channel.t = In_channel.create ~binary:false file in
+            let iterator (l : string) : unit =
+              let l : string = String.strip l in
+              if is_line_empty l then ()
+              else if Str.string_match (Str.regexp "^R[ \t]+") l 0 then
+                let pattern : string = Str.replace_first (Str.regexp "^R[ \t]+") "" l in
+                functions <- functions @ [Str.regexp_case_fold (".*" ^ pattern ^ ".*")]
+              else functions <- functions @ [Str.regexp_string l]
+            in
+            In_channel.iter_lines ~fix_win_eol:true ic ~f:iterator ;
+            In_channel.close ic
+        | None ->
+            () )
+
+    (** Checks whether the list of functions is empty. *)
+    method is_empty : bool =
+      self#init ;
+      List.is_empty functions
+
+    (** Checks whether a given function is on the list of functions. *)
+    method contains (f : string) : bool =
+      self#init ;
+      List.exists functions ~f:(fun (r : Str.regexp) -> Str.string_match r f 0)
+  end
+
+(** An instance of the 'functions_from_file' class that holds functions whose calls should be
+    ignored.. *)
+let ignoredFunctionCalls : functions_from_file =
+  new functions_from_file Config.atomicity_ignored_function_calls_file
+
+
+(** An instance of the 'functions_from_file' class that holds functions whose analysis should be
+    ignored. *)
+let ignoredFunctionAnalyses : functions_from_file =
+  new functions_from_file Config.atomicity_ignored_function_analyses_file
+
+
+(** An instance of the 'functions_from_file' class that holds functions whose calls should be
+    allowed. *)
+let allowedFunctionCalls : functions_from_file =
+  new functions_from_file Config.atomicity_allowed_function_calls_file
+
+
+(** An instance of the 'functions_from_file' class that holds functions whose analysis should be
+    allowed. *)
+let allowedFunctionAnalyses : functions_from_file =
+  new functions_from_file Config.atomicity_allowed_function_analyses_file
+
+
 (* ************************************ Functions *********************************************** *)
 
 let str_contains ~(haystack : string) ~(needle : string) : bool =
@@ -25,49 +104,7 @@ let str_contains ~(haystack : string) ~(needle : string) : bool =
   with Caml.Not_found -> false
 
 
-(** A type of a structure that holds function names loaded from a file. *)
-type functionsFromFile = {initialised: bool; names: SSet.t} [@@deriving compare]
-
-(** A reference to a structure that holds functions whose calls should be ignored. *)
-let ignoredFunctionCalls : functionsFromFile ref = ref {initialised= false; names= SSet.empty}
-
-(** A reference to a structure that holds functions whose analysis should be ignored. *)
-let ignoredFunctionAnalyses : functionsFromFile ref = ref {initialised= false; names= SSet.empty}
-
-(** A reference to a structure that holds functions whose calls should be allowed. *)
-let allowedFunctionCalls : functionsFromFile ref = ref {initialised= false; names= SSet.empty}
-
-(** A reference to a structure that holds functions whose analysis should be allowed. *)
-let allowedFunctionAnalyses : functionsFromFile ref = ref {initialised= false; names= SSet.empty}
-
-(** An initialisation of a structure that holds function names loaded from a file. *)
-let initialise_functions_from_file (functions : functionsFromFile ref) (fileOpt : string option) :
-    unit =
-  if not !functions.initialised then (
-    let names : SSet.t ref = ref SSet.empty in
-    ( match fileOpt with
-    | Some (file : string) ->
-        ( match Sys.file_exists file with
-        | `Yes ->
-            ()
-        | _ ->
-            L.(die UserError) "File '%s' that should contain function names does not exist." file ) ;
-        let ic : In_channel.t = In_channel.create ~binary:false file in
-        In_channel.iter_lines ~fix_win_eol:true ic ~f:(fun (f : string) ->
-            names := SSet.add f !names) ;
-        In_channel.close ic
-    | None ->
-        () ) ;
-    functions := {initialised= true; names= !names} )
-
-
 let f_is_ignored ?actuals:(actualsOpt : HilExp.t list option = None) (f : Procname.t) : bool =
-  initialise_functions_from_file ignoredFunctionCalls Config.atomicity_ignored_function_calls_file ;
-  initialise_functions_from_file ignoredFunctionAnalyses
-    Config.atomicity_ignored_function_analyses_file ;
-  initialise_functions_from_file allowedFunctionCalls Config.atomicity_allowed_function_calls_file ;
-  initialise_functions_from_file allowedFunctionAnalyses
-    Config.atomicity_allowed_function_analyses_file ;
   let fString : string = Procname.to_string f
   and isCall : bool = Option.is_some actualsOpt
   and isLockUnlock : bool =
@@ -92,8 +129,8 @@ let f_is_ignored ?actuals:(actualsOpt : HilExp.t list option = None) (f : Procna
           false
   in
   if isLockUnlock then false
-  else if (not isCall) && SSet.mem fString !ignoredFunctionAnalyses.names then true
-  else if isCall && SSet.mem fString !ignoredFunctionCalls.names then true
+  else if (not isCall) && ignoredFunctionAnalyses#contains fString then true
+  else if isCall && ignoredFunctionCalls#contains fString then true
   else if
     isCall
     && ( Procname.is_constructor f
@@ -103,13 +140,11 @@ let f_is_ignored ?actuals:(actualsOpt : HilExp.t list option = None) (f : Procna
   else if str_contains ~haystack:fString ~needle:"__" && BuiltinDecl.is_declared f then true
   else if
     (not isCall)
-    && (not (SSet.is_empty !allowedFunctionAnalyses.names))
-    && not (SSet.mem fString !allowedFunctionAnalyses.names)
+    && (not allowedFunctionAnalyses#is_empty)
+    && not (allowedFunctionAnalyses#contains fString)
   then true
   else if
-    isCall
-    && (not (SSet.is_empty !allowedFunctionCalls.names))
-    && not (SSet.mem fString !allowedFunctionCalls.names)
+    isCall && (not allowedFunctionCalls#is_empty) && not (allowedFunctionCalls#contains fString)
   then true
   else false
 

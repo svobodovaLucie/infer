@@ -8,10 +8,10 @@ module F = Format
 (* ************************************ Astate ************************************************** *)
 
 (** An abstract state of a function. *)
-type t [@@deriving compare]
+type t [@@deriving compare, equal]
 
 (** An alias for the type 't'. *)
-type astate = t [@@deriving compare]
+type astate = t [@@deriving compare, equal]
 
 include AbstractDomain.S with type t := t
 
@@ -35,7 +35,7 @@ val update_at_the_end_of_function : t -> t
 (** A module that encapsulates a summary of a function. *)
 module Summary : sig
   (** A summary of a function. *)
-  type t [@@deriving compare]
+  type t [@@deriving compare, equal]
 
   val pp : F.formatter -> t -> unit
   (** A pretty printer of a summary. *)
@@ -43,8 +43,10 @@ module Summary : sig
   val make : astate -> t
   (** Converts an abstract state to a summary. *)
 
-  val print_atomic_sets : t -> f_name:string -> Out_channel.t -> unit
-  (** Prints atomic sets from a given summary and a function name to a given output channel. *)
+  val print_atomic_sets : t -> f_name:string -> Out_channel.t -> int * int
+  (** Prints atomic sets from a given summary together with a function name to a given output
+      channel. Returns a pair of a number of printed atomic sets and a number of printed atomic
+      functions at total. *)
 end
 
 val apply_summary : t -> Summary.t -> t

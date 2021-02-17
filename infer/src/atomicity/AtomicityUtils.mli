@@ -32,5 +32,5 @@ val str_contains : haystack:string -> needle:string -> bool
 val f_is_ignored : ?actuals:HilExp.t list option -> Procname.t -> bool
 (** Checks whether a given function is ignored. *)
 
-val get_lock_path : HilExp.t -> AccessPath.t option
-(** Returns an access path of a given expression. *)
+val get_locks_paths : HilExp.t list -> AccessPath.t option list
+(** Returns access paths of given lock expressions. *)

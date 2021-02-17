@@ -149,9 +149,12 @@ let f_is_ignored ?actuals:(actualsOpt : HilExp.t list option = None) (f : Procna
   else false
 
 
-let get_lock_path (exp : HilExp.t) : AccessPath.t option =
-  match HilExp.get_access_exprs exp with
-  | (accessExp :: _ : HilExp.AccessExpression.t list) ->
-      Some (HilExp.AccessExpression.to_access_path accessExp)
-  | _ ->
-      None
+let get_locks_paths (locks : HilExp.t list) : AccessPath.t option list =
+  let mapper (lock : HilExp.t) : AccessPath.t option =
+    match HilExp.get_access_exprs lock with
+    | (exp :: _ : HilExp.AccessExpression.t list) ->
+        Some (HilExp.AccessExpression.to_access_path exp)
+    | _ ->
+        None
+  in
+  List.map locks ~f:mapper

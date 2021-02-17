@@ -12,8 +12,8 @@ module SSet = AtomicityUtils.SSet
 (** A pair of sets of calls. Calls without a lock followed by calls with a lock. *)
 type callsPair = SSet.t * SSet.t [@@deriving compare, equal]
 
-(** A pair of sets of calls with an access path. *)
-type callsPairWithPath = callsPair * AccessPath.t option [@@deriving compare, equal]
+(** A pair of sets of calls with a lock. *)
+type callsPairLock = callsPair * AccessPath.t option [@@deriving compare, equal]
 
 (* ************************************ Modules ************************************************* *)
 
@@ -25,9 +25,9 @@ end)
 (** A set of sets of strings. *)
 module SSSet = Set.Make (SSet)
 
-(** A set of pairs of sets of calls with an access path. *)
-module CallsPairWithPathSet = Set.Make (struct
-  type t = callsPairWithPath [@@deriving compare, equal]
+(** A set of pairs of sets of calls with locks. *)
+module CallsPairLockSet = Set.Make (struct
+  type t = callsPairLock [@@deriving compare, equal]
 end)
 
 (* ************************************ Astate ************************************************** *)
@@ -35,7 +35,7 @@ end)
 (** An element of an abstract state. *)
 type tElement =
   { calls: SSet.t
-  ; callsPairs: CallsPairWithPathSet.t
+  ; callsPairs: CallsPairLockSet.t
   ; finalCallsPairs: CallsPairSet.t
   ; allOccurrences: SSet.t list }
 [@@deriving compare, equal]
@@ -53,7 +53,7 @@ let initial : t =
   (* An initial abstract state is a set with a single empty element. *)
   TSet.singleton
     { calls= SSet.empty
-    ; callsPairs= CallsPairWithPathSet.empty
+    ; callsPairs= CallsPairLockSet.empty
     ; finalCallsPairs= CallsPairSet.empty
     ; allOccurrences= [SSet.empty] }
 
@@ -67,21 +67,19 @@ let pp (fmt : F.formatter) (astate : t) : unit =
     F.fprintf fmt "\t{%s};\n" (String.concat (SSet.elements astateEl.calls) ~sep:", ") ;
     (* callsPairs *)
     F.pp_print_string fmt "\t" ;
-    let lastCallsPair : callsPairWithPath option =
-      CallsPairWithPathSet.max_elt_opt astateEl.callsPairs
-    in
-    let print_calls_pair (((pFst, pSnd), path) as callsPair : callsPairWithPath) : unit =
+    let lastCallsPair : callsPairLock option = CallsPairLockSet.max_elt_opt astateEl.callsPairs in
+    let print_calls_pair (((pFst, pSnd), lockOpt) as callsPair : callsPairLock) : unit =
       let withoutLock : string = String.concat (SSet.elements pFst) ~sep:", "
       and withLock : string = String.concat (SSet.elements pSnd) ~sep:", " in
-      ( match path with
-      | Some (path : AccessPath.t) ->
-          F.fprintf fmt "%a: {%s} ( {%s} )" AccessPath.pp path withoutLock withLock
+      ( match lockOpt with
+      | Some (lock : AccessPath.t) ->
+          F.fprintf fmt "%a: {%s} ( {%s} )" AccessPath.pp lock withoutLock withLock
       | None ->
           F.fprintf fmt "{%s} ( {%s} )" withoutLock withLock ) ;
-      if not (equal_callsPairWithPath callsPair (Option.value_exn lastCallsPair)) then
+      if not (equal_callsPairLock callsPair (Option.value_exn lastCallsPair)) then
         F.pp_print_string fmt " | "
     in
-    CallsPairWithPathSet.iter print_calls_pair astateEl.callsPairs ;
+    CallsPairLockSet.iter print_calls_pair astateEl.callsPairs ;
     F.pp_print_string fmt ";\n" ;
     (* finalCallsPairs *)
     F.pp_print_string fmt "\t" ;
@@ -111,14 +109,14 @@ let pp (fmt : F.formatter) (astate : t) : unit =
 (** Modifies an element of an abstract state after addition of function calls. *)
 let update_astate_el_after_calls (astateEl : tElement) : tElement =
   let finalCallsPairs : CallsPairSet.t ref = ref astateEl.finalCallsPairs in
-  let callsPairs : CallsPairWithPathSet.t =
-    let filter (((pFst, pSnd), _) : callsPairWithPath) : bool =
+  let callsPairs : CallsPairLockSet.t =
+    let filter (((pFst, pSnd), _) : callsPairLock) : bool =
       if SSet.cardinal pSnd > Config.atomic_sets_locked_functions_limit then (
         finalCallsPairs := CallsPairSet.add (pFst, SSet.empty) !finalCallsPairs ;
         false )
       else true
     in
-    CallsPairWithPathSet.filter filter astateEl.callsPairs
+    CallsPairLockSet.filter filter astateEl.callsPairs
   in
   {astateEl with callsPairs; finalCallsPairs= !finalCallsPairs}
 
@@ -126,9 +124,9 @@ let update_astate_el_after_calls (astateEl : tElement) : tElement =
 let apply_call (astate : t) (f : string) : t =
   let mapper (astateEl : tElement) : tElement =
     let calls : SSet.t = SSet.add f astateEl.calls
-    and callsPairs : CallsPairWithPathSet.t =
-      CallsPairWithPathSet.map
-        (fun (((pFst, pSnd), path) : callsPairWithPath) -> ((pFst, SSet.add f pSnd), path))
+    and callsPairs : CallsPairLockSet.t =
+      CallsPairLockSet.map
+        (fun (((pFst, pSnd), lock) : callsPairLock) -> ((pFst, SSet.add f pSnd), lock))
         astateEl.callsPairs
     and allOccurrences : SSet.t list =
       List.mapi astateEl.allOccurrences ~f:(fun (i : int) (occurrences : SSet.t) ->
@@ -140,10 +138,12 @@ let apply_call (astate : t) (f : string) : t =
   TSet.map mapper astate
 
 
-let apply_lock ?ap:(lockPath : AccessPath.t option = None) (astate : t) : t =
+let apply_lock ?(locks : AccessPath.t option list = [None]) (astate : t) : t =
   let mapper (astateEl : tElement) : tElement =
-    let callsPairs : CallsPairWithPathSet.t =
-      CallsPairWithPathSet.add ((astateEl.calls, SSet.empty), lockPath) astateEl.callsPairs
+    let callsPairs : CallsPairLockSet.t =
+      List.fold locks ~init:astateEl.callsPairs
+        ~f:(fun (callsPairs' : CallsPairLockSet.t) (lock : AccessPath.t option) ->
+          CallsPairLockSet.add ((astateEl.calls, SSet.empty), lock) callsPairs')
     in
     (* Clear the calls and update the calls pairs. *)
     {astateEl with calls= SSet.empty; callsPairs}
@@ -151,17 +151,17 @@ let apply_lock ?ap:(lockPath : AccessPath.t option = None) (astate : t) : t =
   TSet.map mapper astate
 
 
-let apply_unlock ?ap:(lockPath : AccessPath.t option = None) (astate : t) : t =
+let apply_unlock ?(locks : AccessPath.t option list = [None]) (astate : t) : t =
   let mapper (astateEl : tElement) : tElement =
     let finalCallsPairs : CallsPairSet.t ref = ref astateEl.finalCallsPairs in
-    let callsPairs : CallsPairWithPathSet.t =
-      let filter ((p, path) : callsPairWithPath) : bool =
-        if Option.equal AccessPath.equal path lockPath then (
+    let callsPairs : CallsPairLockSet.t =
+      let filter ((p, lock) : callsPairLock) : bool =
+        if List.mem locks lock ~equal:(Option.equal AccessPath.equal) then (
           finalCallsPairs := CallsPairSet.add p !finalCallsPairs ;
           false )
         else true
       in
-      CallsPairWithPathSet.filter filter astateEl.callsPairs
+      CallsPairLockSet.filter filter astateEl.callsPairs
     in
     (* Clear the calls, update the calls pairs and the final calls pairs. *)
     {astateEl with calls= SSet.empty; callsPairs; finalCallsPairs= !finalCallsPairs}
@@ -172,15 +172,15 @@ let apply_unlock ?ap:(lockPath : AccessPath.t option = None) (astate : t) : t =
 let update_at_the_end_of_function (astate : t) : t =
   let mapper (astateEl : tElement) : tElement =
     let finalCallsPairs : CallsPairSet.t ref = ref astateEl.finalCallsPairs in
-    CallsPairWithPathSet.iter
-      (fun ((p, _) : callsPairWithPath) -> finalCallsPairs := CallsPairSet.add p !finalCallsPairs)
+    CallsPairLockSet.iter
+      (fun ((p, _) : callsPairLock) -> finalCallsPairs := CallsPairSet.add p !finalCallsPairs)
       astateEl.callsPairs ;
     if not (SSet.is_empty astateEl.calls) then
       finalCallsPairs := CallsPairSet.add (astateEl.calls, SSet.empty) !finalCallsPairs ;
     (* Clear the calls and the calls pairs, and update the final calls pairs. *)
     { astateEl with
       calls= SSet.empty
-    ; callsPairs= CallsPairWithPathSet.empty
+    ; callsPairs= CallsPairLockSet.empty
     ; finalCallsPairs= !finalCallsPairs }
   in
   TSet.map mapper astate
@@ -296,10 +296,10 @@ let apply_summary (astate : t) (summary : Summary.t) : t =
     in
     List.iteri summary.allOccurrences ~f:iterator ;
     let calls : SSet.t = SSet.union astateEl.calls !joinedAllOccurrences
-    and callsPairs : CallsPairWithPathSet.t =
-      CallsPairWithPathSet.map
-        (fun (((pFst, pSnd), path) : callsPairWithPath) ->
-          ((pFst, SSet.union pSnd !joinedAllOccurrences), path))
+    and callsPairs : CallsPairLockSet.t =
+      CallsPairLockSet.map
+        (fun (((pFst, pSnd), lock) : callsPairLock) ->
+          ((pFst, SSet.union pSnd !joinedAllOccurrences), lock))
         astateEl.callsPairs
     in
     (* Update the calls and the calls pairs and the all occurrences. *)

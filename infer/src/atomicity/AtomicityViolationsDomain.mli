@@ -21,10 +21,10 @@ val initial : t
 val apply_call : t -> string -> Location.t -> t
 (** Updates an abstract state on a function call. *)
 
-val apply_lock : ?ap:AccessPath.t option -> t -> t
+val apply_lock : ?locks:AccessPath.t option list -> t -> t
 (** Updates an abstract state on a lock call. *)
 
-val apply_unlock : ?ap:AccessPath.t option -> t -> t
+val apply_unlock : ?locks:AccessPath.t option list -> t -> t
 (** Updates an abstract state on an unlock call. *)
 
 val report_atomicity_violations : t -> f:(Location.t -> msg:string -> unit) -> unit

@@ -17,8 +17,8 @@ type atomicPair = string * string [@@deriving compare, equal]
 type atomicPairLoc = {pair: atomicPair; line: int; col: int; file: string}
 [@@deriving compare, equal]
 
-(** A pair of atomic functions with an access path. *)
-type atomicPairWithPath = atomicPair * AccessPath.t option [@@deriving compare, equal]
+(** A pair of atomic functions with a lock. *)
+type atomicPairLock = atomicPair * AccessPath.t option [@@deriving compare, equal]
 
 (* ************************************ Functions *********************************************** *)
 
@@ -40,14 +40,14 @@ module AtomicPairSet = Set.Make (struct
   type t = atomicPair [@@deriving compare, equal]
 end)
 
-(** A set of pairs of atomic functions with its location. *)
+(** A set of pairs of atomic functions with their locations. *)
 module AtomicPairLocSet = Set.Make (struct
   type t = atomicPairLoc [@@deriving compare, equal]
 end)
 
-(** A set of pairs of atomic functions with an access path. *)
-module AtomicPairWithPathSet = Set.Make (struct
-  type t = atomicPairWithPath [@@deriving compare, equal]
+(** A set of pairs of atomic functions with locks. *)
+module AtomicPairLockSet = Set.Make (struct
+  type t = atomicPairLock [@@deriving compare, equal]
 end)
 
 (* ************************************ Classes ************************************************* *)
@@ -110,18 +110,15 @@ class atomic_pairs =
 
     (** Checks whether an atomic pair is violating atomicity. *)
     method check_violating_atomicity ?(checkFirstEmpty : bool = false) ((_, pSnd) as p : atomicPair)
-        ~(atomicityViolations : AtomicPairLocSet.t ref) ~(lockedLastPairs : AtomicPairWithPathSet.t)
+        ~(atomicityViolations : AtomicPairLocSet.t ref) ~(lockedLastPairs : AtomicPairLockSet.t)
         (loc : Location.t) : unit =
       self#init ;
       let check (p : atomicPair) : unit =
         let is_pair_locked (p : atomicPair) : bool =
-          let locked : bool ref = ref false in
-          let iterator ((((_, pSnd') as p'), _) : atomicPairWithPath) : unit =
-            if equal_atomicPair p' p || (checkFirstEmpty && equal_atomicPair ("", pSnd') p) then
-              locked := true
+          let fold ((((_, pSnd') as p'), _) : atomicPairLock) (locked : bool) : bool =
+            locked || equal_atomicPair p' p || (checkFirstEmpty && equal_atomicPair ("", pSnd') p)
           in
-          AtomicPairWithPathSet.iter iterator lockedLastPairs ;
-          !locked
+          AtomicPairLockSet.fold fold lockedLastPairs false
         in
         if AtomicPairSet.mem p pairs && not (is_pair_locked p) then
           atomicityViolations :=
@@ -142,7 +139,7 @@ type tElement =
   ; lastPair: atomicPair
   ; nestedLastCalls: SSet.t
   ; atomicityViolations: AtomicPairLocSet.t
-  ; lockedLastPairs: AtomicPairWithPathSet.t }
+  ; lockedLastPairs: AtomicPairLockSet.t }
 [@@deriving compare, equal]
 
 (** A set of types tElement is an abstract state. *)
@@ -161,7 +158,7 @@ let initial : t =
     ; lastPair= emptyAtomicPair
     ; nestedLastCalls= SSet.empty
     ; atomicityViolations= AtomicPairLocSet.empty
-    ; lockedLastPairs= AtomicPairWithPathSet.empty }
+    ; lockedLastPairs= AtomicPairLockSet.empty }
 
 
 (** A pretty printer of an abstract state. *)
@@ -189,20 +186,19 @@ let pp (fmt : F.formatter) (astate : t) : unit =
     F.pp_print_string fmt ";\n" ;
     (* lockedLastPairs *)
     F.pp_print_string fmt "\t" ;
-    let lastLockedLastPair : atomicPairWithPath option =
-      AtomicPairWithPathSet.max_elt_opt astateEl.lockedLastPairs
+    let lastLockedLastPair : atomicPairLock option =
+      AtomicPairLockSet.max_elt_opt astateEl.lockedLastPairs
     in
-    let print_locked_last_pair (((pFst, pSnd), path) as lockedLastPair : atomicPairWithPath) : unit
-        =
-      ( match path with
-      | Some (path : AccessPath.t) ->
-          F.fprintf fmt "%a: (%s, %s)" AccessPath.pp path pFst pSnd
+    let print_locked_last_pair (((pFst, pSnd), lockOpt) as lockedLastPair : atomicPairLock) : unit =
+      ( match lockOpt with
+      | Some (lock : AccessPath.t) ->
+          F.fprintf fmt "%a: (%s, %s)" AccessPath.pp lock pFst pSnd
       | None ->
           F.fprintf fmt "(%s, %s)" pFst pSnd ) ;
-      if not (equal_atomicPairWithPath lockedLastPair (Option.value_exn lastLockedLastPair)) then
+      if not (equal_atomicPairLock lockedLastPair (Option.value_exn lastLockedLastPair)) then
         F.pp_print_string fmt " | "
     in
-    AtomicPairWithPathSet.iter print_locked_last_pair astateEl.lockedLastPairs ;
+    AtomicPairLockSet.iter print_locked_last_pair astateEl.lockedLastPairs ;
     F.pp_print_string fmt ";\n" ;
     F.pp_print_string fmt "}\n"
   in
@@ -215,10 +211,10 @@ let apply_call (astate : t) (f : string) (loc : Location.t) : t =
     let firstCall : string = if String.is_empty astateEl.firstCall then f else astateEl.firstCall
     and lastPair : atomicPair = atomic_pair_push astateEl.lastPair f
     and atomicityViolations : AtomicPairLocSet.t ref = ref astateEl.atomicityViolations
-    and lockedLastPairs : AtomicPairWithPathSet.t =
+    and lockedLastPairs : AtomicPairLockSet.t =
       (* Updates pairs of atomic functions. *)
-      AtomicPairWithPathSet.map
-        (fun ((p, path) : atomicPairWithPath) -> (atomic_pair_push p f, path))
+      AtomicPairLockSet.map
+        (fun ((p, lock) : atomicPairLock) -> (atomic_pair_push p f, lock))
         astateEl.lockedLastPairs
     in
     (* Check whether the last pair is violating atomicity. *)
@@ -226,10 +222,10 @@ let apply_call (astate : t) (f : string) (loc : Location.t) : t =
       ~checkFirstEmpty:true ;
     let iterator (lastCall : string) : unit =
       let p : atomicPair = (lastCall, f) in
-      let lockedLastPairs : AtomicPairWithPathSet.t =
-        AtomicPairWithPathSet.map
-          (fun ((p', path) : atomicPairWithPath) ->
-            ((if String.is_empty (fst p') then p' else p), path))
+      let lockedLastPairs : AtomicPairLockSet.t =
+        AtomicPairLockSet.map
+          (fun ((p', lock) : atomicPairLock) ->
+            ((if String.is_empty (fst p') then p' else p), lock))
           lockedLastPairs
       in
       (* Check whether each pair begining with the nested last call and ending with the current
@@ -248,21 +244,24 @@ let apply_call (astate : t) (f : string) (loc : Location.t) : t =
   TSet.map mapper astate
 
 
-let apply_lock ?ap:(lockPath : AccessPath.t option = None) (astate : t) : t =
+let apply_lock ?(locks : AccessPath.t option list = [None]) (astate : t) : t =
   let mapper (astateEl : tElement) : tElement =
-    let lockedLastPairs : AtomicPairWithPathSet.t =
-      AtomicPairWithPathSet.add (emptyAtomicPair, lockPath) astateEl.lockedLastPairs
+    let lockedLastPairs : AtomicPairLockSet.t =
+      List.fold locks ~init:astateEl.lockedLastPairs
+        ~f:(fun (lockedLastPairs' : AtomicPairLockSet.t) (lock : AccessPath.t option) ->
+          AtomicPairLockSet.add (emptyAtomicPair, lock) lockedLastPairs')
     in
     {astateEl with lockedLastPairs}
   in
   TSet.map mapper astate
 
 
-let apply_unlock ?ap:(lockPath : AccessPath.t option = None) (astate : t) : t =
+let apply_unlock ?(locks : AccessPath.t option list = [None]) (astate : t) : t =
   let mapper (astateEl : tElement) : tElement =
-    let lockedLastPairs : AtomicPairWithPathSet.t =
-      AtomicPairWithPathSet.filter
-        (fun ((_, path) : atomicPairWithPath) -> not (Option.equal AccessPath.equal path lockPath))
+    let lockedLastPairs : AtomicPairLockSet.t =
+      AtomicPairLockSet.filter
+        (fun ((_, lock) : atomicPairLock) ->
+          not (List.mem locks lock ~equal:(Option.equal AccessPath.equal)))
         astateEl.lockedLastPairs
     in
     {astateEl with lockedLastPairs}
@@ -344,9 +343,9 @@ let apply_summary (astate : t) (summary : Summary.t) (loc : Location.t) : t =
       and lastCall : string = snd astateEl.lastPair in
       let iterator (firstCall : string) : unit =
         let p : atomicPair = (lastCall, firstCall) in
-        let lockedLastPairs : AtomicPairWithPathSet.t =
-          AtomicPairWithPathSet.map
-            (fun ((_, path) : atomicPairWithPath) -> (p, path))
+        let lockedLastPairs : AtomicPairLockSet.t =
+          AtomicPairLockSet.map
+            (fun ((_, lock) : atomicPairLock) -> (p, lock))
             astateEl.lockedLastPairs
         in
         (* Check whether each pair begining with the last called function and ending witch the first

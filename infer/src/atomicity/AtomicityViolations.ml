@@ -32,40 +32,33 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
         , (actuals : HilExp.t list)
         , (_ : CallFlags.t)
         , (loc : Location.t) ) -> (
-        let update_astate_with_locks (astate : Domain.t) (locks : HilExp.t list)
-            ~(f : ?ap:AccessPath.t option -> Domain.t -> Domain.t) : Domain.t =
-          let astate : Domain.t ref = ref astate in
-          List.iter locks ~f:(fun (lock : HilExp.t) ->
-              astate := f ~ap:(AtomicityUtils.get_lock_path lock) !astate) ;
-          !astate
-        in
-        match ConcurrencyModels.get_lock_effect calleePname actuals with
-        (* lock *)
-        | Lock (locks : HilExp.t list) ->
-            update_astate_with_locks astate locks ~f:Domain.apply_lock
-        | GuardConstruct {guard; acquire_now= true} | GuardLock (guard : HilExp.t) ->
-            update_astate_with_locks astate [guard] ~f:Domain.apply_lock
-        (* unlock *)
-        | Unlock (locks : HilExp.t list) ->
-            update_astate_with_locks astate locks ~f:Domain.apply_unlock
-        | GuardUnlock (guard : HilExp.t) | GuardDestroy (guard : HilExp.t) ->
-            update_astate_with_locks astate [guard] ~f:Domain.apply_unlock
-        (* TODO: try lock *)
-        | LockedIfTrue (_ : HilExp.t list) ->
-            astate
-        | GuardLockedIfTrue (_ : HilExp.t) ->
-            astate
-        (* function call *)
-        | NoEffect -> (
-            let astate : Domain.t = Domain.apply_call astate (Procname.to_string calleePname) loc in
-            (* Update the abstract state with the function summary as well if it is possible. *)
-            match analysis_data.analyze_dependency calleePname with
-            | Some ((_ : Procdesc.t), (summary : Domain.Summary.t)) ->
-                Domain.apply_summary astate summary loc
-            | None ->
-                astate )
-        | _ ->
-            astate )
+      match ConcurrencyModels.get_lock_effect calleePname actuals with
+      (* lock *)
+      | Lock (locks : HilExp.t list) ->
+          Domain.apply_lock ~locks:(AtomicityUtils.get_locks_paths locks) astate
+      | GuardConstruct {guard; acquire_now= true} | GuardLock (guard : HilExp.t) ->
+          Domain.apply_lock ~locks:(AtomicityUtils.get_locks_paths [guard]) astate
+      (* unlock *)
+      | Unlock (locks : HilExp.t list) ->
+          Domain.apply_unlock ~locks:(AtomicityUtils.get_locks_paths locks) astate
+      | GuardUnlock (guard : HilExp.t) | GuardDestroy (guard : HilExp.t) ->
+          Domain.apply_unlock ~locks:(AtomicityUtils.get_locks_paths [guard]) astate
+      (* TODO: try lock *)
+      | LockedIfTrue (_ : HilExp.t list) ->
+          astate
+      | GuardLockedIfTrue (_ : HilExp.t) ->
+          astate
+      (* function call *)
+      | NoEffect -> (
+          let astate : Domain.t = Domain.apply_call astate (Procname.to_string calleePname) loc in
+          (* Update the abstract state with the function summary as well if it is possible. *)
+          match analysis_data.analyze_dependency calleePname with
+          | Some ((_ : Procdesc.t), (summary : Domain.Summary.t)) ->
+              Domain.apply_summary astate summary loc
+          | None ->
+              astate )
+      | _ ->
+          astate )
     | _ ->
         astate
 

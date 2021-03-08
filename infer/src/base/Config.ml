@@ -2639,23 +2639,21 @@ and type_size =
 
 
 and atomic_sets_widen_limit : int ref =
-  CLOpt.mk_int ~default:5 ~meta:"int" ~long:"atomic-sets-widen-limit"
+  CLOpt.mk_int ~default:5 ~long:"atomic-sets-widen-limit"
     ~in_help:[(Analyze, manual_atomicity_violations)]
-    ~default_to_string:string_of_int
     "Specify the maximum number of iterations in a widening operator in the 'atomic-sets' checker. \
      Under-approximation after specified loop iterations. The default value is 5."
 
 
 and atomicity_violations_widen_limit : int ref =
-  CLOpt.mk_int ~default:1000 ~meta:"int" ~long:"atomicity-violations-widen-limit"
+  CLOpt.mk_int ~default:1000 ~long:"atomicity-violations-widen-limit"
     ~in_help:[(Analyze, manual_atomicity_violations)]
-    ~default_to_string:string_of_int
     "Specify the maximum number of iterations in a widening operator in the 'atomicity-violations' \
      checker. Under-approximation after specified loop iterations. The default value is 1000."
 
 
 and atomicity_ignored_function_calls_file : string option ref =
-  CLOpt.mk_path_opt ~long:"atomicity-ignored-function-calls" ~meta:"file"
+  CLOpt.mk_path_opt ~long:"atomicity-ignored-function-calls"
     ~in_help:[(Analyze, manual_atomicity_violations)]
     "Specify a file with function names (one function name per a line; considered as a regexp if \
      the line starts with 'R' followed by a whitespace, an exact match otherwise) whose calls \
@@ -2663,7 +2661,7 @@ and atomicity_ignored_function_calls_file : string option ref =
 
 
 and atomicity_ignored_function_analyses_file : string option ref =
-  CLOpt.mk_path_opt ~long:"atomicity-ignored-function-analyses" ~meta:"file"
+  CLOpt.mk_path_opt ~long:"atomicity-ignored-function-analyses"
     ~in_help:[(Analyze, manual_atomicity_violations)]
     "Specify a file with function names (one function name per a line; considered as a regexp if \
      the line starts with 'R' followed by a whitespace, an exact match otherwise) whose analysis \
@@ -2671,7 +2669,7 @@ and atomicity_ignored_function_analyses_file : string option ref =
 
 
 and atomicity_allowed_function_calls_file : string option ref =
-  CLOpt.mk_path_opt ~long:"atomicity-allowed-function-calls" ~meta:"file"
+  CLOpt.mk_path_opt ~long:"atomicity-allowed-function-calls"
     ~in_help:[(Analyze, manual_atomicity_violations)]
     "Specify a file with function names (one function name per a line; considered as a regexp if \
      the line starts with 'R' followed by a whitespace, an exact match otherwise) whose calls \
@@ -2680,7 +2678,7 @@ and atomicity_allowed_function_calls_file : string option ref =
 
 
 and atomicity_allowed_function_analyses_file : string option ref =
-  CLOpt.mk_path_opt ~long:"atomicity-allowed-function-analyses" ~meta:"file"
+  CLOpt.mk_path_opt ~long:"atomicity-allowed-function-analyses"
     ~in_help:[(Analyze, manual_atomicity_violations)]
     "Specify a file with function names (one function name per a line; considered as a regexp if \
      the line starts with 'R' followed by a whitespace, an exact match otherwise) whose analysis \
@@ -2689,27 +2687,32 @@ and atomicity_allowed_function_analyses_file : string option ref =
 
 
 and atomic_sets_locked_functions_limit : int ref =
-  CLOpt.mk_int ~default:20 ~meta:"int" ~long:"atomic-sets-locked-functions-limit"
+  CLOpt.mk_int ~default:20 ~long:"atomic-sets-locked-functions-limit"
     ~in_help:[(Analyze, manual_atomicity_violations)]
-    ~default_to_string:string_of_int
     "Specify the maximum number of function calls that could appear in a critical section in the \
      'atomic-sets' checker. Critical sections with more function names will be ignored. The \
      default value is 20."
 
 
 and atomic_sets_file_append : bool ref =
-  CLOpt.mk_bool ~default:false ~long:"atomic-sets-file-append" ~meta:"bool"
+  CLOpt.mk_bool ~default:false ~long:"atomic-sets-file-append"
     ~in_help:[(Analyze, manual_atomicity_violations)]
     "Specify whether functions should be appended to the atomic sets file instead of overriding in \
      the 'atomic-sets' checker."
 
 
 and atomic_sets_functions_depth_limit : int ref =
-  CLOpt.mk_int ~default:10 ~meta:"int" ~long:"atomic-sets-functions-depth-limit"
+  CLOpt.mk_int ~default:10 ~long:"atomic-sets-functions-depth-limit"
     ~in_help:[(Analyze, manual_atomicity_violations)]
-    ~default_to_string:string_of_int
     "Specify the maximum depth in the hierarchy of function calls to which function calls will be \
      considered during the 'atomic-sets' checker analysis. The default value is 10."
+
+
+and atomicity_lock_level_limit : int ref =
+  CLOpt.mk_int ~default:5 ~long:"atomicity-lock-level-limit"
+    ~in_help:[(Analyze, manual_atomicity_violations)]
+    "Specify the maximum expected level of ownership over the same lock object. An \
+     over-approximation of the number of times the lock has been acquired. The default value is 5."
 
 
 and uninit_interproc =
@@ -3698,6 +3701,8 @@ and atomic_sets_locked_functions_limit : int = !atomic_sets_locked_functions_lim
 and atomic_sets_file_append : bool = !atomic_sets_file_append
 
 and atomic_sets_functions_depth_limit : int = !atomic_sets_functions_depth_limit
+
+and atomicity_lock_level_limit : int = !atomicity_lock_level_limit
 
 and unsafe_malloc = !unsafe_malloc
 

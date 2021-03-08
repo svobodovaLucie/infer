@@ -485,7 +485,7 @@ OPTIONS
            Specify the suffix of Xcode isysroot directory, to avoid absolute
            paths in tests
 ATOMICITY VIOLATIONS CHECKER OPTIONS
-       --atomic-sets-file-append bool
+       --atomic-sets-file-append
            Activates: Specify whether functions should be appended to the
            atomic sets file instead of overriding in the 'atomic-sets'
            checker. (Conversely: --no-atomic-sets-file-append)
@@ -505,33 +505,38 @@ ATOMICITY VIOLATIONS CHECKER OPTIONS
            the 'atomic-sets' checker. Under-approximation after specified
            loop iterations. The default value is 5.
 
-       --atomicity-allowed-function-analyses file
+       --atomicity-allowed-function-analyses path
            Specify a file with function names (one function name per a line;
            considered as a regexp if the line starts with 'R' followed by a
            whitespace, an exact match otherwise) whose analysis should be
            allowed during the analysis of 'atomic-sets' and
            'atomicity-violations' checkers. Other functions will be ignored.
 
-       --atomicity-allowed-function-calls file
+       --atomicity-allowed-function-calls path
            Specify a file with function names (one function name per a line;
            considered as a regexp if the line starts with 'R' followed by a
            whitespace, an exact match otherwise) whose calls should be
            allowed during the analysis of 'atomic-sets' and
            'atomicity-violations' checkers. Other functions will be ignored.
 
-       --atomicity-ignored-function-analyses file
+       --atomicity-ignored-function-analyses path
            Specify a file with function names (one function name per a line;
            considered as a regexp if the line starts with 'R' followed by a
            whitespace, an exact match otherwise) whose analysis should be
            ignored during the analysis of 'atomic-sets' and
            'atomicity-violations' checkers.
 
-       --atomicity-ignored-function-calls file
+       --atomicity-ignored-function-calls path
            Specify a file with function names (one function name per a line;
            considered as a regexp if the line starts with 'R' followed by a
            whitespace, an exact match otherwise) whose calls should be
            ignored during the analysis of 'atomic-sets' and
            'atomicity-violations' checkers.
+
+       --atomicity-lock-level-limit int
+           Specify the maximum expected level of ownership over the same lock
+           object. An over-approximation of the number of times the lock has
+           been acquired. The default value is 5.
 
        --atomicity-violations-widen-limit int
            Specify the maximum number of iterations in a widening operator in

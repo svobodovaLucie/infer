@@ -21,10 +21,10 @@ val initial : t
 val apply_call : t -> string -> t
 (** Updates an abstract state on a function call. *)
 
-val apply_lock : ?locks:AccessPath.t option list -> t -> t
+val apply_lock : ?locksPaths:AccessPath.t option list -> t -> t
 (** Updates an abstract state on a lock call. *)
 
-val apply_unlock : ?locks:AccessPath.t option list -> t -> t
+val apply_unlock : ?locksPaths:AccessPath.t option list -> t -> t
 (** Updates an abstract state on an unlock call. *)
 
 val update_at_the_end_of_function : t -> t
@@ -37,8 +37,7 @@ module Summary : sig
   (** A summary of a function. *)
   type t [@@deriving compare, equal]
 
-  val pp : F.formatter -> t -> unit
-  (** A pretty printer of a summary. *)
+  include PrettyPrintable.PrintableType with type t := t
 
   val make : astate -> t
   (** Converts an abstract state to a summary. *)

@@ -1,9 +1,9 @@
 (* Author: Dominik Harmim <xharmi00@stud.fit.vutbr.cz> *)
 
 open! IStd
+open AtomicityUtils
 module F = Format
 module Set = Caml.Set
-module SSet = AtomicityUtils.SSet
 
 (** Detection of atomic sets domain implementation. *)
 
@@ -13,7 +13,7 @@ module SSet = AtomicityUtils.SSet
 type callsPair = SSet.t * SSet.t [@@deriving compare, equal]
 
 (** A pair of sets of calls with a lock. *)
-type callsPairLock = callsPair * AccessPath.t option [@@deriving compare, equal]
+type callsPairLock = callsPair * Lock.t [@@deriving compare, equal]
 
 (* ************************************ Modules ************************************************* *)
 
@@ -50,6 +50,9 @@ type t = TSet.t [@@deriving compare, equal]
 type astate = t [@@deriving compare, equal]
 
 let initial : t =
+  assert (Config.atomic_sets_widen_limit > 0) ;
+  assert (Config.atomic_sets_locked_functions_limit > 0) ;
+  assert (Config.atomic_sets_functions_depth_limit >= 0) ;
   (* An initial abstract state is a set with a single empty element. *)
   TSet.singleton
     { calls= SSet.empty
@@ -68,14 +71,10 @@ let pp (fmt : F.formatter) (astate : t) : unit =
     (* callsPairs *)
     F.pp_print_string fmt "\t" ;
     let lastCallsPair : callsPairLock option = CallsPairLockSet.max_elt_opt astateEl.callsPairs in
-    let print_calls_pair (((pFst, pSnd), lockOpt) as callsPair : callsPairLock) : unit =
+    let print_calls_pair (((pFst, pSnd), lock) as callsPair : callsPairLock) : unit =
       let withoutLock : string = String.concat (SSet.elements pFst) ~sep:", "
       and withLock : string = String.concat (SSet.elements pSnd) ~sep:", " in
-      ( match lockOpt with
-      | Some (lock : AccessPath.t) ->
-          F.fprintf fmt "%a: {%s} ( {%s} )" AccessPath.pp lock withoutLock withLock
-      | None ->
-          F.fprintf fmt "{%s} ( {%s} )" withoutLock withLock ) ;
+      F.fprintf fmt "%a{%s} ( {%s} )" Lock.pp lock withoutLock withLock ;
       if not (equal_callsPairLock callsPair (Option.value_exn lastCallsPair)) then
         F.pp_print_string fmt " | "
     in
@@ -138,33 +137,54 @@ let apply_call (astate : t) (f : string) : t =
   TSet.map mapper astate
 
 
-let apply_lock ?(locks : AccessPath.t option list = [None]) (astate : t) : t =
+let apply_lock ?(locksPaths : AccessPath.t option list = [None]) (astate : t) : t =
   let mapper (astateEl : tElement) : tElement =
+    let lockAppended : bool ref = ref false in
     let callsPairs : CallsPairLockSet.t =
-      List.fold locks ~init:astateEl.callsPairs
-        ~f:(fun (callsPairs' : CallsPairLockSet.t) (lock : AccessPath.t option) ->
-          CallsPairLockSet.add ((astateEl.calls, SSet.empty), lock) callsPairs')
-    in
+      let fold (callsPairs' : CallsPairLockSet.t) (path : AccessPath.t option) : CallsPairLockSet.t
+          =
+        let found : bool ref = ref false in
+        let mapper ((p, lock) as pairLock : callsPairLock) : callsPairLock =
+          if Option.equal AccessPath.equal path (Lock.path lock) then (
+            found := true ;
+            (p, Lock.lock lock) )
+          else pairLock
+        in
+        let callsPairs'' : CallsPairLockSet.t = CallsPairLockSet.map mapper callsPairs' in
+        if !found then callsPairs''
+        else (
+          lockAppended := true ;
+          CallsPairLockSet.add
+            ((astateEl.calls, SSet.empty), Lock.lock (Lock.make path))
+            callsPairs'' )
+      in
+      List.fold locksPaths ~init:astateEl.callsPairs ~f:fold
+    and calls : SSet.t = if !lockAppended then SSet.empty else astateEl.calls in
     (* Clear the calls and update the calls pairs. *)
-    {astateEl with calls= SSet.empty; callsPairs}
+    {astateEl with calls; callsPairs}
   in
   TSet.map mapper astate
 
 
-let apply_unlock ?(locks : AccessPath.t option list = [None]) (astate : t) : t =
+let apply_unlock ?(locksPaths : AccessPath.t option list = [None]) (astate : t) : t =
   let mapper (astateEl : tElement) : tElement =
-    let finalCallsPairs : CallsPairSet.t ref = ref astateEl.finalCallsPairs in
+    let lockRemoved : bool ref = ref false
+    and finalCallsPairs : CallsPairSet.t ref = ref astateEl.finalCallsPairs in
     let callsPairs : CallsPairLockSet.t =
-      let filter ((p, lock) : callsPairLock) : bool =
-        if List.mem locks lock ~equal:(Option.equal AccessPath.equal) then (
-          finalCallsPairs := CallsPairSet.add p !finalCallsPairs ;
-          false )
-        else true
+      let mapper ((p, lock) as pairLock : callsPairLock) : callsPairLock =
+        if List.mem locksPaths (Lock.path lock) ~equal:(Option.equal AccessPath.equal) then (
+          let lock' : Lock.t = Lock.unlock lock in
+          if not (Lock.is_locked lock') then (
+            lockRemoved := true ;
+            finalCallsPairs := CallsPairSet.add p !finalCallsPairs ) ;
+          (p, lock') )
+        else pairLock
       in
-      CallsPairLockSet.filter filter astateEl.callsPairs
-    in
+      let callsPairs' : CallsPairLockSet.t = CallsPairLockSet.map mapper astateEl.callsPairs in
+      CallsPairLockSet.filter (Fn.compose Lock.is_locked snd) callsPairs'
+    and calls : SSet.t = if !lockRemoved then SSet.empty else astateEl.calls in
     (* Clear the calls, update the calls pairs and the final calls pairs. *)
-    {astateEl with calls= SSet.empty; callsPairs; finalCallsPairs= !finalCallsPairs}
+    {astateEl with calls; callsPairs; finalCallsPairs= !finalCallsPairs}
   in
   TSet.map mapper astate
 
@@ -190,14 +210,16 @@ let update_at_the_end_of_function (astate : t) : t =
 
 (** A comparison operator of abstract states. The lhs is less or equal to the rhs if lhs is a subset
     of the rhs. *)
-let leq ~lhs:(l : t) ~rhs:(r : t) : bool = TSet.subset l r
+let leq ~lhs:(l : t) ~rhs:(r : t) : bool = if phys_equal l r then true else TSet.subset l r
 
 (** A join operator of abstract states. Union of abstract states. *)
-let join (astate1 : t) (astate2 : t) : t = TSet.union astate1 astate2
+let join (astate1 : t) (astate2 : t) : t =
+  if phys_equal astate1 astate2 then astate1 else TSet.union astate1 astate2
+
 
 (** A widen operator of abstract states. Join previous and next abstract states. *)
 let widen ~prev:(p : t) ~next:(n : t) ~num_iters:(i : int) : t =
-  if i <= Config.atomic_sets_widen_limit then join p n else p
+  if phys_equal p n then p else if i <= Config.atomic_sets_widen_limit then join p n else p
 
 
 (* ************************************ Summary ************************************************* *)

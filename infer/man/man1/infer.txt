@@ -116,7 +116,7 @@ OPTIONS
            detection of atomic sets. (Conversely: --no-atomic-sets)       
     See also infer-analyze(1).
 
-       --atomic-sets-file-append bool
+       --atomic-sets-file-append
            Activates: Specify whether functions should be appended to the
            atomic sets file instead of overriding in the 'atomic-sets'
            checker. (Conversely: --no-atomic-sets-file-append)       
@@ -142,7 +142,7 @@ OPTIONS
            the 'atomic-sets' checker. Under-approximation after specified
            loop iterations. The default value is 5.           See also infer-analyze(1).
 
-       --atomicity-allowed-function-analyses file
+       --atomicity-allowed-function-analyses path
            Specify a file with function names (one function name per a line;
            considered as a regexp if the line starts with 'R' followed by a
            whitespace, an exact match otherwise) whose analysis should be
@@ -150,7 +150,7 @@ OPTIONS
            'atomicity-violations' checkers. Other functions will be ignored.       
     See also infer-analyze(1).
 
-       --atomicity-allowed-function-calls file
+       --atomicity-allowed-function-calls path
            Specify a file with function names (one function name per a line;
            considered as a regexp if the line starts with 'R' followed by a
            whitespace, an exact match otherwise) whose calls should be
@@ -158,19 +158,24 @@ OPTIONS
            'atomicity-violations' checkers. Other functions will be ignored.       
     See also infer-analyze(1).
 
-       --atomicity-ignored-function-analyses file
+       --atomicity-ignored-function-analyses path
            Specify a file with function names (one function name per a line;
            considered as a regexp if the line starts with 'R' followed by a
            whitespace, an exact match otherwise) whose analysis should be
            ignored during the analysis of 'atomic-sets' and
            'atomicity-violations' checkers.           See also infer-analyze(1).
 
-       --atomicity-ignored-function-calls file
+       --atomicity-ignored-function-calls path
            Specify a file with function names (one function name per a line;
            considered as a regexp if the line starts with 'R' followed by a
            whitespace, an exact match otherwise) whose calls should be
            ignored during the analysis of 'atomic-sets' and
            'atomicity-violations' checkers.           See also infer-analyze(1).
+
+       --atomicity-lock-level-limit int
+           Specify the maximum expected level of ownership over the same lock
+           object. An over-approximation of the number of times the lock has
+           been acquired. The default value is 5.           See also infer-analyze(1).
 
        --atomicity-violations
            Activates: checker atomicity-violations: Atomicity violations

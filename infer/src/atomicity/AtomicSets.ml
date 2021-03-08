@@ -1,6 +1,7 @@
 (* Author: Dominik Harmim <xharmi00@stud.fit.vutbr.cz> *)
 
 open! IStd
+open AtomicityUtils
 module Domain = AtomicSetsDomain
 module F = Format
 module L = Logging
@@ -23,7 +24,7 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
         , (actuals : HilExp.t list)
         , (_ : CallFlags.t)
         , (_ : Location.t) )
-      when AtomicityUtils.f_is_ignored calleePname ~actuals:(Some actuals) ->
+      when f_is_ignored calleePname ~actuals:(Some actuals) ->
         astate
     (* Update the abstract state on function calls. *)
     | Call
@@ -35,14 +36,14 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
       match ConcurrencyModels.get_lock_effect calleePname actuals with
       (* lock *)
       | Lock (locks : HilExp.t list) ->
-          Domain.apply_lock ~locks:(AtomicityUtils.get_locks_paths locks) astate
-      | GuardConstruct {guard; acquire_now= true} | GuardLock (guard : HilExp.t) ->
-          Domain.apply_lock ~locks:(AtomicityUtils.get_locks_paths [guard]) astate
+          Domain.apply_lock ~locksPaths:(get_locks_paths locks) astate
+      | GuardConstruct {guard: HilExp.t; acquire_now= true} | GuardLock (guard : HilExp.t) ->
+          Domain.apply_lock ~locksPaths:(get_locks_paths [guard]) astate
       (* unlock *)
       | Unlock (locks : HilExp.t list) ->
-          Domain.apply_unlock ~locks:(AtomicityUtils.get_locks_paths locks) astate
+          Domain.apply_unlock ~locksPaths:(get_locks_paths locks) astate
       | GuardUnlock (guard : HilExp.t) | GuardDestroy (guard : HilExp.t) ->
-          Domain.apply_unlock ~locks:(AtomicityUtils.get_locks_paths [guard]) astate
+          Domain.apply_unlock ~locksPaths:(get_locks_paths [guard]) astate
       (* TODO: try lock *)
       | LockedIfTrue (_ : HilExp.t list) ->
           astate
@@ -73,7 +74,7 @@ module Analyser = LowerHil.MakeAbstractInterpreter (TransferFunctions (ProcCfg.N
 let analyse_procedure (analysis_data : Domain.Summary.t InterproceduralAnalysis.t) :
     Domain.Summary.t option =
   let pName : Procname.t = Procdesc.get_proc_name analysis_data.proc_desc in
-  if AtomicityUtils.f_is_ignored pName then None
+  if f_is_ignored pName then None
   else
     let pre : Domain.t =
       if Procdesc.is_java_synchronized analysis_data.proc_desc then Domain.apply_lock Domain.initial
@@ -100,11 +101,11 @@ let analyse_procedure (analysis_data : Domain.Summary.t InterproceduralAnalysis.
 let print_atomic_sets (analysis_data : AtomicSetsDomain.Summary.t InterproceduralAnalysis.file_t) :
     IssueLog.t =
   (* Create a directory for printing. *)
-  Utils.create_dir AtomicityUtils.inferDir ;
+  Utils.create_dir inferDir ;
   (* Print to a file. *)
   let oc : Out_channel.t =
     Out_channel.create ~binary:false ~append:Config.atomic_sets_file_append ~fail_if_exists:false
-      AtomicityUtils.atomicSetsFile
+      atomicSetsFile
   and proceduresCount : int ref = ref 0
   and atomicSetsCount : int ref = ref 0
   and atomicFunctionsCount : int ref = ref 0 in
@@ -124,8 +125,8 @@ let print_atomic_sets (analysis_data : AtomicSetsDomain.Summary.t Interprocedura
   if not (Int.equal !proceduresCount 0) then Out_channel.newline oc ;
   Out_channel.fprintf oc
     "%c Number of (analysed functions; atomic sets; atomic functions): (%i; %i; %i)\n"
-    AtomicityUtils.fileCommentChar !proceduresCount !atomicSetsCount !atomicFunctionsCount ;
+    fileCommentChar !proceduresCount !atomicSetsCount !atomicFunctionsCount ;
   Out_channel.close oc ;
   F.fprintf F.std_formatter "The detection of atomic sets produced an output into the file '%s'.\n"
-    AtomicityUtils.atomicSetsFile ;
+    atomicSetsFile ;
   IssueLog.empty

@@ -183,9 +183,17 @@ end = struct
     , mk_model_matcher ~f:(fun mdl -> mdl.trylock)
     , mk_matcher ["std::lock"]
     , mk_matcher ["std::try_lock"]
-    , mk_matcher ["pthread_mutex_lock"]
-    , mk_matcher ["pthread_mutex_unlock"]
-    , mk_matcher ["pthread_mutex_trylock"] )
+    , mk_matcher
+        ["pthread_mutex_lock"; "pthread_spin_lock"; "pthread_rwlock_rdlock"; "pthread_rwlock_wrlock"]
+    , mk_matcher ["pthread_mutex_unlock"; "pthread_spin_unlock"; "pthread_rwlock_unlock"]
+    , mk_matcher
+        [ "pthread_mutex_trylock"
+        ; "pthread_mutex_timedlock"
+        ; "pthread_spin_trylock"
+        ; "pthread_rwlock_tryrdlock"
+        ; "pthread_rwlock_trywrlock"
+        ; "pthread_rwlock_timedrdlock"
+        ; "pthread_rwlock_timedwrlock" ] )
 
 
   (** C++ guard classes used for scope-based lock management. NB we pretend all classes below

@@ -126,6 +126,12 @@ end = struct
       ; trylock= ["attemptRead"; "attemptWrite"]
       ; unlock= ["release"] }
     in
+    let tmd = {def with trylock= def.trylock @ ["try_lock_for"; "try_lock_until"]} in
+    let tmdShd =
+      { shd with
+        trylock= tmd.trylock @ ["try_lock_shared"; "try_lock_shared_for"; "try_lock_shared_until"]
+      }
+    in
     [ { def with
         classname= "apache::thrift::concurrency::Monitor"
       ; trylock= "timedlock" :: def.trylock }
@@ -142,9 +148,10 @@ end = struct
     ; {def with classname= "folly::SpinLock"}
     ; {def with classname= "std::mutex"}
     ; {def with classname= "std::recursive_mutex"; recursive= true}
-    ; {def with classname= "std::recursive_timed_mutex"; recursive= true}
+    ; {tmd with classname= "std::recursive_timed_mutex"; recursive= true}
     ; {shd with classname= "std::shared_mutex"}
-    ; {def with classname= "std::timed_mutex"} ]
+    ; {tmdShd with classname= "std::shared_timed_mutex"}
+    ; {tmd with classname= "std::timed_mutex"} ]
 
 
   let is_recursive_lock_type qname =

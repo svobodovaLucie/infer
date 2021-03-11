@@ -302,22 +302,36 @@ end = struct
     [ "java.util.concurrent.locks.Lock"
     ; "java.util.concurrent.locks.ReentrantLock"
     ; "java.util.concurrent.locks.ReentrantReadWriteLock$ReadLock"
-    ; "java.util.concurrent.locks.ReentrantReadWriteLock$WriteLock" ]
+    ; "java.util.concurrent.locks.ReentrantReadWriteLock$WriteLock"
+    ; "java.util.concurrent.locks.StampedLock" ]
 
 
   let is_lock classname methodname =
     List.mem std_locks classname ~equal:String.equal
-    && List.mem ["lock"; "lockInterruptibly"] methodname ~equal:String.equal
+    && List.mem
+         [ "lock"
+         ; "lockInterruptibly"
+         ; "readLock"
+         ; "readLockInterruptibly"
+         ; "writeLock"
+         ; "writeLockInterruptibly" ]
+         methodname ~equal:String.equal
     || String.equal classname "com.facebook.buck.util.concurrent.AutoCloseableReadWriteUpdateLock"
        && List.mem ["readLock"; "updateLock"; "writeLock"] methodname ~equal:String.equal
 
 
   let is_unlock classname methodname =
-    String.equal methodname "unlock" && List.mem std_locks classname ~equal:String.equal
+    List.mem std_locks classname ~equal:String.equal
+    && List.mem
+         ["unlock"; "unlockRead"; "unlockWrite"; "tryUnlockRead"; "tryUnlockWrite"]
+         methodname ~equal:String.equal
 
 
   let is_trylock classname methodname =
-    String.equal methodname "tryLock" && List.mem std_locks classname ~equal:String.equal
+    List.mem std_locks classname ~equal:String.equal
+    && List.mem
+         ["tryLock"; "tryReadLock"; "tryWriteLock"; "tryOptimisticRead"]
+         methodname ~equal:String.equal
 
 
   let get_lock_effect pname java_pname actuals =

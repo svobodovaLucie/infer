@@ -28,7 +28,7 @@ let make_atomic_pair_loc (p : atomicPair) (loc : Location.t) : atomicPairLoc =
 
 
 (** Pushes an element into an atomic pair. *)
-let atomic_pair_push ((_, pSnd) : atomicPair) (s : string) : atomicPair = (pSnd, s)
+let atomic_pair_push ((_, pSnd) : atomicPair) : string -> atomicPair = Tuple2.create pSnd
 
 (** An empty pair of atomic functions. *)
 let emptyAtomicPair : atomicPair = ("", "")
@@ -114,10 +114,10 @@ class atomic_pairs =
       self#init ;
       let check (p : atomicPair) : unit =
         let is_pair_locked (p : atomicPair) : bool =
-          let fold ((((_, pSnd') as p'), _) : atomicPairLock) (locked : bool) : bool =
-            locked || equal_atomicPair p' p || (checkFirstEmpty && equal_atomicPair ("", pSnd') p)
-          in
-          AtomicPairLockSet.fold fold lockedLastPairs false
+          AtomicPairLockSet.fold
+            (fun ((((_, pSnd') as p'), _) : atomicPairLock) : (bool -> bool) ->
+              ( || ) (equal_atomicPair p' p || (checkFirstEmpty && equal_atomicPair ("", pSnd') p)))
+            lockedLastPairs false
         in
         if AtomicPairSet.mem p pairs && not (is_pair_locked p) then
           atomicityViolations :=
@@ -202,7 +202,7 @@ let pp (fmt : F.formatter) (astate : t) : unit =
   F.pp_print_string fmt "\n"
 
 
-let apply_call (astate : t) (f : string) (loc : Location.t) : t =
+let apply_call (f : string) (loc : Location.t) : t -> t =
   let mapper (astateEl : tElement) : tElement =
     let firstCall : string = if String.is_empty astateEl.firstCall then f else astateEl.firstCall
     and lastPair : atomicPair = atomic_pair_push astateEl.lastPair f
@@ -210,7 +210,7 @@ let apply_call (astate : t) (f : string) (loc : Location.t) : t =
     and lockedLastPairs : AtomicPairLockSet.t =
       (* Updates pairs of atomic functions. *)
       AtomicPairLockSet.map
-        (fun ((p, lock) : atomicPairLock) -> (atomic_pair_push p f, lock))
+        (fun ((p, lock) : atomicPairLock) : atomicPairLock -> (atomic_pair_push p f, lock))
         astateEl.lockedLastPairs
     in
     (* Check whether the last pair is violating atomicity. *)
@@ -220,7 +220,7 @@ let apply_call (astate : t) (f : string) (loc : Location.t) : t =
       let p : atomicPair = (lastCall, f) in
       let lockedLastPairs : AtomicPairLockSet.t =
         AtomicPairLockSet.map
-          (fun ((p', lock) : atomicPairLock) ->
+          (fun ((p', lock) : atomicPairLock) : atomicPairLock ->
             ((if String.is_empty (fst p') then p' else p), lock))
           lockedLastPairs
       in
@@ -237,10 +237,10 @@ let apply_call (astate : t) (f : string) (loc : Location.t) : t =
     ; atomicityViolations= !atomicityViolations
     ; lockedLastPairs }
   in
-  TSet.map mapper astate
+  TSet.map mapper
 
 
-let apply_lock ?(locksPaths : AccessPath.t option list = [None]) (astate : t) : t =
+let apply_lock ?(locksPaths : AccessPath.t option list = [None]) : t -> t =
   let mapper (astateEl : tElement) : tElement =
     let lockedLastPairs : AtomicPairLockSet.t =
       let fold (lockedLastPairs' : AtomicPairLockSet.t) (path : AccessPath.t option) :
@@ -262,10 +262,10 @@ let apply_lock ?(locksPaths : AccessPath.t option list = [None]) (astate : t) : 
     in
     {astateEl with lockedLastPairs}
   in
-  TSet.map mapper astate
+  TSet.map mapper
 
 
-let apply_unlock ?(locksPaths : AccessPath.t option list = [None]) (astate : t) : t =
+let apply_unlock ?(locksPaths : AccessPath.t option list = [None]) : t -> t =
   let mapper (astateEl : tElement) : tElement =
     let lockedLastPairs : AtomicPairLockSet.t =
       let mapper ((p, lock) as pairLock : atomicPairLock) : atomicPairLock =
@@ -280,10 +280,10 @@ let apply_unlock ?(locksPaths : AccessPath.t option list = [None]) (astate : t) 
     in
     {astateEl with lockedLastPairs}
   in
-  TSet.map mapper astate
+  TSet.map mapper
 
 
-let report_atomicity_violations (astate : t) ~f:(report : Location.t -> msg:string -> unit) : unit =
+let report_atomicity_violations ~f:(report : Location.t -> string -> unit) : t -> unit =
   (* Report atomicity violations from atomicity violations stored in the abstract state. *)
   let iterator (astateEl : tElement) : unit =
     let iterator (p : atomicPairLoc) : unit =
@@ -298,11 +298,11 @@ let report_atomicity_violations (astate : t) ~f:(report : Location.t -> msg:stri
             F.asprintf "Atomicity Violation! - Function '%s' should be called atomically."
               (if String.is_empty fst then snd else fst)
         in
-        report loc ~msg
+        report loc msg
     in
     AtomicPairLocSet.iter iterator astateEl.atomicityViolations
   in
-  TSet.iter iterator astate
+  TSet.iter iterator
 
 
 (* ************************************ Operators *********************************************** *)
@@ -349,10 +349,10 @@ module Summary = struct
     {firstCalls= !firstCalls; lastCalls= !lastCalls}
 end
 
-let apply_summary (astate : t) (summary : Summary.t) (loc : Location.t) : t =
+let apply_summary (summary : Summary.t) (loc : Location.t) : t -> t =
   (* Add the last calls from a given summary to the nested last calls of the abstract state and
      check for atomicity violations with the first calls of a given summary. *)
-  if SSet.is_empty summary.firstCalls && SSet.is_empty summary.lastCalls then astate
+  if SSet.is_empty summary.firstCalls && SSet.is_empty summary.lastCalls then Fn.id
   else
     let mapper (astateEl : tElement) : tElement =
       let atomicityViolations : AtomicPairLocSet.t ref = ref astateEl.atomicityViolations
@@ -369,4 +369,4 @@ let apply_summary (astate : t) (summary : Summary.t) (loc : Location.t) : t =
       SSet.iter iterator summary.firstCalls ;
       {astateEl with nestedLastCalls= summary.lastCalls; atomicityViolations= !atomicityViolations}
     in
-    TSet.map mapper astate
+    TSet.map mapper

@@ -15,9 +15,8 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
 
   type analysis_data = Domain.Summary.t InterproceduralAnalysis.t
 
-  let exec_instr (astate : Domain.t) (analysis_data : analysis_data) (_ : CFG.Node.t)
-      (instr : HilInstr.t) : Domain.t =
-    match instr with
+  let exec_instr (astate : Domain.t) (analysis_data : analysis_data) (_ : CFG.Node.t) :
+      HilInstr.t -> Domain.t = function
     | Call
         ( (_ : AccessPath.base)
         , (Direct (calleePname : Procname.t) : HilInstr.call)
@@ -51,11 +50,11 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
           astate
       (* function call *)
       | NoEffect -> (
-          let astate : Domain.t = Domain.apply_call astate (Procname.to_string calleePname) loc in
+          let astate : Domain.t = Domain.apply_call (Procname.to_string calleePname) loc astate in
           (* Update the abstract state with the function summary as well if it is possible. *)
           match analysis_data.analyze_dependency calleePname with
           | Some ((_ : Procdesc.t), (summary : Domain.Summary.t)) ->
-              Domain.apply_summary astate summary loc
+              Domain.apply_summary summary loc astate
           | None ->
               astate )
       | _ ->
@@ -91,9 +90,11 @@ let analyse_procedure (analysis_data : Domain.Summary.t InterproceduralAnalysis.
           Domain.Summary.pp summary ;
         L.(debug Capture Verbose) "%s" (F.flush_str_formatter ()) ;
         (* Report atomicity violations. *)
-        Domain.report_atomicity_violations post ~f:(fun (loc : Location.t) ~(msg : string) ->
+        Domain.report_atomicity_violations
+          ~f:(fun (loc : Location.t) : (string -> unit) ->
             Reporting.log_issue analysis_data.proc_desc analysis_data.err_log ~loc
-              AtomicityViolations IssueType.atomicity_violation msg) ;
+              AtomicityViolations IssueType.atomicity_violation)
+          post ;
         Some summary
     | None ->
         L.(die InternalError)

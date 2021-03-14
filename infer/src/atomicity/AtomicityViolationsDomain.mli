@@ -18,7 +18,7 @@ include AbstractDomain.S with type t := t
 val initial : t
 (** An initial abstract state of an analysed function. *)
 
-val apply_call : t -> string -> Location.t -> t
+val apply_call : string -> Location.t -> t -> t
 (** Updates an abstract state on a function call. *)
 
 val apply_lock : ?locksPaths:AccessPath.t option list -> t -> t
@@ -27,7 +27,7 @@ val apply_lock : ?locksPaths:AccessPath.t option list -> t -> t
 val apply_unlock : ?locksPaths:AccessPath.t option list -> t -> t
 (** Updates an abstract state on an unlock call. *)
 
-val report_atomicity_violations : t -> f:(Location.t -> msg:string -> unit) -> unit
+val report_atomicity_violations : f:(Location.t -> string -> unit) -> t -> unit
 (** Reports atomicity violations from an abstract state using reporting function. *)
 
 (* ************************************ Summary ************************************************* *)
@@ -43,5 +43,5 @@ module Summary : sig
   (** Converts an abstract state to a summary. *)
 end
 
-val apply_summary : t -> Summary.t -> Location.t -> t
+val apply_summary : Summary.t -> Location.t -> t -> t
 (** Updates an abstract state on a function call with its summary. *)

@@ -120,24 +120,25 @@ let update_astate_el_after_calls (astateEl : tElement) : tElement =
   {astateEl with callsPairs; finalCallsPairs= !finalCallsPairs}
 
 
-let apply_call (astate : t) (f : string) : t =
+let apply_call (f : string) : t -> t =
   let mapper (astateEl : tElement) : tElement =
     let calls : SSet.t = SSet.add f astateEl.calls
     and callsPairs : CallsPairLockSet.t =
       CallsPairLockSet.map
-        (fun (((pFst, pSnd), lock) : callsPairLock) -> ((pFst, SSet.add f pSnd), lock))
+        (fun (((pFst, pSnd), lock) : callsPairLock) : callsPairLock ->
+          ((pFst, SSet.add f pSnd), lock))
         astateEl.callsPairs
     and allOccurrences : SSet.t list =
-      List.mapi astateEl.allOccurrences ~f:(fun (i : int) (occurrences : SSet.t) ->
-          if Int.equal i 0 then SSet.add f occurrences else occurrences)
+      List.mapi astateEl.allOccurrences ~f:(fun (i : int) : (SSet.t -> SSet.t) ->
+          if Int.equal i 0 then SSet.add f else Fn.id)
     in
     (* Update the calls and the calls pairs and the all occurrences. *)
     update_astate_el_after_calls {astateEl with calls; callsPairs; allOccurrences}
   in
-  TSet.map mapper astate
+  TSet.map mapper
 
 
-let apply_lock ?(locksPaths : AccessPath.t option list = [None]) (astate : t) : t =
+let apply_lock ?(locksPaths : AccessPath.t option list = [None]) : t -> t =
   let mapper (astateEl : tElement) : tElement =
     let lockAppended : bool ref = ref false in
     let callsPairs : CallsPairLockSet.t =
@@ -163,10 +164,10 @@ let apply_lock ?(locksPaths : AccessPath.t option list = [None]) (astate : t) : 
     (* Clear the calls and update the calls pairs. *)
     {astateEl with calls; callsPairs}
   in
-  TSet.map mapper astate
+  TSet.map mapper
 
 
-let apply_unlock ?(locksPaths : AccessPath.t option list = [None]) (astate : t) : t =
+let apply_unlock ?(locksPaths : AccessPath.t option list = [None]) : t -> t =
   let mapper (astateEl : tElement) : tElement =
     let lockRemoved : bool ref = ref false
     and finalCallsPairs : CallsPairSet.t ref = ref astateEl.finalCallsPairs in
@@ -186,14 +187,15 @@ let apply_unlock ?(locksPaths : AccessPath.t option list = [None]) (astate : t) 
     (* Clear the calls, update the calls pairs and the final calls pairs. *)
     {astateEl with calls; callsPairs; finalCallsPairs= !finalCallsPairs}
   in
-  TSet.map mapper astate
+  TSet.map mapper
 
 
-let update_at_the_end_of_function (astate : t) : t =
+let update_at_the_end_of_function : t -> t =
   let mapper (astateEl : tElement) : tElement =
     let finalCallsPairs : CallsPairSet.t ref = ref astateEl.finalCallsPairs in
     CallsPairLockSet.iter
-      (fun ((p, _) : callsPairLock) -> finalCallsPairs := CallsPairSet.add p !finalCallsPairs)
+      (fun ((p, _) : callsPairLock) : unit ->
+        finalCallsPairs := CallsPairSet.add p !finalCallsPairs)
       astateEl.callsPairs ;
     if not (SSet.is_empty astateEl.calls) then
       finalCallsPairs := CallsPairSet.add (astateEl.calls, SSet.empty) !finalCallsPairs ;
@@ -203,7 +205,7 @@ let update_at_the_end_of_function (astate : t) : t =
     ; callsPairs= CallsPairLockSet.empty
     ; finalCallsPairs= !finalCallsPairs }
   in
-  TSet.map mapper astate
+  TSet.map mapper
 
 
 (* ************************************ Operators *********************************************** *)
@@ -263,8 +265,8 @@ module Summary = struct
         allOccurrences :=
           match List.nth !allOccurrences i with
           | Some (_ : SSet.t) ->
-              let mapper (j : int) (jOccurrences : SSet.t) : SSet.t =
-                if Int.equal i j then SSet.union jOccurrences occurrences else jOccurrences
+              let mapper (j : int) : SSet.t -> SSet.t =
+                if Int.equal i j then SSet.union occurrences else Fn.id
               in
               List.mapi !allOccurrences ~f:mapper
           | None ->
@@ -290,11 +292,11 @@ module Summary = struct
       Out_channel.newline oc ;
       ( SSSet.cardinal summary.atomicFunctions
       , SSSet.fold
-          (fun (atomicFunctions : SSet.t) (sum : int) -> sum + SSet.cardinal atomicFunctions)
+          (fun (atomicFunctions : SSet.t) : (int -> int) -> ( + ) (SSet.cardinal atomicFunctions))
           summary.atomicFunctions 0 ) )
 end
 
-let apply_summary (astate : t) (summary : Summary.t) : t =
+let apply_summary (summary : Summary.t) : t -> t =
   (* Adds all occurrences from a given summary to the calls pairs and to the calls of each element
      of the abstract state. And merges all occurrences from a given summary with the all occurrences
      of each element of the abstract state. *)
@@ -306,8 +308,8 @@ let apply_summary (astate : t) (summary : Summary.t) : t =
         allOccurrences :=
           match List.nth !allOccurrences (i + 1) with
           | Some (_ : SSet.t) ->
-              let mapper (j : int) (jOccurrences : SSet.t) : SSet.t =
-                if Int.equal (i + 1) j then SSet.union jOccurrences occurrences else jOccurrences
+              let mapper (j : int) : SSet.t -> SSet.t =
+                if Int.equal (i + 1) j then SSet.union occurrences else Fn.id
               in
               List.mapi !allOccurrences ~f:mapper
           | None ->
@@ -320,11 +322,11 @@ let apply_summary (astate : t) (summary : Summary.t) : t =
     let calls : SSet.t = SSet.union astateEl.calls !joinedAllOccurrences
     and callsPairs : CallsPairLockSet.t =
       CallsPairLockSet.map
-        (fun (((pFst, pSnd), lock) : callsPairLock) ->
+        (fun (((pFst, pSnd), lock) : callsPairLock) : callsPairLock ->
           ((pFst, SSet.union pSnd !joinedAllOccurrences), lock))
         astateEl.callsPairs
     in
     (* Update the calls and the calls pairs and the all occurrences. *)
     update_astate_el_after_calls {astateEl with calls; callsPairs; allOccurrences= !allOccurrences}
   in
-  TSet.map mapper astate
+  TSet.map mapper

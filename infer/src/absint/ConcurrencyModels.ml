@@ -170,10 +170,10 @@ end = struct
     fun pname -> QualifiedCppName.Match.match_qualifiers matcher (Procname.get_qualifiers pname)
 
 
-  let ( is_lock
-      , is_unlock
-      , is_trylock
-      , is_std_lock
+  let ( (is_lock : Procname.t -> bool)
+      , (is_unlock : Procname.t -> bool)
+      , (is_trylock : Procname.t -> bool)
+      , (is_std_lock : Procname.t -> bool)
       , (is_std_trylock : Procname.t -> bool)
       , (is_pthread_lock : Procname.t -> bool)
       , (is_pthread_unlock : Procname.t -> bool)

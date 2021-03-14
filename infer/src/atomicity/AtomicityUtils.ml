@@ -112,7 +112,7 @@ class functions_from_file (file : string option) =
     (** Checks whether a given function is on the list of functions. *)
     method contains (f : string) : bool =
       self#init ;
-      List.exists functions ~f:(fun (r : Str.regexp) -> Str.string_match r f 0)
+      List.exists functions ~f:(fun (r : Str.regexp) : bool -> Str.string_match r f 0)
   end
 
 (** An instance of the 'functions_from_file' class that holds functions whose calls should be
@@ -182,7 +182,7 @@ let f_is_ignored ?actuals:(actualsOpt : HilExp.t list option = None) (f : Procna
   else false
 
 
-let get_locks_paths (locks : HilExp.t list) : AccessPath.t option list =
+let get_locks_paths : HilExp.t list -> AccessPath.t option list =
   let mapper (lock : HilExp.t) : AccessPath.t option =
     match HilExp.get_access_exprs lock with
     | (exp :: _ : HilExp.AccessExpression.t list) ->
@@ -190,4 +190,4 @@ let get_locks_paths (locks : HilExp.t list) : AccessPath.t option list =
     | _ ->
         None
   in
-  List.map locks ~f:mapper
+  List.map ~f:mapper

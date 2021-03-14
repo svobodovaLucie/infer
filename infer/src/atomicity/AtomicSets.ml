@@ -15,9 +15,8 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
 
   type analysis_data = Domain.Summary.t InterproceduralAnalysis.t
 
-  let exec_instr (astate : Domain.t) (analysis_data : analysis_data) (_ : CFG.Node.t)
-      (instr : HilInstr.t) : Domain.t =
-    match instr with
+  let exec_instr (astate : Domain.t) (analysis_data : analysis_data) (_ : CFG.Node.t) :
+      HilInstr.t -> Domain.t = function
     | Call
         ( (_ : AccessPath.base)
         , (Direct (calleePname : Procname.t) : HilInstr.call)
@@ -51,11 +50,11 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
           astate
       (* function call *)
       | NoEffect -> (
-          let astate : Domain.t = Domain.apply_call astate (Procname.to_string calleePname) in
+          let astate : Domain.t = Domain.apply_call (Procname.to_string calleePname) astate in
           (* Update the abstract state with the function summary as well if it is possible. *)
           match analysis_data.analyze_dependency calleePname with
           | Some ((_ : Procdesc.t), (summary : Domain.Summary.t)) ->
-              Domain.apply_summary astate summary
+              Domain.apply_summary summary astate
           | None ->
               astate )
       | _ ->

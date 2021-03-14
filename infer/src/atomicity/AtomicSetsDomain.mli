@@ -18,7 +18,7 @@ include AbstractDomain.S with type t := t
 val initial : t
 (** An initial abstract state of an analysed function. *)
 
-val apply_call : t -> string -> t
+val apply_call : string -> t -> t
 (** Updates an abstract state on a function call. *)
 
 val apply_lock : ?locksPaths:AccessPath.t option list -> t -> t
@@ -48,5 +48,5 @@ module Summary : sig
       functions at total. *)
 end
 
-val apply_summary : t -> Summary.t -> t
+val apply_summary : Summary.t -> t -> t
 (** Updates an abstract state on a function call with its summary. *)

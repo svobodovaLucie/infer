@@ -85,7 +85,7 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
       actuals loc (astate : Domain.t) =
     let open Domain in
     match ConcurrencyModels.get_lock_effect callee_pname actuals with
-    | Lock _ | GuardLock _ | GuardConstruct {acquire_now= true} ->
+    | Lock (_ : HilExp.t list) | GuardLock (_ : HilExp.t) | GuardConstruct {strategy= Default} ->
         { astate with
           locks= LockDomain.acquire_lock astate.locks
         ; threads= ThreadsDomain.update_for_lock_use astate.threads }
@@ -93,12 +93,15 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
         { astate with
           locks= LockDomain.release_lock astate.locks
         ; threads= ThreadsDomain.update_for_lock_use astate.threads }
+    | GuardRelease (_ : HilExp.t) ->
+        (* TODO: guard release *)
+        astate
     | LockedIfTrue _ | GuardLockedIfTrue _ ->
         let attribute_map =
           AttributeMapDomain.add ret_access_exp Attribute.LockHeld astate.attribute_map
         in
         {astate with attribute_map; threads= ThreadsDomain.update_for_lock_use astate.threads}
-    | GuardConstruct {acquire_now= false} ->
+    | GuardConstruct {strategy: guard_strategy = _} ->
         astate
     | NoEffect ->
         process_call_summary analyze_dependency tenv formals ret_access_exp callee_pname actuals loc

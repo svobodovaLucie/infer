@@ -302,10 +302,11 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
             do_lock locks loc astate
         | GuardLock guard ->
             Domain.lock_guard tenv astate guard ~procname ~loc
-        | GuardConstruct {guard; lock; acquire_now} -> (
-          match get_lock_path lock with
+        | GuardConstruct {guard: HilExp.t; locks: HilExp.t list; strategy: guard_strategy} -> (
+          match get_lock_path (List.hd_exn locks) with
           | Some lock_path ->
-              Domain.add_guard tenv astate guard lock_path ~acquire_now ~procname ~loc
+              Domain.add_guard tenv astate guard lock_path
+                ~acquire_now:(phys_equal strategy Default) ~procname ~loc
           | None ->
               log_parse_error "Couldn't parse lock in guard constructor" callee actuals ;
               astate )
@@ -313,6 +314,9 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
             do_unlock locks astate
         | GuardUnlock guard ->
             Domain.unlock_guard astate guard
+        | GuardRelease (_ : HilExp.t) ->
+            (* TODO: guard release *)
+            astate
         | GuardDestroy guard ->
             Domain.remove_guard astate guard
         | LockedIfTrue _ | GuardLockedIfTrue _ ->

@@ -18,16 +18,25 @@ include AbstractDomain.S with type t := t
 val initial : t
 (** An initial abstract state of an analysed function. *)
 
-val apply_call : string -> Location.t -> t -> t
+val apply_call : fName:string -> Location.t -> t -> t
 (** Updates an abstract state on a function call. *)
 
-val apply_lock : ?locksPaths:AccessPath.t option list -> t -> t
+val apply_locks : AccessPath.t list -> t -> t
 (** Updates an abstract state on a lock call. *)
 
-val apply_unlock : ?locksPaths:AccessPath.t option list -> t -> t
+val apply_unlocks : AccessPath.t list -> t -> t
 (** Updates an abstract state on an unlock call. *)
 
-val report_atomicity_violations : f:(Location.t -> string -> unit) -> t -> unit
+val apply_guard_construct : AccessPath.t -> AccessPath.t list -> acquire:bool -> t -> t
+(** Updates an abstract state on a lock guard constructor call. *)
+
+val apply_guard_release : AccessPath.t -> t -> t
+(** Updates an abstract state on a lock guard release call. *)
+
+val apply_guard_destroy : AccessPath.t -> t -> t
+(** Updates an abstract state on a lock guard destructor call. *)
+
+val report_atomicity_violations : f:(Location.t -> msg:string -> unit) -> t -> unit
 (** Reports atomicity violations from an abstract state using reporting function. *)
 
 (* ************************************ Summary ************************************************* *)
@@ -39,7 +48,7 @@ module Summary : sig
 
   include PrettyPrintable.PrintableType with type t := t
 
-  val make : astate -> t
+  val create : astate -> t
   (** Converts an abstract state to a summary. *)
 end
 

@@ -7,22 +7,31 @@
 
 open! IStd
 
+(** A locking strategy of lock guards (clang only). *)
+type guard_strategy =
+  | Default  (** Acquires ownership of the associated locks. *)
+  | TryToLock  (** Try to acquire ownership of the associated locks without blocking. *)
+  | DeferLock  (** Do not acquire ownership of the associated locks. *)
+  | AdoptLock  (** Assume the calling thread already has ownership of the associated locks. *)
+
 (** effect of call plus Hil expressions being un/locked, if known *)
 type lock_effect =
   | Lock of HilExp.t list  (** simultaneously acquire a list of locks *)
   | Unlock of HilExp.t list  (** simultaneously release a list of locks *)
   | LockedIfTrue of HilExp.t list  (** simultaneously attempt to acquire a list of locks *)
-  | GuardConstruct of {guard: HilExp.t; lock: HilExp.t; acquire_now: bool}
+  | GuardConstruct of {guard: HilExp.t; locks: HilExp.t list; strategy: guard_strategy}
       (** mutex guard construction - clang only *)
   | GuardLock of HilExp.t  (** lock underlying mutex via guard - clang only *)
   | GuardLockedIfTrue of HilExp.t  (** lock underlying mutex if true via guard - clang only *)
   | GuardUnlock of HilExp.t  (** unlock underlying mutex via guard - clang only *)
+  | GuardRelease of HilExp.t
+      (** breaks the association of the locks in a guard, no locks are unlocked - clang only *)
   | GuardDestroy of HilExp.t  (** destroy guard and unlock underlying mutex - clang only *)
   | NoEffect  (** function call has no lock-relevant effect *)
 
 type thread = BackgroundThread | MainThread | MainThreadIfTrue | UnknownThread
 
-val get_lock_effect : Procname.t -> HilExp.t list -> lock_effect
+val get_lock_effect : ?tenv:Tenv.t option -> Procname.t -> HilExp.t list -> lock_effect
 (** describe how this procedure behaves with respect to locking *)
 
 val get_thread_assert_effect : Procname.t -> thread

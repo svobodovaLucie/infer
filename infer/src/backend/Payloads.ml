@@ -64,9 +64,10 @@ let fields =
     ~starvation:(fun f -> mk f "Starvation" StarvationDomain.pp_summary)
     ~nullsafe:(fun f -> mk f "Nullsafe" NullsafeSummary.pp)
     ~uninit:(fun f -> mk f "Uninitialised" UninitDomain.Summary.pp)
-    ~atomic_sets:(fun (f : (t, AtomicSetsDomain.Summary.t option) Field.t) ->
+    ~atomic_sets:(fun (f : (t, AtomicSetsDomain.Summary.t option) Field.t) : field ->
       mk f "AtomicSets" AtomicSetsDomain.Summary.pp)
-    ~atomicity_violations:(fun (f : (t, AtomicityViolationsDomain.Summary.t option) Field.t) ->
+    ~atomicity_violations:
+      (fun (f : (t, AtomicityViolationsDomain.Summary.t option) Field.t) : field ->
       mk f "AtomicityViolations" AtomicityViolationsDomain.Summary.pp)
 
 

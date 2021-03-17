@@ -326,9 +326,9 @@ let report_atomicity_violations ~(f : Location.t -> msg:string -> unit) : t -> u
 
 (* ************************************ Operators *********************************************** *)
 
-let leq ~lhs:(l : t) ~rhs:(r : t) : bool =
+let leq ~(lhs : t) ~(rhs : t) : bool =
   (* The lhs is less or equal to the rhs if the lhs is a subset of the rhs. *)
-  if phys_equal l r then true else TSet.subset l r
+  if phys_equal lhs rhs then true else TSet.subset lhs rhs
 
 
 let join (astate1 : t) (astate2 : t) : t =
@@ -336,9 +336,11 @@ let join (astate1 : t) (astate2 : t) : t =
   if phys_equal astate1 astate2 then astate1 else TSet.union astate1 astate2
 
 
-let widen ~prev:(p : t) ~next:(n : t) ~num_iters:(i : int) : t =
+let widen ~(prev : t) ~(next : t) ~(num_iters : int) : t =
   (* Join previous and next abstract states. *)
-  if phys_equal p n then p else if i <= Config.atomicity_violations_widen_limit then join p n else p
+  if phys_equal prev next then prev
+  else if num_iters <= Config.atomicity_violations_widen_limit then join prev next
+  else prev
 
 
 (* ************************************ Summary ************************************************* *)

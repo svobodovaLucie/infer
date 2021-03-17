@@ -472,9 +472,9 @@ let config_unsafe checker =
                 "See https://github.com/harmim/infer/wiki/Atomer:-Atomicity-Violations-Analyser." }
       ; support= supports_clang_and_java
       ; short_documentation= title
-      ; cli_flags= Some {deprecated= []; show_in_help= true}
+      ; cli_flags= Some {deprecated: string list = []; show_in_help= true}
       ; enabled_by_default= false
-      ; activates= [] }
+      ; activates: t list = [] }
   | AtomicityViolations ->
       let title : string = "Atomicity violations analysis - detection of atomicity violations." in
       { id= "atomicity-violations"
@@ -485,9 +485,9 @@ let config_unsafe checker =
                 "See https://github.com/harmim/infer/wiki/Atomer:-Atomicity-Violations-Analyser." }
       ; support= supports_clang_and_java
       ; short_documentation= title
-      ; cli_flags= Some {deprecated= []; show_in_help= true}
+      ; cli_flags= Some {deprecated: string list = []; show_in_help= true}
       ; enabled_by_default= false
-      ; activates= [] }
+      ; activates: t list = [] }
 
 
 let config c =

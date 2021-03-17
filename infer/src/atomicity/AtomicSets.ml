@@ -112,7 +112,7 @@ let analyse_procedure (analysis_data : Domain.Summary.t InterproceduralAnalysis.
         let fmt : F.formatter = F.str_formatter and (_ : string) = F.flush_str_formatter () in
         F.fprintf fmt "\n\nFunction: %a\n%a%a\n\n" Procname.pp pName Domain.pp updatedPost
           Domain.Summary.pp summary ;
-        L.(debug Capture Verbose) "%s" (F.flush_str_formatter ()) ;
+        L.debug Capture Verbose "%s" (F.flush_str_formatter ()) ;
         Some summary
     | None ->
         L.die InternalError "The detection of atomic sets failed to compute a post for '%a'."

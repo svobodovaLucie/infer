@@ -240,9 +240,9 @@ let update_at_the_end_of_function : t -> t =
 
 (* ************************************ Operators *********************************************** *)
 
-let leq ~lhs:(l : t) ~rhs:(r : t) : bool =
+let leq ~(lhs : t) ~(rhs : t) : bool =
   (* The lhs is less or equal to the rhs if lhs is a subset of the rhs. *)
-  if phys_equal l r then true else TSet.subset l r
+  if phys_equal lhs rhs then true else TSet.subset lhs rhs
 
 
 let join (astate1 : t) (astate2 : t) : t =
@@ -250,9 +250,11 @@ let join (astate1 : t) (astate2 : t) : t =
   if phys_equal astate1 astate2 then astate1 else TSet.union astate1 astate2
 
 
-let widen ~prev:(p : t) ~next:(n : t) ~num_iters:(i : int) : t =
+let widen ~(prev : t) ~(next : t) ~(num_iters : int) : t =
   (* Join previous and next abstract states. *)
-  if phys_equal p n then p else if i <= Config.atomic_sets_widen_limit then join p n else p
+  if phys_equal prev next then prev
+  else if num_iters <= Config.atomic_sets_widen_limit then join prev next
+  else prev
 
 
 (* ************************************ Summary ************************************************* *)
@@ -267,7 +269,7 @@ module Summary = struct
     let print_atomic_functions (atomicFunctions : SSet.t) : unit =
       F.fprintf fmt "{%s}" (String.concat (SSet.elements atomicFunctions) ~sep:", ") ;
       if not (SSet.equal atomicFunctions (Option.value_exn lastAtomicFunctions)) then
-        F.pp_print_string fmt " "
+        F.pp_print_char fmt ' '
     in
     F.pp_print_string fmt "atomicFunctions: " ;
     SSSet.iter print_atomic_functions summary.atomicFunctions ;
@@ -296,10 +298,8 @@ module Summary = struct
         allOccurrences :=
           match List.nth !allOccurrences i with
           | Some (_ : SSet.t) ->
-              let mapper (j : int) : SSet.t -> SSet.t =
-                if Int.equal i j then SSet.union occurrences else Fn.id
-              in
-              List.mapi !allOccurrences ~f:mapper
+              List.mapi !allOccurrences ~f:(fun (j : int) : (SSet.t -> SSet.t) ->
+                  if Int.equal i j then SSet.union occurrences else Fn.id)
           | None ->
               if SSet.is_empty occurrences then !allOccurrences else !allOccurrences @ [occurrences]
       in
@@ -317,7 +317,7 @@ module Summary = struct
       let print_atomic_functions (atomicFunctions : SSet.t) : unit =
         Out_channel.fprintf oc "{%s}" (String.concat (SSet.elements atomicFunctions) ~sep:", ") ;
         if not (SSet.equal atomicFunctions (Option.value_exn lastAtomicFunctions)) then
-          Out_channel.output_string oc " "
+          Out_channel.output_char oc ' '
       in
       SSSet.iter print_atomic_functions summary.atomicFunctions ;
       Out_channel.newline oc ;
@@ -339,10 +339,8 @@ let apply_summary (summary : Summary.t) : t -> t =
         allOccurrences :=
           match List.nth !allOccurrences (i + 1) with
           | Some (_ : SSet.t) ->
-              let mapper (j : int) : SSet.t -> SSet.t =
-                if Int.equal (i + 1) j then SSet.union occurrences else Fn.id
-              in
-              List.mapi !allOccurrences ~f:mapper
+              List.mapi !allOccurrences ~f:(fun (j : int) : (SSet.t -> SSet.t) ->
+                  if Int.equal (i + 1) j then SSet.union occurrences else Fn.id)
           | None ->
               if SSet.is_empty occurrences then !allOccurrences else !allOccurrences @ [occurrences]
       ) ;

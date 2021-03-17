@@ -38,10 +38,10 @@ module Lock = struct
   let is_top : t -> bool = Fn.compose (Int.equal top) snd
 
   let pp (fmt : F.formatter) ((path, _) as lock : t) : unit =
-    let pp_level (fmt : F.formatter) (lock : t) : unit =
+    let pp_level (fmt : F.formatter) ((_, level) as lock : t) : unit =
       if is_bot lock then F.pp_print_string fmt SpecialChars.up_tack
       else if is_top lock then F.pp_print_string fmt SpecialChars.down_tack
-      else F.pp_print_int fmt (snd lock)
+      else F.pp_print_int fmt level
     in
     F.fprintf fmt "%a (%a): " AccessPath.pp path pp_level lock
 
@@ -134,10 +134,10 @@ class functions_from_file (file : string option) =
             ) ;
             let ic : In_channel.t = In_channel.create ~binary:false file
             and iterator (l : string) : unit =
-              let l : string = String.strip l in
+              let l : string = String.strip l and regexp : string = "^R[ \t]+" in
               if is_line_empty l then ()
-              else if Str.string_match (Str.regexp "^R[ \t]+") l 0 then
-                let pattern : string = Str.replace_first (Str.regexp "^R[ \t]+") "" l in
+              else if Str.string_match (Str.regexp regexp) l 0 then
+                let pattern : string = Str.replace_first (Str.regexp regexp) "" l in
                 functions <- functions @ [Str.regexp_case_fold (".*" ^ pattern ^ ".*")]
               else functions <- functions @ [Str.regexp_string l]
             in

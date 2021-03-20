@@ -41,6 +41,8 @@ type id =
   | Temporary  (** directory containing temp files *)
   | TestDeterminatorReport  (** the report produced by the test determinator capture mode *)
   | TestDeterminatorTempResults  (** a directory *)
+  | AtomicityViolationsIssues
+      (** a directory of issues reported by the atomicity violations analysis *)
 
 val get_path : results_dir:string -> id -> string
 (** the absolute path for the given entry *)

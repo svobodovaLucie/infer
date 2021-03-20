@@ -111,12 +111,36 @@ let analyse_procedure (analysis_data : Domain.Summary.t InterproceduralAnalysis.
         F.fprintf fmt "\n\nFunction: %a\n%a%a\n\n" Procname.pp pName Domain.pp post
           Domain.Summary.pp summary ;
         L.debug Capture Verbose "%s" (F.flush_str_formatter ()) ;
-        (* Report atomicity violations. *)
-        Domain.report_atomicity_violations post ~f:(fun (loc : Location.t) ~(msg : string) : unit ->
-            Reporting.log_issue analysis_data.proc_desc analysis_data.err_log ~loc
-              AtomicityViolations IssueType.atomicity_violation msg) ;
         Some summary
     | None ->
         L.die InternalError
           "The detection of atomicity violations failed to compute a post for '%a'." Procname.pp
           pName
+
+
+let report_atomicity_violations (analysis_data : Domain.Summary.t InterproceduralAnalysis.file_t) :
+    IssueLog.t =
+  let summaries : (Procname.t * Domain.Summary.t) list =
+    let mapper (pName : Procname.t) : (Procname.t * Domain.Summary.t) option =
+      match analysis_data.analyze_file_dependency pName with
+      | Some ((_ : Procdesc.t), (summary : Domain.Summary.t)) ->
+          Some (pName, summary)
+      | None ->
+          None
+    in
+    List.filter_map ~f:mapper analysis_data.procedures
+  in
+  let fold (issueLog : IssueLog.t) ((pName : Procname.t), (summary : Domain.Summary.t)) : IssueLog.t
+      =
+    if not (Domain.Summary.is_top_level_fun pName summaries) then issueLog
+    else
+      (* Report atomicity violations. *)
+      let report (loc : Location.t) ~(msg : string) (issueType : IssueType.t)
+          (issueLog : IssueLog.t) : IssueLog.t =
+        Reporting.log_issue_external pName ~issue_log:issueLog ~loc
+          ~ltr:[Errlog.make_trace_element 0 loc msg []]
+          AtomicityViolations issueType msg
+      in
+      Domain.Summary.report_atomicity_violations summary issueLog ~f:report
+  in
+  List.fold summaries ~init:IssueLog.empty ~f:fold

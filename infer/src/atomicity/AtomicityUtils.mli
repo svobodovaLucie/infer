@@ -14,10 +14,7 @@ module SSet : module type of Set.Make (String)
 (** A module that represents a lock's access path with the number of times the lock has been
     acquired. *)
 module Lock : sig
-  (** A representation of a lock. *)
-  type t [@@deriving compare, equal]
-
-  include PrettyPrintable.PrintableType with type t := t
+  include PrettyPrintable.PrintableEquatableOrderedType
 
   val lock : t -> t
   (** Increases the number of times the lock has been acquired. *)
@@ -37,10 +34,7 @@ end
 
 (** A module that represents associations between lock guards and locks. *)
 module Guards : sig
-  (** A representation of associations between lock guards and locks. *)
-  type t [@@deriving compare, equal]
-
-  include PrettyPrintable.PrintableType with type t := t
+  include PrettyPrintable.PrintableEquatableOrderedType
 
   val empty : t
   (** Creates an empty module. *)
@@ -59,9 +53,6 @@ module Guards : sig
 end
 
 (* ************************************ Constants *********************************************** *)
-
-val inferDir : string
-(** The Infer work directory. *)
 
 val atomicSetsFile : string
 (** A file for storing atomic sets. *)

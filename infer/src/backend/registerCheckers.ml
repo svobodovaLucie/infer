@@ -221,8 +221,11 @@ let all_checkers =
         (let checker : callback_fun =
            interprocedural Payloads.Fields.atomicity_violations
              AtomicityViolations.analyse_procedure
+         and checkerFile : callback_fun =
+           file AtomicityViolationsIssues Payloads.Fields.atomicity_violations
+             AtomicityViolations.report_atomicity_violations
          in
-         [(checker, Clang); (checker, Java)]) } ]
+         [(checker, Clang); (checker, Java); (checkerFile, Clang); (checkerFile, Java)]) } ]
 
 
 let get_active_checkers () =

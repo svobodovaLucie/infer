@@ -396,4 +396,6 @@ val is_autoreleasepool_size_issue : t -> bool
 
 module Map : PrettyPrintable.PPMap with type key = t
 
-val atomicity_violation : t
+val atomicity_violation_error : t
+
+val atomicity_violation_warning : t

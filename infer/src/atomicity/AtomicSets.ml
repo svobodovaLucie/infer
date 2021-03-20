@@ -119,10 +119,8 @@ let analyse_procedure (analysis_data : Domain.Summary.t InterproceduralAnalysis.
           Procname.pp pName
 
 
-let print_atomic_sets (analysis_data : AtomicSetsDomain.Summary.t InterproceduralAnalysis.file_t) :
-    IssueLog.t =
-  (* Create a directory for printing. *)
-  Utils.create_dir inferDir ;
+let print_atomic_sets (analysis_data : Domain.Summary.t InterproceduralAnalysis.file_t) : IssueLog.t
+    =
   (* Print to a file. *)
   let oc : Out_channel.t =
     Out_channel.create ~binary:false ~append:Config.atomic_sets_file_append ~fail_if_exists:false

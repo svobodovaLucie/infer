@@ -10,16 +10,16 @@ module Set = Caml.Set
 (* ************************************ Types *************************************************** *)
 
 (** A pair of sets of calls. Calls without a lock followed by calls with a lock. *)
-type callsPair = SSet.t * SSet.t [@@deriving compare, equal]
+type calls_pair = SSet.t * SSet.t [@@deriving compare, equal]
 
 (** A pair of sets of calls with a lock. *)
-type callsPairLock = callsPair * Lock.t [@@deriving compare, equal]
+type calls_pair_lock = calls_pair * Lock.t [@@deriving compare, equal]
 
 (* ************************************ Modules ************************************************* *)
 
 (** A set of pairs of sets of calls. *)
 module CallsPairSet = Set.Make (struct
-  type t = callsPair [@@deriving compare, equal]
+  type t = calls_pair [@@deriving compare, equal]
 end)
 
 (** A set of sets of strings. *)
@@ -27,23 +27,23 @@ module SSSet = Set.Make (SSet)
 
 (** A set of pairs of sets of calls with locks. *)
 module CallsPairLockSet = Set.Make (struct
-  type t = callsPairLock [@@deriving compare, equal]
+  type t = calls_pair_lock [@@deriving compare, equal]
 end)
 
 (* ************************************ Astate ************************************************** *)
 
 (** An element of an abstract state. *)
-type tElement =
+type t_element =
   { calls: SSet.t
   ; callsPairs: CallsPairLockSet.t
   ; finalCallsPairs: CallsPairSet.t
-  ; allOccurrences: SSet.t list
+  ; allCalls: SSet.t list
   ; guards: Guards.t }
 [@@deriving compare, equal]
 
 (** A set of types tElement is an abstract state. *)
 module TSet = Set.Make (struct
-  type t = tElement [@@deriving compare, equal]
+  type t = t_element [@@deriving compare, equal]
 end)
 
 type t = TSet.t [@@deriving compare, equal]
@@ -69,49 +69,51 @@ let initial : t =
     { calls= SSet.empty
     ; callsPairs= CallsPairLockSet.empty
     ; finalCallsPairs= CallsPairSet.empty
-    ; allOccurrences= [SSet.empty]
+    ; allCalls= [SSet.empty]
     ; guards= Guards.empty }
 
 
 let pp (fmt : F.formatter) (astate : t) : unit =
   F.pp_print_string fmt "\n" ;
-  let iterator (astateEl : tElement) : unit =
+  let iterator (astateEl : t_element) : unit =
     F.pp_print_string fmt "{\n" ;
     (* calls *)
     F.fprintf fmt "\t{%s};\n" (String.concat (SSet.elements astateEl.calls) ~sep:", ") ;
     (* callsPairs *)
     F.pp_print_string fmt "\t" ;
-    let lastCallsPair : callsPairLock option = CallsPairLockSet.max_elt_opt astateEl.callsPairs in
-    let print_calls_pair (((pFst, pSnd), lock) as callsPair : callsPairLock) : unit =
+    let lastCallsPair : calls_pair_lock option = CallsPairLockSet.max_elt_opt astateEl.callsPairs in
+    let print_calls_pair (((pFst, pSnd), lock) as callsPair : calls_pair_lock) : unit =
       let withoutLock : string = String.concat (SSet.elements pFst) ~sep:", "
       and withLock : string = String.concat (SSet.elements pSnd) ~sep:", " in
-      F.fprintf fmt "%a{%s} ( {%s} )" Lock.pp lock withoutLock withLock ;
-      if not (equal_callsPairLock callsPair (Option.value_exn lastCallsPair)) then
+      F.fprintf fmt "%a: {%s} ( {%s} )" Lock.pp lock withoutLock withLock ;
+      if not (equal_calls_pair_lock callsPair (Option.value_exn lastCallsPair)) then
         F.pp_print_string fmt " | "
     in
     CallsPairLockSet.iter print_calls_pair astateEl.callsPairs ;
     F.pp_print_string fmt ";\n" ;
     (* finalCallsPairs *)
     F.pp_print_string fmt "\t" ;
-    let lastFinalCallsPair : callsPair option = CallsPairSet.max_elt_opt astateEl.finalCallsPairs in
-    let print_final_calls_pair ((pFst, pSnd) as callsPair : callsPair) : unit =
+    let lastFinalCallsPair : calls_pair option =
+      CallsPairSet.max_elt_opt astateEl.finalCallsPairs
+    in
+    let print_final_calls_pair ((pFst, pSnd) as callsPair : calls_pair) : unit =
       let withoutLock : string = String.concat (SSet.elements pFst) ~sep:", "
       and withLock : string = String.concat (SSet.elements pSnd) ~sep:", " in
       F.fprintf fmt "{%s} ( {%s} )" withoutLock withLock ;
-      if not (equal_callsPair callsPair (Option.value_exn lastFinalCallsPair)) then
+      if not (equal_calls_pair callsPair (Option.value_exn lastFinalCallsPair)) then
         F.pp_print_string fmt " | "
     in
     CallsPairSet.iter print_final_calls_pair astateEl.finalCallsPairs ;
     F.pp_print_string fmt ";\n" ;
-    (* allOccurrences *)
+    (* allCalls *)
     F.pp_print_string fmt "\t{\n" ;
-    let print_all_occurrences (i : int) (allOccurrences : SSet.t) : unit =
-      F.fprintf fmt "\t\t%i: {%s};\n" i (String.concat (SSet.elements allOccurrences) ~sep:", ")
+    let print_all_calls (i : int) (allCalls : SSet.t) : unit =
+      F.fprintf fmt "\t\t%i: {%s};\n" i (String.concat (SSet.elements allCalls) ~sep:", ")
     in
-    List.iteri astateEl.allOccurrences ~f:print_all_occurrences ;
+    List.iteri astateEl.allCalls ~f:print_all_calls ;
     F.pp_print_string fmt "\t};\n" ;
     (* guards *)
-    F.fprintf fmt "%a" Guards.pp astateEl.guards ;
+    F.fprintf fmt "\t{\n%a\t};\n" Guards.pp astateEl.guards ;
     F.pp_print_string fmt "}\n"
   in
   TSet.iter iterator astate ;
@@ -119,10 +121,10 @@ let pp (fmt : F.formatter) (astate : t) : unit =
 
 
 (** Modifies an element of an abstract state after addition of function calls. *)
-let update_astate_el_after_calls (astateEl : tElement) : tElement =
+let update_astate_el_after_calls (astateEl : t_element) : t_element =
   let finalCallsPairs : CallsPairSet.t ref = ref astateEl.finalCallsPairs in
   let callsPairs : CallsPairLockSet.t =
-    let filter (((pFst, pSnd), _) : callsPairLock) : bool =
+    let filter (((pFst, pSnd), _) : calls_pair_lock) : bool =
       if SSet.cardinal pSnd > Config.atomic_sets_locked_functions_limit then (
         finalCallsPairs := CallsPairSet.add (pFst, SSet.empty) !finalCallsPairs ;
         false )
@@ -134,31 +136,30 @@ let update_astate_el_after_calls (astateEl : tElement) : tElement =
 
 
 let apply_call ~(fName : string) : t -> t =
-  let mapper (astateEl : tElement) : tElement =
+  let mapper (astateEl : t_element) : t_element =
     let calls : SSet.t = SSet.add fName astateEl.calls
     and callsPairs : CallsPairLockSet.t =
       CallsPairLockSet.map
-        (fun (((pFst, pSnd), lock) : callsPairLock) : callsPairLock ->
+        (fun (((pFst, pSnd), lock) : calls_pair_lock) : calls_pair_lock ->
           ((pFst, SSet.add fName pSnd), lock))
         astateEl.callsPairs
-    and allOccurrences : SSet.t list =
-      List.mapi astateEl.allOccurrences ~f:(fun (i : int) : (SSet.t -> SSet.t) ->
+    and allCalls : SSet.t list =
+      List.mapi astateEl.allCalls ~f:(fun (i : int) : (SSet.t -> SSet.t) ->
           if Int.equal i 0 then SSet.add fName else Fn.id)
     in
-    (* Update the calls and the calls pairs and the all occurrences. *)
-    update_astate_el_after_calls {astateEl with calls; callsPairs; allOccurrences}
+    update_astate_el_after_calls {astateEl with calls; callsPairs; allCalls}
   in
   TSet.map mapper
 
 
 let apply_locks (locksPaths : AccessPath.t list) : t -> t =
-  let mapper (astateEl : tElement) : tElement =
+  let mapper (astateEl : t_element) : t_element =
     let lockAppended : bool ref = ref false
     and locksPaths : AccessPath.t list = Guards.reveal_locks astateEl.guards locksPaths in
     let callsPairs : CallsPairLockSet.t =
       let fold (callsPairs : CallsPairLockSet.t) (path : AccessPath.t) : CallsPairLockSet.t =
         let found : bool ref = ref false in
-        let mapper ((p, lock) as pairLock : callsPairLock) : callsPairLock =
+        let mapper ((p, lock) as pairLock : calls_pair_lock) : calls_pair_lock =
           if AccessPath.equal path (Lock.path lock) then (
             found := true ;
             (p, Lock.lock lock) )
@@ -172,31 +173,31 @@ let apply_locks (locksPaths : AccessPath.t list) : t -> t =
       in
       List.fold locksPaths ~init:astateEl.callsPairs ~f:fold
     and calls : SSet.t = if !lockAppended then SSet.empty else astateEl.calls in
-    (* Clear the calls and update the calls pairs. *)
     {astateEl with calls; callsPairs}
   in
   TSet.map mapper
 
 
 let apply_unlocks (locksPaths : AccessPath.t list) : t -> t =
-  let mapper (astateEl : tElement) : tElement =
+  let mapper (astateEl : t_element) : t_element =
     let lockRemoved : bool ref = ref false
     and finalCallsPairs : CallsPairSet.t ref = ref astateEl.finalCallsPairs
     and locksPaths : AccessPath.t list = Guards.reveal_locks astateEl.guards locksPaths in
     let callsPairs : CallsPairLockSet.t =
-      let mapper ((p, lock) as pairLock : callsPairLock) : callsPairLock =
-        if List.mem locksPaths (Lock.path lock) ~equal:AccessPath.equal then (
-          let lock : Lock.t = Lock.unlock lock in
-          if not (Lock.is_locked lock) then (
-            lockRemoved := true ;
-            finalCallsPairs := CallsPairSet.add p !finalCallsPairs ) ;
-          (p, lock) )
-        else pairLock
+      let mapper ((p, lock) as pairLock : calls_pair_lock) : calls_pair_lock option =
+        let ((_, lock) as pairLock : calls_pair_lock) =
+          if List.mem locksPaths (Lock.path lock) ~equal:AccessPath.equal then (
+            let lock : Lock.t = Lock.unlock lock in
+            if not (Lock.is_locked lock) then (
+              lockRemoved := true ;
+              finalCallsPairs := CallsPairSet.add p !finalCallsPairs ) ;
+            (p, lock) )
+          else pairLock
+        in
+        if Lock.is_locked lock then Some pairLock else None
       in
-      let callsPairs : CallsPairLockSet.t = CallsPairLockSet.map mapper astateEl.callsPairs in
-      CallsPairLockSet.filter (Fn.compose Lock.is_locked snd) callsPairs
+      CallsPairLockSet.filter_map mapper astateEl.callsPairs
     and calls : SSet.t = if !lockRemoved then SSet.empty else astateEl.calls in
-    (* Clear the calls, update the calls pairs and the final calls pairs. *)
     {astateEl with calls; callsPairs; finalCallsPairs= !finalCallsPairs}
   in
   TSet.map mapper
@@ -205,14 +206,14 @@ let apply_unlocks (locksPaths : AccessPath.t list) : t -> t =
 let apply_guard_construct (guardPath : AccessPath.t) (locksPaths : AccessPath.t list)
     ~(acquire : bool) : t -> t =
   let add_guard : t -> t =
-    TSet.map (fun (astateEl : tElement) : tElement ->
+    TSet.map (fun (astateEl : t_element) : t_element ->
         {astateEl with guards= Guards.add guardPath locksPaths astateEl.guards})
   in
   if acquire then Fn.compose (apply_locks locksPaths) add_guard else add_guard
 
 
 let apply_guard_release (guardPath : AccessPath.t) : t -> t =
-  TSet.map (fun (astateEl : tElement) : tElement ->
+  TSet.map (fun (astateEl : t_element) : t_element ->
       {astateEl with guards= Guards.remove guardPath astateEl.guards})
 
 
@@ -221,15 +222,14 @@ let apply_guard_destroy (guardPath : AccessPath.t) : t -> t =
 
 
 let update_at_the_end_of_function : t -> t =
-  let mapper (astateEl : tElement) : tElement =
+  let mapper (astateEl : t_element) : t_element =
     let finalCallsPairs : CallsPairSet.t ref = ref astateEl.finalCallsPairs in
     CallsPairLockSet.iter
-      (fun ((p, _) : callsPairLock) : unit ->
+      (fun ((p, _) : calls_pair_lock) : unit ->
         finalCallsPairs := CallsPairSet.add p !finalCallsPairs)
       astateEl.callsPairs ;
     if not (SSet.is_empty astateEl.calls) then
       finalCallsPairs := CallsPairSet.add (astateEl.calls, SSet.empty) !finalCallsPairs ;
-    (* Clear the calls and the calls pairs, and update the final calls pairs. *)
     { astateEl with
       calls= SSet.empty
     ; callsPairs= CallsPairLockSet.empty
@@ -260,7 +260,8 @@ let widen ~(prev : t) ~(next : t) ~(num_iters : int) : t =
 (* ************************************ Summary ************************************************* *)
 
 module Summary = struct
-  type t = {atomicFunctions: SSSet.t; allOccurrences: SSet.t list} [@@deriving compare, equal]
+  type t = {mutable atomicFunctions: SSSet.t; mutable allCalls: SSet.t list}
+  [@@deriving compare, equal]
 
   let pp (fmt : F.formatter) (summary : t) : unit =
     F.pp_print_string fmt "\n" ;
@@ -274,39 +275,39 @@ module Summary = struct
     F.pp_print_string fmt "atomicFunctions: " ;
     SSSet.iter print_atomic_functions summary.atomicFunctions ;
     F.pp_print_string fmt "\n" ;
-    (* allOccurrences *)
-    let print_all_occurrences (i : int) (allOccurrences : SSet.t) : unit =
-      F.fprintf fmt "\t%i: {%s};\n" i (String.concat (SSet.elements allOccurrences) ~sep:", ")
+    (* allCalls *)
+    let print_all_calls (i : int) (allCalls : SSet.t) : unit =
+      F.fprintf fmt "\t%i: {%s};\n" i (String.concat (SSet.elements allCalls) ~sep:", ")
     in
-    F.pp_print_string fmt "allOccurrences:\n{\n" ;
-    List.iteri summary.allOccurrences ~f:print_all_occurrences ;
+    F.pp_print_string fmt "allCalls:\n{\n" ;
+    List.iteri summary.allCalls ~f:print_all_calls ;
     F.pp_print_string fmt "}\n" ;
     F.pp_print_string fmt "\n"
 
 
   let create (astate : astate) : t =
-    (* Derivates atomic functions and all occurrences from the final calls pairs of elements of the
+    (* Derivates atomic functions and all calls from the final calls pairs of elements of the
        abstract state. *)
-    let atomicFunctions : SSSet.t ref = ref SSSet.empty
-    and allOccurrences : SSet.t list ref = ref [] in
-    let iterator (astateEl : tElement) : unit =
-      let iterator ((_, pSnd) : callsPair) : unit =
-        if not (SSet.is_empty pSnd) then atomicFunctions := SSSet.add pSnd !atomicFunctions
-      in
-      CallsPairSet.iter iterator astateEl.finalCallsPairs ;
-      let iterator (i : int) (occurrences : SSet.t) : unit =
-        allOccurrences :=
-          match List.nth !allOccurrences i with
+    let summary : t = {atomicFunctions= SSSet.empty; allCalls: SSet.t list = []} in
+    let iterator (astateEl : t_element) : unit =
+      CallsPairSet.iter
+        (fun ((_, pSnd) : calls_pair) : unit ->
+          if not (SSet.is_empty pSnd) then
+            summary.atomicFunctions <- SSSet.add pSnd summary.atomicFunctions)
+        astateEl.finalCallsPairs ;
+      let iterator (i : int) (calls : SSet.t) : unit =
+        summary.allCalls <-
+          ( match List.nth summary.allCalls i with
           | Some (_ : SSet.t) ->
-              List.mapi !allOccurrences ~f:(fun (j : int) : (SSet.t -> SSet.t) ->
-                  if Int.equal i j then SSet.union occurrences else Fn.id)
+              List.mapi summary.allCalls ~f:(fun (j : int) : (SSet.t -> SSet.t) ->
+                  if Int.equal i j then SSet.union calls else Fn.id)
           | None ->
-              if SSet.is_empty occurrences then !allOccurrences else !allOccurrences @ [occurrences]
+              if SSet.is_empty calls then summary.allCalls else summary.allCalls @ [calls] )
       in
-      List.iteri astateEl.allOccurrences ~f:iterator
+      List.iteri astateEl.allCalls ~f:iterator
     in
     TSet.iter iterator astate ;
-    {atomicFunctions= !atomicFunctions; allOccurrences= !allOccurrences}
+    summary
 
 
   let print_atomic_sets (summary : t) ~(fName : string) (oc : Out_channel.t) : int * int =
@@ -328,34 +329,32 @@ module Summary = struct
 end
 
 let apply_summary (summary : Summary.t) : t -> t =
-  (* Adds all occurrences from a given summary to the calls pairs and to the calls of each element
-     of the abstract state. And merges all occurrences from a given summary with the all occurrences
+  (* Adds all calls from a given summary to the calls pairs and to the calls of each element
+     of the abstract state. And merges all calls from a given summary with the all calls
      of each element of the abstract state. *)
-  let mapper (astateEl : tElement) : tElement =
-    let allOccurrences : SSet.t list ref = ref astateEl.allOccurrences
-    and joinedAllOccurrences : SSet.t ref = ref SSet.empty in
-    let iterator (i : int) (occurrences : SSet.t) : unit =
+  let mapper (astateEl : t_element) : t_element =
+    let allCalls : SSet.t list ref = ref astateEl.allCalls
+    and joinedAllCalls : SSet.t ref = ref SSet.empty in
+    let iterator (i : int) (calls : SSet.t) : unit =
       ( if i + 1 < Config.atomic_sets_functions_depth_limit then
-        allOccurrences :=
-          match List.nth !allOccurrences (i + 1) with
+        allCalls :=
+          match List.nth !allCalls (i + 1) with
           | Some (_ : SSet.t) ->
-              List.mapi !allOccurrences ~f:(fun (j : int) : (SSet.t -> SSet.t) ->
-                  if Int.equal (i + 1) j then SSet.union occurrences else Fn.id)
+              List.mapi !allCalls ~f:(fun (j : int) : (SSet.t -> SSet.t) ->
+                  if Int.equal (i + 1) j then SSet.union calls else Fn.id)
           | None ->
-              if SSet.is_empty occurrences then !allOccurrences else !allOccurrences @ [occurrences]
-      ) ;
+              if SSet.is_empty calls then !allCalls else !allCalls @ [calls] ) ;
       if i < Config.atomic_sets_functions_depth_limit then
-        joinedAllOccurrences := SSet.union !joinedAllOccurrences occurrences
+        joinedAllCalls := SSet.union !joinedAllCalls calls
     in
-    List.iteri summary.allOccurrences ~f:iterator ;
-    let calls : SSet.t = SSet.union astateEl.calls !joinedAllOccurrences
+    List.iteri summary.allCalls ~f:iterator ;
+    let calls : SSet.t = SSet.union astateEl.calls !joinedAllCalls
     and callsPairs : CallsPairLockSet.t =
       CallsPairLockSet.map
-        (fun (((pFst, pSnd), lock) : callsPairLock) : callsPairLock ->
-          ((pFst, SSet.union pSnd !joinedAllOccurrences), lock))
+        (fun (((pFst, pSnd), lock) : calls_pair_lock) : calls_pair_lock ->
+          ((pFst, SSet.union pSnd !joinedAllCalls), lock))
         astateEl.callsPairs
     in
-    (* Update the calls and the calls pairs and the all occurrences. *)
-    update_astate_el_after_calls {astateEl with calls; callsPairs; allOccurrences= !allOccurrences}
+    update_astate_el_after_calls {astateEl with calls; callsPairs; allCalls= !allCalls}
   in
   TSet.map mapper

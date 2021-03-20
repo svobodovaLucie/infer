@@ -1089,9 +1089,16 @@ let wrong_argument_number =
 
 let unreachable_cost_call ~kind = register_cost ~enabled:false ~kind "%s_UNREACHABLE_AT_EXIT"
 
-let atomicity_violation : t =
-  register ~id:"ATOMICITY_VIOLATION" ~enabled:true Error AtomicityViolations
+let atomicity_violation_error : t =
+  register ~id:"ATOMICITY_VIOLATION_ERROR" ~enabled:true Error AtomicityViolations
     ~hum:"Atomicity Violation"
+    ~user_documentation:
+      "See https://github.com/harmim/infer/wiki/Atomer:-Atomicity-Violations-Analyser."
+
+
+let atomicity_violation_warning : t =
+  register ~id:"ATOMICITY_VIOLATION_WARNING" ~enabled:true Warning AtomicityViolations
+    ~hum:"Atomicity Violation within a Function"
     ~user_documentation:
       "See https://github.com/harmim/infer/wiki/Atomer:-Atomicity-Violations-Analyser."
 

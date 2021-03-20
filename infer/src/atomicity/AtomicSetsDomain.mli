@@ -7,8 +7,7 @@ module F = Format
 
 (* ************************************ Astate ************************************************** *)
 
-(** An abstract state of a function. *)
-type t [@@deriving compare, equal]
+include PrettyPrintable.PrintableEquatableOrderedType
 
 (** An alias for the type 't'. *)
 type astate = t [@@deriving compare, equal]
@@ -43,10 +42,7 @@ val update_at_the_end_of_function : t -> t
 
 (** A module that encapsulates a summary of a function. *)
 module Summary : sig
-  (** A summary of a function. *)
-  type t [@@deriving compare, equal]
-
-  include PrettyPrintable.PrintableType with type t := t
+  include PrettyPrintable.PrintableEquatableOrderedType
 
   val create : astate -> t
   (** Converts an abstract state to a summary. *)

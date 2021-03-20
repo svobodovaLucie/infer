@@ -11,35 +11,119 @@ module Set = Caml.Set
 (* ************************************ Types *************************************************** *)
 
 (** A pair of atomic functions. *)
-type atomicPair = string * string [@@deriving compare, equal]
-
-(** A pair of atomic functions with its location. *)
-type atomicPairLoc = {pair: atomicPair; line: int; col: int; file: string}
-[@@deriving compare, equal]
+type atomic_pair = string * string [@@deriving compare, equal]
 
 (** A pair of atomic functions with a lock. *)
-type atomicPairLock = atomicPair * Lock.t [@@deriving compare, equal]
+type atomic_pair_lock = atomic_pair * Lock.t [@@deriving compare, equal]
 
 (* ************************************ Constants *********************************************** *)
 
 (** An empty pair of atomic functions. *)
-let emptyAtomicPair : atomicPair = ("", "")
+let emptyAtomicPair : atomic_pair = ("", "")
 
 (* ************************************ Modules ************************************************* *)
 
 (** A set of pairs of atomic functions. *)
 module AtomicPairSet = Set.Make (struct
-  type t = atomicPair [@@deriving compare, equal]
+  type t = atomic_pair [@@deriving compare, equal]
 end)
 
-(** A set of pairs of atomic functions with their locations. *)
-module AtomicPairLocSet = Set.Make (struct
-  type t = atomicPairLoc [@@deriving compare, equal]
-end)
+(** A module that represents atomicity violations to be reported. *)
+module Violations : sig
+  include PrettyPrintable.PrintableEquatableOrderedType
+
+  (** A severity of an atomicity violation to be reported. *)
+  type violation_severity = private
+    | Warning  (** WARNING severity - used for local atomicity violations. *)
+    | Error  (** ERROR severity - used for real (global) atomicity violations. *)
+  [@@deriving compare, equal]
+
+  val empty : t
+  (** Creates an empty module. *)
+
+  val is_empty : t -> bool
+  (** Checks whether there are any violations to be reported. *)
+
+  val add : atomic_pair -> Location.t -> t -> t
+  (** Adds a new violation to be reported. *)
+
+  val union : t -> t -> t
+  (** Makes an union of atomicity violations to be reported. *)
+
+  val fold : f:(atomic_pair * Location.t * violation_severity -> 'a -> 'a) -> t -> 'a -> 'a
+  (** [fold ~f:f s a] computes (f xN ... (f x2 (f x1 a))...), where x1 ... xN are the elements of s,
+      in increasing order. *)
+
+  val make_all_warnings : t -> t
+  (** Labels all atomicity violations to be reported as warnings. *)
+
+  val severity_to_issue_type : violation_severity -> IssueType.t
+  (** Converts the severity of a violation to IssueType. *)
+end = struct
+  type violation_severity = Warning | Error [@@deriving compare, equal]
+
+  (** A structure that represents a single atomicity violation to be reported. *)
+  type violation =
+    {pair: atomic_pair; line: int; col: int; file: string; severity: violation_severity}
+  [@@deriving compare, equal]
+
+  (** A set of atomicity violations to be reported. *)
+  module ViolationSet = Set.Make (struct
+    type t = violation [@@deriving compare, equal]
+  end)
+
+  type t = ViolationSet.t [@@deriving compare, equal]
+
+  let pp (fmt : F.formatter) (violations : t) : unit =
+    let lastViolation : violation option = ViolationSet.max_elt_opt violations in
+    let print_violation (violation : violation) : unit =
+      let pp_severity (fmt : F.formatter) : violation_severity -> unit = function
+        | Warning ->
+            F.pp_print_string fmt "WARNING"
+        | Error ->
+            F.pp_print_string fmt "ERROR"
+      in
+      F.fprintf fmt "%s:%i:%i: %a -> (%s, %s)" violation.file violation.line violation.col
+        pp_severity violation.severity (fst violation.pair) (snd violation.pair) ;
+      if not (equal_violation violation (Option.value_exn lastViolation)) then
+        F.pp_print_string fmt " | "
+    in
+    ViolationSet.iter print_violation violations
+
+
+  let empty : t = ViolationSet.empty
+
+  let is_empty : t -> bool = ViolationSet.is_empty
+
+  let add (pair : atomic_pair) (loc : Location.t) : t -> t =
+    ViolationSet.add
+      {pair; line= loc.line; col= loc.col; file= SourceFile.to_abs_path loc.file; severity= Error}
+
+
+  let union : t -> t -> t = ViolationSet.union
+
+  let fold ~(f : atomic_pair * Location.t * violation_severity -> 'a -> 'a) : t -> 'a -> 'a =
+    ViolationSet.fold (fun (violation : violation) : ('a -> 'a) ->
+        let loc : Location.t =
+          {line= violation.line; col= violation.col; file= SourceFile.from_abs_path violation.file}
+        in
+        f (violation.pair, loc, violation.severity))
+
+
+  let make_all_warnings : t -> t =
+    ViolationSet.map (fun (violation : violation) : violation -> {violation with severity= Warning})
+
+
+  let severity_to_issue_type : violation_severity -> IssueType.t = function
+    | Warning ->
+        IssueType.atomicity_violation_warning
+    | Error ->
+        IssueType.atomicity_violation_error
+end
 
 (** A set of pairs of atomic functions with locks. *)
 module AtomicPairLockSet = Set.Make (struct
-  type t = atomicPairLock [@@deriving compare, equal]
+  type t = atomic_pair_lock [@@deriving compare, equal]
 end)
 
 (* ************************************ Classes ************************************************* *)
@@ -100,22 +184,19 @@ class atomic_pairs =
         In_channel.close ic )
 
     (** Checks whether an atomic pair is violating atomicity. *)
-    method check_violating_atomicity ?(checkFirstEmpty : bool = false) ((_, pSnd) as p : atomicPair)
-        ~(atomicityViolations : AtomicPairLocSet.t ref) ~(lockedLastPairs : AtomicPairLockSet.t)
-        (loc : Location.t) : unit =
+    method check_violating_atomicity ?(checkFirstEmpty : bool = false)
+        ((_, pSnd) as p : atomic_pair) ~(violations : Violations.t ref)
+        ~(lockedLastPairs : AtomicPairLockSet.t) (loc : Location.t) : unit =
       self#init ;
-      let check (p : atomicPair) : unit =
-        let is_pair_locked (p : atomicPair) : bool =
-          AtomicPairLockSet.fold
-            (fun ((((_, pSnd') as p'), _) : atomicPairLock) : (bool -> bool) ->
-              ( || ) (equal_atomicPair p' p || (checkFirstEmpty && equal_atomicPair ("", pSnd') p)))
-            lockedLastPairs false
-        and make_atomic_pair_loc (p : atomicPair) (loc : Location.t) : atomicPairLoc =
-          {pair= p; line= loc.line; col= loc.col; file= SourceFile.to_abs_path loc.file}
+      let check (p : atomic_pair) : unit =
+        let is_pair_locked (p : atomic_pair) : bool =
+          let fold ((((_, pSnd') as p'), _) : atomic_pair_lock) : bool -> bool =
+            ( || ) (equal_atomic_pair p' p || (checkFirstEmpty && equal_atomic_pair ("", pSnd') p))
+          in
+          AtomicPairLockSet.fold fold lockedLastPairs false
         in
         if AtomicPairSet.mem p pairs && not (is_pair_locked p) then
-          atomicityViolations :=
-            AtomicPairLocSet.add (make_atomic_pair_loc p loc) !atomicityViolations
+          violations := Violations.add p loc !violations
       in
       check p ;
       if checkFirstEmpty then check ("", pSnd)
@@ -127,18 +208,19 @@ let atomicPairs : atomic_pairs = new atomic_pairs
 (* ************************************ Astate ************************************************** *)
 
 (** An element of an abstract state. *)
-type tElement =
+type t_element =
   { firstCall: string
-  ; lastPair: atomicPair
+  ; lastPair: atomic_pair
   ; nestedLastCalls: SSet.t
-  ; atomicityViolations: AtomicPairLocSet.t
+  ; violations: Violations.t
   ; lockedLastPairs: AtomicPairLockSet.t
-  ; guards: Guards.t }
+  ; guards: Guards.t
+  ; allCalls: SSet.t }
 [@@deriving compare, equal]
 
 (** A set of types tElement is an abstract state. *)
 module TSet = Set.Make (struct
-  type t = tElement [@@deriving compare, equal]
+  type t = t_element [@@deriving compare, equal]
 end)
 
 type t = TSet.t [@@deriving compare, equal]
@@ -155,14 +237,15 @@ let initial : t =
     { firstCall= ""
     ; lastPair= emptyAtomicPair
     ; nestedLastCalls= SSet.empty
-    ; atomicityViolations= AtomicPairLocSet.empty
+    ; violations= Violations.empty
     ; lockedLastPairs= AtomicPairLockSet.empty
-    ; guards= Guards.empty }
+    ; guards= Guards.empty
+    ; allCalls= SSet.empty }
 
 
 let pp (fmt : F.formatter) (astate : t) : unit =
   F.pp_print_string fmt "\n" ;
-  let iterator (astateEl : tElement) : unit =
+  let iterator (astateEl : t_element) : unit =
     F.pp_print_string fmt "{\n" ;
     (* firstCall *)
     F.fprintf fmt "\t%s;\n" astateEl.firstCall ;
@@ -171,31 +254,23 @@ let pp (fmt : F.formatter) (astate : t) : unit =
     (* nestedLastCalls *)
     F.fprintf fmt "\t{%s};\n" (String.concat (SSet.elements astateEl.nestedLastCalls) ~sep:", ") ;
     (* atomicityViolations *)
-    F.pp_print_string fmt "\t" ;
-    let lastAtomicityViolationsPair : atomicPairLoc option =
-      AtomicPairLocSet.max_elt_opt astateEl.atomicityViolations
-    in
-    let print_atomicity_violations_pair (p : atomicPairLoc) : unit =
-      F.fprintf fmt "%s:%i:%i -> (%s, %s)" p.file p.line p.col (fst p.pair) (snd p.pair) ;
-      if not (equal_atomicPairLoc p (Option.value_exn lastAtomicityViolationsPair)) then
-        F.pp_print_string fmt " | "
-    in
-    AtomicPairLocSet.iter print_atomicity_violations_pair astateEl.atomicityViolations ;
-    F.pp_print_string fmt ";\n" ;
+    F.fprintf fmt "\t%a;\n" Violations.pp astateEl.violations ;
     (* lockedLastPairs *)
     F.pp_print_string fmt "\t" ;
-    let lastLockedLastPair : atomicPairLock option =
+    let lastLockedLastPair : atomic_pair_lock option =
       AtomicPairLockSet.max_elt_opt astateEl.lockedLastPairs
     in
-    let print_locked_last_pair (((pFst, pSnd), lock) as lockedLastPair : atomicPairLock) : unit =
-      F.fprintf fmt "%a(%s, %s)" Lock.pp lock pFst pSnd ;
-      if not (equal_atomicPairLock lockedLastPair (Option.value_exn lastLockedLastPair)) then
+    let print_locked_last_pair (((pFst, pSnd), lock) as lockedLastPair : atomic_pair_lock) : unit =
+      F.fprintf fmt "%a: (%s, %s)" Lock.pp lock pFst pSnd ;
+      if not (equal_atomic_pair_lock lockedLastPair (Option.value_exn lastLockedLastPair)) then
         F.pp_print_string fmt " | "
     in
     AtomicPairLockSet.iter print_locked_last_pair astateEl.lockedLastPairs ;
     F.pp_print_string fmt ";\n" ;
     (* guards *)
-    F.fprintf fmt "%a" Guards.pp astateEl.guards ;
+    F.fprintf fmt "\t{\n%a\t};\n" Guards.pp astateEl.guards ;
+    (* allCalls *)
+    F.fprintf fmt "\t{%s};\n" (String.concat (SSet.elements astateEl.allCalls) ~sep:", ") ;
     F.pp_print_string fmt "}\n"
   in
   TSet.iter iterator astate ;
@@ -203,53 +278,52 @@ let pp (fmt : F.formatter) (astate : t) : unit =
 
 
 let apply_call ~(fName : string) (loc : Location.t) : t -> t =
-  let mapper (astateEl : tElement) : tElement =
-    let atomic_pair_push ((_, pSnd) : atomicPair) : string -> atomicPair = Tuple2.create pSnd in
+  let mapper (astateEl : t_element) : t_element =
+    let atomic_pair_push ((_, pSnd) : atomic_pair) : string -> atomic_pair = Tuple2.create pSnd in
     let firstCall : string =
       if String.is_empty astateEl.firstCall then fName else astateEl.firstCall
-    and lastPair : atomicPair = atomic_pair_push astateEl.lastPair fName
-    and atomicityViolations : AtomicPairLocSet.t ref = ref astateEl.atomicityViolations
+    and lastPair : atomic_pair = atomic_pair_push astateEl.lastPair fName
+    and violations : Violations.t ref = ref astateEl.violations
     and lockedLastPairs : AtomicPairLockSet.t =
       (* Updates pairs of atomic functions. *)
       AtomicPairLockSet.map
-        (fun ((p, lock) : atomicPairLock) : atomicPairLock -> (atomic_pair_push p fName, lock))
+        (fun ((p, lock) : atomic_pair_lock) : atomic_pair_lock -> (atomic_pair_push p fName, lock))
         astateEl.lockedLastPairs
-    in
+    and allCalls : SSet.t = SSet.add fName astateEl.allCalls in
     (* Check whether the last pair is violating atomicity. *)
-    atomicPairs#check_violating_atomicity lastPair ~atomicityViolations ~lockedLastPairs loc
+    atomicPairs#check_violating_atomicity lastPair ~violations ~lockedLastPairs loc
       ~checkFirstEmpty:true ;
     let iterator (lastCall : string) : unit =
-      let p : atomicPair = (lastCall, fName) in
+      let p : atomic_pair = (lastCall, fName) in
       let lockedLastPairs : AtomicPairLockSet.t =
         AtomicPairLockSet.map
-          (fun ((p', lock) : atomicPairLock) : atomicPairLock ->
+          (fun ((p', lock) : atomic_pair_lock) : atomic_pair_lock ->
             ((if String.is_empty (fst p') then p' else p), lock))
           lockedLastPairs
       in
       (* Check whether each pair begining with the nested last call and ending with the current
          function call is violating atomicity. *)
-      atomicPairs#check_violating_atomicity p ~atomicityViolations ~lockedLastPairs loc
+      atomicPairs#check_violating_atomicity p ~violations ~lockedLastPairs loc
     in
     SSet.iter iterator astateEl.nestedLastCalls ;
-    (* Update the first call, the last pair, the atomicity violations, the locked last pairs, and
-       clear the nested last calls. *)
     { astateEl with
       firstCall
     ; lastPair
     ; nestedLastCalls= SSet.empty
-    ; atomicityViolations= !atomicityViolations
-    ; lockedLastPairs }
+    ; violations= !violations
+    ; lockedLastPairs
+    ; allCalls }
   in
   TSet.map mapper
 
 
 let apply_locks (locksPaths : AccessPath.t list) : t -> t =
-  let mapper (astateEl : tElement) : tElement =
+  let mapper (astateEl : t_element) : t_element =
     let locksPaths : AccessPath.t list = Guards.reveal_locks astateEl.guards locksPaths in
     let lockedLastPairs : AtomicPairLockSet.t =
       let fold (lockedLastPairs : AtomicPairLockSet.t) (path : AccessPath.t) : AtomicPairLockSet.t =
         let found : bool ref = ref false in
-        let mapper ((p, lock) as pairLock : atomicPairLock) : atomicPairLock =
+        let mapper ((p, lock) as pairLock : atomic_pair_lock) : atomic_pair_lock =
           if AccessPath.equal path (Lock.path lock) then (
             found := true ;
             (p, Lock.lock lock) )
@@ -267,17 +341,17 @@ let apply_locks (locksPaths : AccessPath.t list) : t -> t =
 
 
 let apply_unlocks (locksPaths : AccessPath.t list) : t -> t =
-  let mapper (astateEl : tElement) : tElement =
+  let mapper (astateEl : t_element) : t_element =
     let locksPaths : AccessPath.t list = Guards.reveal_locks astateEl.guards locksPaths in
     let lockedLastPairs : AtomicPairLockSet.t =
-      let mapper ((p, lock) as pairLock : atomicPairLock) : atomicPairLock =
-        if List.mem locksPaths (Lock.path lock) ~equal:AccessPath.equal then (p, Lock.unlock lock)
-        else pairLock
+      let mapper ((p, lock) as pairLock : atomic_pair_lock) : atomic_pair_lock option =
+        let ((_, lock) as pairLock : atomic_pair_lock) =
+          if List.mem locksPaths (Lock.path lock) ~equal:AccessPath.equal then (p, Lock.unlock lock)
+          else pairLock
+        in
+        if Lock.is_locked lock then Some pairLock else None
       in
-      let lockedLastPairs : AtomicPairLockSet.t =
-        AtomicPairLockSet.map mapper astateEl.lockedLastPairs
-      in
-      AtomicPairLockSet.filter (Fn.compose Lock.is_locked snd) lockedLastPairs
+      AtomicPairLockSet.filter_map mapper astateEl.lockedLastPairs
     in
     {astateEl with lockedLastPairs}
   in
@@ -287,41 +361,19 @@ let apply_unlocks (locksPaths : AccessPath.t list) : t -> t =
 let apply_guard_construct (guardPath : AccessPath.t) (locksPaths : AccessPath.t list)
     ~(acquire : bool) : t -> t =
   let add_guard : t -> t =
-    TSet.map (fun (astateEl : tElement) : tElement ->
+    TSet.map (fun (astateEl : t_element) : t_element ->
         {astateEl with guards= Guards.add guardPath locksPaths astateEl.guards})
   in
   if acquire then Fn.compose (apply_locks locksPaths) add_guard else add_guard
 
 
 let apply_guard_release (guardPath : AccessPath.t) : t -> t =
-  TSet.map (fun (astateEl : tElement) : tElement ->
+  TSet.map (fun (astateEl : t_element) : t_element ->
       {astateEl with guards= Guards.remove guardPath astateEl.guards})
 
 
 let apply_guard_destroy (guardPath : AccessPath.t) : t -> t =
   Fn.compose (apply_guard_release guardPath) (apply_unlocks [guardPath])
-
-
-let report_atomicity_violations ~(f : Location.t -> msg:string -> unit) : t -> unit =
-  (* Report atomicity violations from atomicity violations stored in the abstract state. *)
-  let iterator (astateEl : tElement) : unit =
-    let iterator (p : atomicPairLoc) : unit =
-      let (fst, snd) : atomicPair = p.pair in
-      if (not (String.is_empty fst)) || not (String.is_empty snd) then
-        let loc : Location.t = {line= p.line; col= p.col; file= SourceFile.from_abs_path p.file}
-        and msg : string =
-          if (not (String.is_empty fst)) && not (String.is_empty snd) then
-            F.asprintf "Atomicity Violation! - Functions '%s' and '%s' should be called atomically."
-              fst snd
-          else
-            F.asprintf "Atomicity Violation! - Function '%s' should be called atomically."
-              (if String.is_empty fst then snd else fst)
-        in
-        f loc ~msg
-    in
-    AtomicPairLocSet.iter iterator astateEl.atomicityViolations
-  in
-  TSet.iter iterator
 
 
 (* ************************************ Operators *********************************************** *)
@@ -346,7 +398,12 @@ let widen ~(prev : t) ~(next : t) ~(num_iters : int) : t =
 (* ************************************ Summary ************************************************* *)
 
 module Summary = struct
-  type t = {firstCalls: SSet.t; lastCalls: SSet.t} [@@deriving compare, equal]
+  type t =
+    { mutable firstCalls: SSet.t
+    ; mutable lastCalls: SSet.t
+    ; mutable violations: Violations.t
+    ; mutable allCalls: SSet.t }
+  [@@deriving compare, equal]
 
   let pp (fmt : F.formatter) (summary : t) : unit =
     F.pp_print_string fmt "\n" ;
@@ -354,41 +411,92 @@ module Summary = struct
     F.fprintf fmt "firstCalls: {%s}\n" (String.concat (SSet.elements summary.firstCalls) ~sep:", ") ;
     (* lastCalls *)
     F.fprintf fmt "lastCalls: {%s}\n" (String.concat (SSet.elements summary.lastCalls) ~sep:", ") ;
+    (* violations *)
+    F.fprintf fmt "violations: %a\n" Violations.pp summary.violations ;
+    (* allCalls *)
+    F.fprintf fmt "allCalls: {%s}\n" (String.concat (SSet.elements summary.allCalls) ~sep:", ") ;
     F.pp_print_string fmt "\n"
 
 
   let create (astate : astate) : t =
     (* Derivates the first calls and the last calls from the first calls and from the last pairs of
        elements of the abstract state. *)
-    let firstCalls : SSet.t ref = ref SSet.empty and lastCalls : SSet.t ref = ref SSet.empty in
-    let iterator (astateEl : tElement) : unit =
+    let summary : t =
+      { firstCalls= SSet.empty
+      ; lastCalls= SSet.empty
+      ; violations= Violations.empty
+      ; allCalls= SSet.empty }
+    in
+    let iterator (astateEl : t_element) : unit =
       if not (String.is_empty astateEl.firstCall) then
-        firstCalls := SSet.add astateEl.firstCall !firstCalls ;
+        summary.firstCalls <- SSet.add astateEl.firstCall summary.firstCalls ;
       if not (String.is_empty (snd astateEl.lastPair)) then
-        lastCalls := SSet.add (snd astateEl.lastPair) !lastCalls
+        summary.lastCalls <- SSet.add (snd astateEl.lastPair) summary.lastCalls ;
+      summary.violations <- Violations.union astateEl.violations summary.violations ;
+      summary.allCalls <- SSet.union astateEl.allCalls summary.allCalls
     in
     TSet.iter iterator astate ;
-    {firstCalls= !firstCalls; lastCalls= !lastCalls}
+    summary
+
+
+  let is_top_level_fun (pName : Procname.t) : (Procname.t * t) list -> bool =
+    List.for_all ~f:(fun ((pName' : Procname.t), (summary : t)) : bool ->
+        Procname.equal pName' pName || not (SSet.mem (Procname.to_string pName) summary.allCalls))
+
+
+  let report_atomicity_violations
+      ~(f : Location.t -> msg:string -> IssueType.t -> IssueLog.t -> IssueLog.t) (summary : t) :
+      IssueLog.t -> IssueLog.t =
+    (* Report atomicity violations from atomicity violations stored in the summary. *)
+    let fold
+        (((fst, snd) : atomic_pair), (loc : Location.t), (severity : Violations.violation_severity))
+        (issueLog : IssueLog.t) : IssueLog.t =
+      if String.is_empty fst && String.is_empty snd then issueLog
+      else
+        let msg : string =
+          let warningMsg : string =
+            match severity with Warning -> " within a Current Function" | _ -> ""
+          in
+          if (not (String.is_empty fst)) && not (String.is_empty snd) then
+            F.asprintf
+              "Atomicity Violation%s! - Functions '%s' and '%s' should be called atomically."
+              warningMsg fst snd
+          else
+            F.asprintf "Atomicity Violation%s! - Function '%s' should be called atomically."
+              warningMsg
+              (if String.is_empty fst then snd else fst)
+        in
+        f loc ~msg (Violations.severity_to_issue_type severity) issueLog
+    in
+    Violations.fold ~f:fold summary.violations
 end
 
 let apply_summary (summary : Summary.t) (loc : Location.t) : t -> t =
   (* Add the last calls from a given summary to the nested last calls of the abstract state and
      check for atomicity violations with the first calls of a given summary. *)
-  if SSet.is_empty summary.firstCalls && SSet.is_empty summary.lastCalls then Fn.id
+  if
+    SSet.is_empty summary.firstCalls && SSet.is_empty summary.lastCalls
+    && Violations.is_empty summary.violations
+  then Fn.id
   else
-    let mapper (astateEl : tElement) : tElement =
-      let atomicityViolations : AtomicPairLocSet.t ref = ref astateEl.atomicityViolations
+    let mapper (astateEl : t_element) : t_element =
+      let violations : Violations.t ref =
+        let summaryViolations : Violations.t =
+          if AtomicPairLockSet.is_empty astateEl.lockedLastPairs then summary.violations
+          else Violations.make_all_warnings summary.violations
+        in
+        ref (Violations.union astateEl.violations summaryViolations)
       and lastCall : string = snd astateEl.lastPair in
       let iterator (firstCall : string) : unit =
-        let p : atomicPair = (lastCall, firstCall) in
+        let p : atomic_pair = (lastCall, firstCall) in
         let lockedLastPairs : AtomicPairLockSet.t =
           AtomicPairLockSet.map (Fn.compose (Tuple2.create p) snd) astateEl.lockedLastPairs
         in
         (* Check whether each pair begining with the last called function and ending witch the first
            call of a given summary is violating atomicity. *)
-        atomicPairs#check_violating_atomicity p ~atomicityViolations ~lockedLastPairs loc
+        atomicPairs#check_violating_atomicity p ~violations ~lockedLastPairs loc
       in
       SSet.iter iterator summary.firstCalls ;
-      {astateEl with nestedLastCalls= summary.lastCalls; atomicityViolations= !atomicityViolations}
+      {astateEl with nestedLastCalls= summary.lastCalls; violations= !violations}
     in
     TSet.map mapper

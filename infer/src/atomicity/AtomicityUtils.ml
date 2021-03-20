@@ -43,7 +43,7 @@ module Lock = struct
       else if is_top lock then F.pp_print_string fmt SpecialChars.down_tack
       else F.pp_print_int fmt level
     in
-    F.fprintf fmt "%a (%a): " AccessPath.pp path pp_level lock
+    F.fprintf fmt "%a (%a)" AccessPath.pp path pp_level lock
 
 
   let lock ((path, level) as lock : t) : t = if is_top lock then lock else (path, level + 1)
@@ -63,8 +63,7 @@ module Guards = struct
 
   type t = AccessPath.t list GuardMap.t [@@deriving compare, equal]
 
-  let pp (fmt : F.formatter) (guards : t) : unit =
-    F.pp_print_string fmt "\t{\n" ;
+  let pp (fmt : F.formatter) : t -> unit =
     let print_guards (guard : AccessPath.t) : AccessPath.t list -> unit =
       let pp_locks (fmt : F.formatter) (locks : AccessPath.t list) : unit =
         let lastLock : AccessPath.t option = List.last locks in
@@ -76,8 +75,7 @@ module Guards = struct
       in
       F.fprintf fmt "\t\t%a: {%a};\n" AccessPath.pp guard pp_locks
     in
-    GuardMap.iter print_guards guards ;
-    F.pp_print_string fmt "\t};\n"
+    GuardMap.iter print_guards
 
 
   let empty : t = GuardMap.empty
@@ -98,9 +96,7 @@ end
 
 (* ************************************ Constants *********************************************** *)
 
-let inferDir : string = CommandLineOption.init_work_dir ^ "/infer-atomicity-out"
-
-let atomicSetsFile : string = inferDir ^ "/atomic-sets"
+let atomicSetsFile : string = CommandLineOption.init_work_dir ^ "/atomic-sets"
 
 let fileCommentChar : char = '#'
 

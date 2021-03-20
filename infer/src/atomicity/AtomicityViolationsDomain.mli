@@ -7,8 +7,7 @@ module F = Format
 
 (* ************************************ Astate ************************************************** *)
 
-(** An abstract state of a function. *)
-type t [@@deriving compare, equal]
+include PrettyPrintable.PrintableEquatableOrderedType
 
 (** An alias for the type 't'. *)
 type astate = t [@@deriving compare, equal]
@@ -36,20 +35,25 @@ val apply_guard_release : AccessPath.t -> t -> t
 val apply_guard_destroy : AccessPath.t -> t -> t
 (** Updates an abstract state on a lock guard destructor call. *)
 
-val report_atomicity_violations : f:(Location.t -> msg:string -> unit) -> t -> unit
-(** Reports atomicity violations from an abstract state using reporting function. *)
-
 (* ************************************ Summary ************************************************* *)
 
 (** A module that encapsulates a summary of a function. *)
 module Summary : sig
-  (** A summary of a function. *)
-  type t [@@deriving compare, equal]
-
-  include PrettyPrintable.PrintableType with type t := t
+  include PrettyPrintable.PrintableEquatableOrderedType
 
   val create : astate -> t
   (** Converts an abstract state to a summary. *)
+
+  val is_top_level_fun : Procname.t -> (Procname.t * t) list -> bool
+  (** Determines whether a given function is a top level function (using a list of all analysed
+      functions with their summaries). *)
+
+  val report_atomicity_violations :
+       f:(Location.t -> msg:string -> IssueType.t -> IssueLog.t -> IssueLog.t)
+    -> t
+    -> IssueLog.t
+    -> IssueLog.t
+  (** Reports atomicity violations from the summary using a reporting function. *)
 end
 
 val apply_summary : Summary.t -> Location.t -> t -> t

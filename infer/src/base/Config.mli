@@ -714,10 +714,6 @@ val atomic_sets_functions_depth_limit : int
 
 val atomicity_lock_level_limit : int
 
-val unsafe_malloc : bool
-
-val worklist_mode : int
-
 val workspace : string option
 
 val write_html : bool

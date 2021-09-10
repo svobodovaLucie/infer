@@ -2633,11 +2633,6 @@ and tv_limit_filtered =
     "The maximum number of traces for issues filtered out by --report-filter to submit to Traceview"
 
 
-and type_size =
-  CLOpt.mk_bool ~deprecated:["type_size"] ~long:"type-size"
-    "Consider the size of types during analysis, e.g. cannot use an int pointer to write to a char"
-
-
 and atomic_sets_widen_limit : int ref =
   CLOpt.mk_int ~default:5 ~long:"atomic-sets-widen-limit"
     ~in_help:[(Analyze, manual_atomicity_violations)]
@@ -3703,12 +3698,6 @@ and atomic_sets_file_append : bool = !atomic_sets_file_append
 and atomic_sets_functions_depth_limit : int = !atomic_sets_functions_depth_limit
 
 and atomicity_lock_level_limit : int = !atomicity_lock_level_limit
-
-and unsafe_malloc = !unsafe_malloc
-
-and incremental_analysis = !incremental_analysis
-
-and worklist_mode = !worklist_mode
 
 and workspace = !workspace
 

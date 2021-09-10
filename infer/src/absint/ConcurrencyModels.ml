@@ -338,34 +338,6 @@ end = struct
 
   let get_lock_effect ?(tenv : Tenv.t option = None) (pname : Procname.t) (actuals : HilExp.t list)
       : lock_effect =
-    let log_parse_error error =
-      L.debug Analysis Verbose "%s pname:%a actuals:%a@." error Procname.pp pname
-        (PrettyPrintable.pp_collection ~pp_item:HilExp.pp)
-        actuals
-    in
-    let guard_action ~f ~error =
-      match actuals with
-      | (guard :: _ : HilExp.t list) ->
-          f guard
-      | _ ->
-          log_parse_error error ;
-          NoEffect
-    in
-    let get_guard_strategy (param : HilExp.t) (default : guard_strategy) : guard_strategy =
-      if Option.is_none tenv then default
-      else
-        match HilExp.get_typ (Option.value_exn tenv) param with
-        | Some (typ : Typ.t) ->
-            if not (Typ.is_pointer_to_cpp_class typ) then default
-            else
-              let typStr : string = Typ.to_string (Typ.strip_ptr typ) in
-              if String.equal typStr "std::defer_lock_t" then DeferLock
-              else if String.equal typStr "std::adopt_lock_t" then AdoptLock
-              else if String.equal typStr "std::try_to_lock_t" then TryToLock
-              else default
-        | None ->
-            default
-    in
     let fst_arg = match actuals with x :: _ -> [x] | _ -> [] in
     if is_std_lock pname then make_lock pname actuals
     else if is_pthread_lock pname then make_lock pname fst_arg

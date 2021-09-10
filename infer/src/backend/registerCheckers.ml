@@ -215,7 +215,7 @@ let all_checkers =
          and checkerFile : callback_fun =
            file Temporary Payloads.Fields.atomic_sets AtomicSets.print_atomic_sets
          in
-         [(checker, Clang); (checker, Java); (checkerFile, Clang); (checkerFile, Java)]) }
+         [(checker, Clang); (checker, Java); (checkerFile, Clang); (checkerFile, Java)] ) }
   ; { checker= AtomicityViolations
     ; callbacks=
         (let checker : callback_fun =
@@ -225,7 +225,7 @@ let all_checkers =
            file AtomicityViolationsIssues Payloads.Fields.atomicity_violations
              AtomicityViolations.report_atomicity_violations
          in
-         [(checker, Clang); (checker, Java); (checkerFile, Clang); (checkerFile, Java)]) } ]
+         [(checker, Clang); (checker, Java); (checkerFile, Clang); (checkerFile, Java)] ) } ]
 
 
 let get_active_checkers () =

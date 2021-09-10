@@ -135,8 +135,8 @@ let report_atomicity_violations (analysis_data : Domain.Summary.t Interprocedura
     if not (Domain.Summary.is_top_level_fun pName summaries) then issueLog
     else
       (* Report atomicity violations. *)
-      let report (loc : Location.t) ~(msg : string) (issueType : IssueType.t)
-          (issueLog : IssueLog.t) : IssueLog.t =
+      let report (loc : Location.t) ~(msg : string) (issueType : IssueType.t) (issueLog : IssueLog.t)
+          : IssueLog.t =
         Reporting.log_issue_external pName ~issue_log:issueLog ~loc
           ~ltr:[Errlog.make_trace_element 0 loc msg []]
           AtomicityViolations issueType msg

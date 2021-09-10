@@ -65,10 +65,9 @@ let fields =
     ~nullsafe:(fun f -> mk f "Nullsafe" NullsafeSummary.pp)
     ~uninit:(fun f -> mk f "Uninitialised" UninitDomain.Summary.pp)
     ~atomic_sets:(fun (f : (t, AtomicSetsDomain.Summary.t option) Field.t) : field ->
-      mk f "AtomicSets" AtomicSetsDomain.Summary.pp)
-    ~atomicity_violations:
-      (fun (f : (t, AtomicityViolationsDomain.Summary.t option) Field.t) : field ->
-      mk f "AtomicityViolations" AtomicityViolationsDomain.Summary.pp)
+      mk f "AtomicSets" AtomicSetsDomain.Summary.pp )
+    ~atomicity_violations:(fun (f : (t, AtomicityViolationsDomain.Summary.t option) Field.t) : field ->
+      mk f "AtomicityViolations" AtomicityViolationsDomain.Summary.pp )
 
 
 let pp pe f payloads =

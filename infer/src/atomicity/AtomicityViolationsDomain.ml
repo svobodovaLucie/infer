@@ -107,7 +107,7 @@ end = struct
         let loc : Location.t =
           {line= violation.line; col= violation.col; file= SourceFile.from_abs_path violation.file}
         in
-        f (violation.pair, loc, violation.severity))
+        f (violation.pair, loc, violation.severity) )
 
 
   let make_all_warnings : t -> t =
@@ -298,7 +298,7 @@ let apply_call ~(fName : string) (loc : Location.t) : t -> t =
       let lockedLastPairs : AtomicPairLockSet.t =
         AtomicPairLockSet.map
           (fun ((p', lock) : atomic_pair_lock) : atomic_pair_lock ->
-            ((if String.is_empty (fst p') then p' else p), lock))
+            ((if String.is_empty (fst p') then p' else p), lock) )
           lockedLastPairs
       in
       (* Check whether each pair begining with the nested last call and ending with the current
@@ -362,14 +362,14 @@ let apply_guard_construct (guardPath : AccessPath.t) (locksPaths : AccessPath.t 
     ~(acquire : bool) : t -> t =
   let add_guard : t -> t =
     TSet.map (fun (astateEl : t_element) : t_element ->
-        {astateEl with guards= Guards.add guardPath locksPaths astateEl.guards})
+        {astateEl with guards= Guards.add guardPath locksPaths astateEl.guards} )
   in
   if acquire then Fn.compose (apply_locks locksPaths) add_guard else add_guard
 
 
 let apply_guard_release (guardPath : AccessPath.t) : t -> t =
   TSet.map (fun (astateEl : t_element) : t_element ->
-      {astateEl with guards= Guards.remove guardPath astateEl.guards})
+      {astateEl with guards= Guards.remove guardPath astateEl.guards} )
 
 
 let apply_guard_destroy (guardPath : AccessPath.t) : t -> t =
@@ -441,7 +441,7 @@ module Summary = struct
 
   let is_top_level_fun (pName : Procname.t) : (Procname.t * t) list -> bool =
     List.for_all ~f:(fun ((pName' : Procname.t), (summary : t)) : bool ->
-        Procname.equal pName' pName || not (SSet.mem (Procname.to_string pName) summary.allCalls))
+        Procname.equal pName' pName || not (SSet.mem (Procname.to_string pName) summary.allCalls) )
 
 
   let report_atomicity_violations

@@ -35,8 +35,8 @@ let make_unlock = make_lock_action "release" (fun a -> Unlock a)
 
 let make_trylock = make_lock_action "conditionally acquire" (fun a -> LockedIfTrue a)
 
-let get_guard_strategy (param : HilExp.t) (default : guard_strategy) (tenv : Tenv.t option)
-    : guard_strategy =
+let get_guard_strategy (param : HilExp.t) (default : guard_strategy) (tenv : Tenv.t option) :
+    guard_strategy =
   if Option.is_none tenv then default
   else
     match HilExp.get_typ (Option.value_exn tenv) param with
@@ -52,8 +52,8 @@ let get_guard_strategy (param : HilExp.t) (default : guard_strategy) (tenv : Ten
         default
 
 
-let make_scoped_guard_construct (procname : Procname.t) (tenv : Tenv.t option) : HilExp.t list ->
-    lock_effect = function
+let make_scoped_guard_construct (procname : Procname.t) (tenv : Tenv.t option) :
+    HilExp.t list -> lock_effect = function
   | ([_guard] : HilExp.t list) ->
       (* constructor is called without a mutex *)
       NoEffect
@@ -66,13 +66,15 @@ let make_scoped_guard_construct (procname : Procname.t) (tenv : Tenv.t option) :
     | (strategy : guard_strategy) ->
         GuardConstruct {guard; locks; strategy} )
   | (actuals : HilExp.t list) ->
-      L.internal_error "Cannot parse scoped lock guard constructor call %a(%a)@\n"
-        Procname.pp procname (PrettyPrintable.pp_collection ~pp_item:HilExp.pp) actuals ;
+      L.internal_error "Cannot parse scoped lock guard constructor call %a(%a)@\n" Procname.pp
+        procname
+        (PrettyPrintable.pp_collection ~pp_item:HilExp.pp)
+        actuals ;
       NoEffect
 
 
-let make_guard_construct (procname : Procname.t) (tenv : Tenv.t option) : HilExp.t list ->
-    lock_effect = function
+let make_guard_construct (procname : Procname.t) (tenv : Tenv.t option) :
+    HilExp.t list -> lock_effect = function
   | [_guard] ->
       (* constructor is called without a mutex *)
       NoEffect

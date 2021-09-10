@@ -141,11 +141,11 @@ let apply_call ~(fName : string) : t -> t =
     and callsPairs : CallsPairLockSet.t =
       CallsPairLockSet.map
         (fun (((pFst, pSnd), lock) : calls_pair_lock) : calls_pair_lock ->
-          ((pFst, SSet.add fName pSnd), lock))
+          ((pFst, SSet.add fName pSnd), lock) )
         astateEl.callsPairs
     and allCalls : SSet.t list =
       List.mapi astateEl.allCalls ~f:(fun (i : int) : (SSet.t -> SSet.t) ->
-          if Int.equal i 0 then SSet.add fName else Fn.id)
+          if Int.equal i 0 then SSet.add fName else Fn.id )
     in
     update_astate_el_after_calls {astateEl with calls; callsPairs; allCalls}
   in
@@ -207,14 +207,14 @@ let apply_guard_construct (guardPath : AccessPath.t) (locksPaths : AccessPath.t 
     ~(acquire : bool) : t -> t =
   let add_guard : t -> t =
     TSet.map (fun (astateEl : t_element) : t_element ->
-        {astateEl with guards= Guards.add guardPath locksPaths astateEl.guards})
+        {astateEl with guards= Guards.add guardPath locksPaths astateEl.guards} )
   in
   if acquire then Fn.compose (apply_locks locksPaths) add_guard else add_guard
 
 
 let apply_guard_release (guardPath : AccessPath.t) : t -> t =
   TSet.map (fun (astateEl : t_element) : t_element ->
-      {astateEl with guards= Guards.remove guardPath astateEl.guards})
+      {astateEl with guards= Guards.remove guardPath astateEl.guards} )
 
 
 let apply_guard_destroy (guardPath : AccessPath.t) : t -> t =
@@ -226,7 +226,7 @@ let update_at_the_end_of_function : t -> t =
     let finalCallsPairs : CallsPairSet.t ref = ref astateEl.finalCallsPairs in
     CallsPairLockSet.iter
       (fun ((p, _) : calls_pair_lock) : unit ->
-        finalCallsPairs := CallsPairSet.add p !finalCallsPairs)
+        finalCallsPairs := CallsPairSet.add p !finalCallsPairs )
       astateEl.callsPairs ;
     if not (SSet.is_empty astateEl.calls) then
       finalCallsPairs := CallsPairSet.add (astateEl.calls, SSet.empty) !finalCallsPairs ;
@@ -293,14 +293,14 @@ module Summary = struct
       CallsPairSet.iter
         (fun ((_, pSnd) : calls_pair) : unit ->
           if not (SSet.is_empty pSnd) then
-            summary.atomicFunctions <- SSSet.add pSnd summary.atomicFunctions)
+            summary.atomicFunctions <- SSSet.add pSnd summary.atomicFunctions )
         astateEl.finalCallsPairs ;
       let iterator (i : int) (calls : SSet.t) : unit =
         summary.allCalls <-
           ( match List.nth summary.allCalls i with
           | Some (_ : SSet.t) ->
               List.mapi summary.allCalls ~f:(fun (j : int) : (SSet.t -> SSet.t) ->
-                  if Int.equal i j then SSet.union calls else Fn.id)
+                  if Int.equal i j then SSet.union calls else Fn.id )
           | None ->
               if SSet.is_empty calls then summary.allCalls else summary.allCalls @ [calls] )
       in
@@ -341,7 +341,7 @@ let apply_summary (summary : Summary.t) : t -> t =
           match List.nth !allCalls (i + 1) with
           | Some (_ : SSet.t) ->
               List.mapi !allCalls ~f:(fun (j : int) : (SSet.t -> SSet.t) ->
-                  if Int.equal (i + 1) j then SSet.union calls else Fn.id)
+                  if Int.equal (i + 1) j then SSet.union calls else Fn.id )
           | None ->
               if SSet.is_empty calls then !allCalls else !allCalls @ [calls] ) ;
       if i < Config.atomic_sets_functions_depth_limit then
@@ -352,7 +352,7 @@ let apply_summary (summary : Summary.t) : t -> t =
     and callsPairs : CallsPairLockSet.t =
       CallsPairLockSet.map
         (fun (((pFst, pSnd), lock) : calls_pair_lock) : calls_pair_lock ->
-          ((pFst, SSet.union pSnd !joinedAllCalls), lock))
+          ((pFst, SSet.union pSnd !joinedAllCalls), lock) )
         astateEl.callsPairs
     in
     update_astate_el_after_calls {astateEl with calls; callsPairs; allCalls= !allCalls}

@@ -84,8 +84,7 @@ let all_checkers =
          [(bo_checker, Clang); (bo_checker, Java)] ) }
   ; { checker= IntervalExperimentalChecker
     ; callbacks=
-        [ (interprocedural Payloads.Fields.interval_checker IntervalChecker.checker
-          , Java ) ] }
+        [ (interprocedural Payloads.Fields.interval_checker IntervalChecker.checker, Clang ) ] }
   ; { checker= PurityAnalysis
     ; callbacks=
         (let purity =

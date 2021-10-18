@@ -279,7 +279,7 @@ let config_unsafe checker =
                 "Interval Checker."
             }
       ; support=
-          (function Clang -> NoSupport | Java -> Support | CIL -> Support | Erlang -> NoSupport)
+          (function Clang -> Support | Java -> NoSupport | CIL -> Support | Erlang -> NoSupport)
       ; short_documentation=
           "Interval Checker."
       ; cli_flags= Some {deprecated= []; show_in_help= false}

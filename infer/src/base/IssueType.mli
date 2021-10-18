@@ -246,6 +246,8 @@ val interface_not_thread_safe : t
 
 val internal_error : t
 
+val interval_issue : t
+
 val invariant_call : t
 
 val ipc_on_ui_thread : t

@@ -18,6 +18,7 @@ type t =
   ; cost: CostDomain.summary option
   ; disjunctive_demo: DisjunctiveDemo.domain option
   ; dotnet_resource_leaks: ResourceLeakCSDomain.summary option
+  ; interval_checker: IntervalCheckerDomain.summary option
   ; lab_resource_leaks: ResourceLeakDomain.summary option
   ; litho_required_props: LithoDomain.summary option
   ; pulse: PulseSummary.t option
@@ -57,6 +58,7 @@ let fields =
     ~purity:(fun f -> mk f "Purity" PurityDomain.pp_summary)
     ~quandary:(fun f -> mk f "Quandary" QuandarySummary.pp)
     ~racerd:(fun f -> mk f "RacerD" RacerDDomain.pp_summary)
+    ~interval_checker:(fun f -> mk f "Interval Checker" IntervalCheckerDomain.pp)
     ~lab_resource_leaks:(fun f -> mk f "Resource Leaks Lab" ResourceLeakDomain.pp)
     ~dotnet_resource_leaks:(fun f -> mk f "DOTNET Resource Leaks" ResourceLeakCSDomain.Summary.pp)
     ~siof:(fun f -> mk f "Siof" SiofDomain.Summary.pp)
@@ -81,6 +83,7 @@ let empty =
   ; cost= None
   ; disjunctive_demo= None
   ; dotnet_resource_leaks= None
+  ; interval_checker= None
   ; lab_resource_leaks= None
   ; litho_required_props= None
   ; pulse= None

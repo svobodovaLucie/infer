@@ -22,6 +22,7 @@ type t =
   | ImmutableCast
   | Impurity
   | InefficientKeysetIterator
+  | IntervalExperimentalChecker
   | Linters
   | LithoRequiredProps
   | Liveness
@@ -268,6 +269,21 @@ let config_unsafe checker =
            instead of iterating on key-value pairs directly."
       ; cli_flags= Some {deprecated= []; show_in_help= true}
       ; enabled_by_default= true
+      ; activates= [] }
+  | IntervalExperimentalChecker ->
+      { id= "interval-checker"
+      ; kind=
+          UserFacing
+            { title= "Interval Checker"
+            ; markdown_body=
+                "Interval Checker."
+            }
+      ; support=
+          (function Clang -> NoSupport | Java -> Support | CIL -> Support | Erlang -> NoSupport)
+      ; short_documentation=
+          "Interval Checker."
+      ; cli_flags= Some {deprecated= []; show_in_help= false}
+      ; enabled_by_default= false
       ; activates= [] }
   | Linters ->
       { id= "linters"

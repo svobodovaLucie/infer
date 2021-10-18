@@ -21,6 +21,7 @@ type t =
   | ImmutableCast
   | Impurity
   | InefficientKeysetIterator
+  | IntervalExperimentalChecker
   | Linters
   | LithoRequiredProps
   | Liveness

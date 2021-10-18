@@ -22,6 +22,7 @@ include sig
     ; cost: CostDomain.summary option
     ; disjunctive_demo: DisjunctiveDemo.domain option
     ; dotnet_resource_leaks: ResourceLeakCSDomain.summary option
+    ; interval_checker: IntervalCheckerDomain.summary option
     ; lab_resource_leaks: ResourceLeakDomain.summary option
     ; litho_required_props: LithoDomain.summary option
     ; pulse: PulseSummary.t option

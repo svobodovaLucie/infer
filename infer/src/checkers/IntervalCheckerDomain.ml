@@ -22,11 +22,21 @@ module F = Format
 
     (* let toString itv = F.sprintf "[%d : %d]" (fst itv) (snd itv) *)
 (* end *)
+(*
+module Locals = Map.Make(Pvar)
+module TemporaryLocals = Map.Make (Ident)
 
+type data = {callCount: int; locals: (IntervalCheckerDomain.Interval.t * Location.t) Locals.t, tmp_locals: Pvar.t TemporaryLocals.t}
+type astate = data
+let initial : data = {callCount = 0; locals = Locals.empty; tmp_locals = TemporaryLocals.empty}
+*)
 type summary = int
 
-let pp fmt sum =
-    F.fprintf fmt "Interval: %d" sum
+let pp fmt itv = F.fprintf fmt "Interval: %d : %d" (fst itv) (snd itv)
+
+let pp_summary fmt astate = F.fprintf fmt "Interval: %d" astate
+
+
 (*
 module Locals = Map.Make(Pvar)
 module TemporaryLocals = Map.Make (Ident)

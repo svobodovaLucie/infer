@@ -4,57 +4,29 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *)
-
 open! IStd
 module F = Format
-module L = Logging
+(*module L = Logging *)
 
+(*
 module TransferFunctions (CFG : ProcCfg.S) = struct
   module CFG = CFG
-  module Domain = IntervalCheckerDomain
+  (* module Domain = IntervalCheckerDomain *)
 
   type analysis_data = IntervalCheckerDomain.t InterproceduralAnalysis.t
 
-  let is_closeable_typename tenv typename =
-    let is_closable_interface typename _ =
-      match Typ.Name.name typename with
-      | "java.io.AutoCloseable" | "java.io.Closeable" ->
-          true
-      | _ ->
-          false
-    in
-    PatternMatch.supertype_exists tenv is_closable_interface typename
-
-
-  let is_closeable_procname tenv procname =
-    match procname with
-    | Procname.Java java_procname ->
-        is_closeable_typename tenv (Procname.Java.get_class_type_name java_procname)
-    | _ ->
-        false
-
-
-  let acquires_resource tenv procname =
-    (* We assume all constructors of a subclass of Closeable acquire a resource *)
-    Procname.is_constructor procname && is_closeable_procname tenv procname
-
-
-  let releases_resource tenv procname =
-    (* We assume the close method of a Closeable releases all of its resources *)
-    String.equal "close" (Procname.get_method procname) && is_closeable_procname tenv procname
-
-
   (** Take an abstract state and instruction, produce a new abstract state *)
-  let exec_instr (astate : IntervalCheckerDomain.t)
-      {InterproceduralAnalysis.proc_desc= _; tenv; analyze_dependency= _; _} _ _ (instr : HilInstr.t)
+  let _exec_instr (astate : IntervalCheckerDomain.t)
+      {InterproceduralAnalysis.proc_desc=_; tenv=_; analyze_dependency= _; _} _ _ (instr : HilInstr.t)
       =
     match instr with
-    | Call (_return_opt, Direct callee_procname, _actuals, _, _loc) ->
+    | Call (_return_opt, Direct _callee_procname, _actuals, _, _loc) ->
         (* function call [return_opt] := invoke [callee_procname]([actuals]) *)
-        if acquires_resource tenv callee_procname then IntervalCheckerDomain.acquire_resource astate
+        (* if acquires_resource tenv callee_procname then IntervalCheckerDomain.acquire_resource astate
         else if releases_resource tenv callee_procname then
           IntervalCheckerDomain.release_resource astate
-        else astate
+        else astate *)
+        astate
     | Assign (_lhs_access_path, _rhs_exp, _loc) ->
         (* an assignment [lhs_access_path] := [rhs_exp] *)
         astate
@@ -68,19 +40,24 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
         astate
 
 
-  let pp_session_name _node fmt = F.pp_print_string fmt "Interval Checker"
+  let _pp_session_name _node fmt = F.pp_print_string fmt "Interval Checker"
 end
+*)
 
 (** 5(a) Type of CFG to analyze--Exceptional to follow exceptional control-flow edges, Normal to
     ignore them *)
-module CFG = ProcCfg.Normal
+(* module CFG = ProcCfg.Normal *)
 
 (* Create an intraprocedural abstract interpreter from the transfer functions we defined *)
-module Analyzer = LowerHil.MakeAbstractInterpreter (TransferFunctions (CFG))
+(* module Analyzer = LowerHil.MakeAbstractInterpreter (TransferFunctions (CFG)) *)
 
 (** Report an error when we have acquired more resources than we have released *)
-let report_if_leak {InterproceduralAnalysis.proc_desc; err_log; _} post =
-  if IntervalCheckerDomain.has_leak post then
+let _report_if_leak {InterproceduralAnalysis.proc_desc; err_log; _} post =
+  (*if IntervalCheckerDomain.has_leak post then
+    let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
+    let message = F.asprintf "Leaked %a resource(s) in Interval Checker" IntervalCheckerDomain.pp post in
+    Reporting.log_issue proc_desc err_log ~loc:last_loc IntervalExperimentalChecker
+      IssueType.interval_issue message;; *)
     let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
     let message = F.asprintf "Leaked %a resource(s) in Interval Checker" IntervalCheckerDomain.pp post in
     Reporting.log_issue proc_desc err_log ~loc:last_loc IntervalExperimentalChecker
@@ -88,7 +65,8 @@ let report_if_leak {InterproceduralAnalysis.proc_desc; err_log; _} post =
 
 
 (** Main function into the checker--registered in RegisterCheckers *)
-let checker ({InterproceduralAnalysis.proc_desc} as analysis_data) =
-  let result = Analyzer.compute_post analysis_data ~initial:IntervalCheckerDomain.initial proc_desc in
-  Option.iter result ~f:(fun post -> report_if_leak analysis_data post) ;
-  result
+let checker ({InterproceduralAnalysis.proc_desc=_} as _analysis_data : int InterproceduralAnalysis.t) : int option =
+  Some 100
+
+  (* Analyzer.compute_post analysis_data ~initial:IntervalCheckerDomain.initial proc_desc in
+  Option.iter result ~f:(fun post -> report_if_leak analysis_data post) ; *);

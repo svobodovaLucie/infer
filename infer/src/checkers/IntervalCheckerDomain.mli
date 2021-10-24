@@ -18,4 +18,6 @@ include AbstractDomain.S
 
 type summary = int
 
-val pp : Format.formatter -> int -> unit
+val pp_summary : Format.formatter -> summary -> unit
+
+val pp : Format.formatter -> t -> unit

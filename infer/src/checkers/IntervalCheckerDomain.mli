@@ -9,12 +9,13 @@ open! IStd
 
 include AbstractDomain.S
 
-val initial : t
+(* module Interval :
+  sig *)
+    val make : int -> int -> t
 
-val acquire_resource : t -> t
+    val zero : t
+(* end *)
 
-val release_resource : t -> t
+type summary = int
 
-val has_leak : t -> bool
-
-type summary = t
+val pp : Format.formatter -> int -> unit

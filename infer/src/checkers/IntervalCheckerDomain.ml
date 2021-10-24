@@ -4,26 +4,44 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *)
-
 open! IStd
 module F = Format
 
-type t = int
+(* module Interval = struct *)
+    type t = int * int
 
-let leq ~lhs ~rhs = lhs <= rhs
+    let join _a _b = assert false
 
-let join _a _b = assert false
+    let widen ~prev:_ ~next:_ ~num_iters:_ = assert false
 
-let widen ~prev:_ ~next:_ ~num_iters:_ = assert false
+    let make lb ub = (lb, ub)
 
-let pp fmt astate = F.fprintf fmt "%d" astate
+    let zero = (0, 0)
 
-let initial = 0
+    let leq ~lhs ~rhs = (fst lhs) <= (snd rhs)
 
-let acquire_resource held = held + 1
+    (* let toString itv = F.sprintf "[%d : %d]" (fst itv) (snd itv) *)
+(* end *)
 
-let release_resource held = held - 1
+type summary = int
 
-let has_leak held = held > 0
+let pp fmt sum =
+    F.fprintf fmt "Interval: %d" sum
+(*
+module Locals = Map.Make(Pvar)
+module TemporaryLocals = Map.Make (Ident)
 
-type summary = t
+type data = {callCount: int; locals: (IntervalCheckerDomain.Interval.t * Location.t) Locals.t, tmp_locals: Pvar.t TemporaryLocals.t}
+type astate = data
+let initial : data = {callCount = 0; locals = Locals.empty; tmp_locals = TemporaryLocals.empty}
+
+type summary = int
+let bounds : make (-20) (20)
+*)
+(*
+let pp_summary fmt astate.callCount =
+     (*let pp_variable k v =
+       F.fprintf fmt "Interval: %s = %s\n" (Pvar.to_string k) (Interval.toString (fst v))
+     in*)
+     F.fprintf fmt "Interval: Call count: %d" astate.callCount
+     *)

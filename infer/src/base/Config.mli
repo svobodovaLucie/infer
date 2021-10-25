@@ -724,6 +724,8 @@ val xcode_isysroot_suffix : string option
 
 val xcpretty : bool
 
+val interval_check : string option
+
 (** {2 Configuration values derived from command-line options} *)
 
 val dynamic_dispatch : bool

@@ -66,6 +66,7 @@ let _report_if_leak {InterproceduralAnalysis.proc_desc; err_log; _} post =
 
 (** Main function into the checker--registered in RegisterCheckers *)
 let checker ({InterproceduralAnalysis.proc_desc=_} as _analysis_data : int InterproceduralAnalysis.t) : int option =
+  F.printf "Hello from Interval Checker";
   Some 100
 
   (* Analyzer.compute_post analysis_data ~initial:IntervalCheckerDomain.initial proc_desc in

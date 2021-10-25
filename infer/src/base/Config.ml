@@ -172,6 +172,8 @@ let manual_simple_lineage = "SIMPLE LINEAGE OPTIONS"
 
 let manual_siof = "SIOF CHECKER OPTIONS"
 
+let manual_interval = "INTERVAL CHECKER OPTIONS"
+
 let max_narrows = 5
 
 (** Maximum number of widens that can be performed before the analysis will intentionally crash.
@@ -2753,6 +2755,10 @@ and xcpretty =
     "Infer will use xcpretty together with xcodebuild to analyze an iOS app. xcpretty just needs \
      to be in the path, infer command is still just $(i,`infer -- <xcodebuild command>`)."
 
+and interval_check =
+  CLOpt.mk_path_opt ~long:"interval-check" ~meta:"file"
+  ~in_help:InferCommand.[(Analyze, manual_interval)]
+  "Infer Interval Checker"
 
 (* The "rest" args must appear after "--" on the command line, and hence after other args, so they
    are allowed to refer to the other arg variables. *)
@@ -3684,6 +3690,8 @@ and xcode_developer_dir = !xcode_developer_dir
 and xcode_isysroot_suffix = !xcode_isysroot_suffix
 
 and xcpretty = !xcpretty
+
+and interval_check = !interval_check
 
 (** Configuration values derived from command-line options *)
 

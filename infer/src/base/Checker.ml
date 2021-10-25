@@ -283,7 +283,7 @@ let config_unsafe checker =
       ; short_documentation=
           "Interval Checker."
       ; cli_flags= Some {deprecated= []; show_in_help= false}
-      ; enabled_by_default= false
+      ; enabled_by_default= true
       ; activates= [] }
   | Linters ->
       { id= "linters"

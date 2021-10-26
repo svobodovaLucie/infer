@@ -58,7 +58,7 @@ let fields =
     ~purity:(fun f -> mk f "Purity" PurityDomain.pp_summary)
     ~quandary:(fun f -> mk f "Quandary" QuandarySummary.pp)
     ~racerd:(fun f -> mk f "RacerD" RacerDDomain.pp_summary)
-    ~interval_checker:(fun f -> mk f "Interval Checker" IntervalCheckerDomain.pp_summary)
+    ~interval_checker:(fun f -> mk f "Interval Checker" IntervalCheckerDomain.pp)
     ~lab_resource_leaks:(fun f -> mk f "Resource Leaks Lab" ResourceLeakDomain.pp)
     ~dotnet_resource_leaks:(fun f -> mk f "DOTNET Resource Leaks" ResourceLeakCSDomain.Summary.pp)
     ~siof:(fun f -> mk f "Siof" SiofDomain.Summary.pp)

@@ -4,20 +4,12 @@
  * This source code is licensed under the MIT license found in the
  * LICENSE file in the root directory of this source tree.
  *)
-
 open! IStd
 
 include AbstractDomain.S
 
-(* module Interval :
-  sig *)
-    val make : int -> int -> t
+val initial : t
 
-    val zero : t
-(* end *)
+type astate = t
 
-type summary = int
-
-val pp_summary : Format.formatter -> summary -> unit
-
-val pp : Format.formatter -> t -> unit
+type summary = astate

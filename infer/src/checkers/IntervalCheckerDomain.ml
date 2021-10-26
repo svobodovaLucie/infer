@@ -7,51 +7,20 @@
 open! IStd
 module F = Format
 
-(* module Interval = struct *)
-    type t = int * int
+type t = int
 
-    let join _a _b = assert false
+type astate = t
 
-    let widen ~prev:_ ~next:_ ~num_iters:_ = assert false
+type summary = astate
 
-    let make lb ub = (lb, ub)
+let leq ~lhs ~rhs = lhs <= rhs
 
-    let zero = (0, 0)
+let join a b = Stdlib.max a b
 
-    let leq ~lhs ~rhs = (fst lhs) <= (snd rhs)
+let widen ~prev ~next ~num_iters:_ = join prev next
 
-    (* let toString itv = F.sprintf "[%d : %d]" (fst itv) (snd itv) *)
-(* end *)
-(*
-module Locals = Map.Make(Pvar)
-module TemporaryLocals = Map.Make (Ident)
+let pp fmt astate = F.fprintf fmt "%d" astate
 
-type data = {callCount: int; locals: (IntervalCheckerDomain.Interval.t * Location.t) Locals.t, tmp_locals: Pvar.t TemporaryLocals.t}
-type astate = data
-let initial : data = {callCount = 0; locals = Locals.empty; tmp_locals = TemporaryLocals.empty}
-*)
-type summary = int
-
-let pp fmt itv = F.fprintf fmt "Interval: %d : %d" (fst itv) (snd itv)
-
-let pp_summary fmt astate = F.fprintf fmt "Interval: %d" astate
+let initial = 0
 
 
-(*
-module Locals = Map.Make(Pvar)
-module TemporaryLocals = Map.Make (Ident)
-
-type data = {callCount: int; locals: (IntervalCheckerDomain.Interval.t * Location.t) Locals.t, tmp_locals: Pvar.t TemporaryLocals.t}
-type astate = data
-let initial : data = {callCount = 0; locals = Locals.empty; tmp_locals = TemporaryLocals.empty}
-
-type summary = int
-let bounds : make (-20) (20)
-*)
-(*
-let pp_summary fmt astate.callCount =
-     (*let pp_variable k v =
-       F.fprintf fmt "Interval: %s = %s\n" (Pvar.to_string k) (Interval.toString (fst v))
-     in*)
-     F.fprintf fmt "Interval: Call count: %d" astate.callCount
-     *)

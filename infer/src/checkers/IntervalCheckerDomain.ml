@@ -17,6 +17,8 @@ let leq ~lhs ~rhs = lhs <= rhs
 
 let join a b = Stdlib.max a b
 
+let inc fc = fc + 1
+
 let widen ~prev ~next ~num_iters:_ = join prev next
 
 let pp fmt astate = F.fprintf fmt "%d" astate

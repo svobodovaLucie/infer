@@ -10,6 +10,8 @@ include AbstractDomain.S
 
 val initial : t
 
+val inc : t -> t
+
 type astate = t
 
 type summary = astate

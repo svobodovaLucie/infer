@@ -14,4 +14,6 @@ val inc : t -> t
 
 type astate = t
 
-type summary = astate
+type summary = t
+
+val apply_summary : summary : t -> t -> t

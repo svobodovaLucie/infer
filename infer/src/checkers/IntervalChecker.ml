@@ -17,10 +17,10 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
 
     (** Take an abstract state and instruction, produce a new abstract state *)
     let exec_instr (astate : IntervalCheckerDomain.t)
-        {InterproceduralAnalysis.proc_desc= _; tenv=_; analyze_dependency= _; _} _ _ (instr : HilInstr.t)
+        {InterproceduralAnalysis.proc_desc= _; tenv=_; analyze_dependency; _} _ _ (instr : HilInstr.t)
         =
         match instr with
-        | Call (_return_opt, Direct callee_procname, _actuals, _, loc) ->
+        | Call (_return_opt, Direct callee_procname, _actuals, _, loc) -> (
             if (phys_equal (String.compare (Procname.to_string callee_procname) "printf") 0) then
             (
                 F.printf "PrintChecker: Print function call %s at line %a\n"
@@ -28,7 +28,12 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
                 Domain.inc astate
             )
             else
-                astate
+                match analyze_dependency callee_procname with
+                | Some (_callee_proc_desc, callee_summary) ->
+                    Domain.apply_summary ~summary:callee_summary astate
+                | None ->
+                    astate
+            )
         | _ ->
             astate
 

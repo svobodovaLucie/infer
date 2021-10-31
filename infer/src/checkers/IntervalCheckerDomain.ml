@@ -25,4 +25,5 @@ let pp fmt astate = F.fprintf fmt "%d" astate
 
 let initial = 0
 
-
+let apply_summary ~summary:summary_count current_count =
+    summary_count + current_count

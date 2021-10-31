@@ -48,6 +48,14 @@ let inc = function
 
 let initial = (NonTop 0, false)
 
+let has_printf = function
+    | Top, _ ->
+        false
+    | NonTop x, _ when x > 0 ->
+        true
+    | NonTop _, _ ->
+        false
+
 let apply_summary ~summary:(summary_count, summary_has_printf) (current_count, current_has_printf) =
     let new_count =
         match current_count with

@@ -48,10 +48,11 @@ module CFG = ProcCfg.Normal
 module Analyzer = LowerHil.MakeAbstractInterpreter (TransferFunctions (CFG))
 
 let report_if_printf {InterproceduralAnalysis.proc_desc; err_log; _} post =
-    let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
-    let message = F.asprintf "Number of printf: %a in Interval Checker\n" IntervalCheckerDomain.pp post in
-    Reporting.log_issue proc_desc err_log ~loc:last_loc IntervalExperimentalChecker
-        IssueType.interval_issue message;;
+    if Domain.has_printf post then
+        let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
+        let message = F.asprintf "Number of printf: %a in Interval Checker\n" IntervalCheckerDomain.pp post in
+        Reporting.log_issue proc_desc err_log ~loc:last_loc IntervalExperimentalChecker
+            IssueType.interval_issue message;;
 
 (** Main function into the checker--registered in RegisterCheckers *)
 let checker ({InterproceduralAnalysis.proc_desc; tenv=_} as analysis_data) =

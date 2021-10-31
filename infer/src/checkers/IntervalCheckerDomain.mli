@@ -14,6 +14,8 @@ val inc : t -> t
 
 type astate = t
 
+val has_printf : t -> bool
+
 val apply_summary : summary : t -> t -> t
 
 type summary = t

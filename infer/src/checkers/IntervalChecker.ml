@@ -60,8 +60,8 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_} as analysis_data) =
         post
     in
     let _extras = FormalMap.make proc_desc in
-    F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Interval Checker: function %s START >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
+    (* F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Interval Checker: function %s START >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc)); *)
     let result = Analyzer.compute_post analysis_data ~initial:IntervalCheckerDomain.initial proc_desc in
         Option.iter result ~f:(fun post -> report_if_printf analysis_data post);
-    F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Interval Checker: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
+    (* F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Interval Checker: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc)); *)
     result

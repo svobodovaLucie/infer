@@ -50,7 +50,7 @@ let initial = (NonTop 0, false)
 
 let has_printf = function
     | Top, _ ->
-        false
+        true
     | NonTop x, _ when x > 0 ->
         true
     | NonTop _, _ ->

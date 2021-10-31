@@ -95,6 +95,15 @@ let exec_inst tid inst pre =
       Exec.store pre ~ptr:(X.term tid ptr) ~exp:(X.term tid exp)
         ~len:(X.term tid len)
       |> or_alarm
+  | AtomicRMW {reg; ptr; exp; len; _} ->
+      Exec.atomic_rmw pre ~reg:(X.reg tid reg) ~ptr:(X.term tid ptr)
+        ~exp:(X.term tid exp) ~len:(X.term tid len)
+      |> or_alarm
+  | AtomicCmpXchg {reg; ptr; cmp; exp; len; len1; _} ->
+      Exec.atomic_cmpxchg pre ~reg:(X.reg tid reg) ~ptr:(X.term tid ptr)
+        ~cmp:(X.term tid cmp) ~exp:(X.term tid exp) ~len:(X.term tid len)
+        ~len1:(X.term tid len1)
+      |> or_alarm
   | Alloc {reg; num; len; _} ->
       Exec.alloc pre ~reg:(X.reg tid reg) ~num:(X.term tid num) ~len
       |> or_alarm
@@ -140,11 +149,11 @@ let garbage_collect (q : Sh.t) ~wrt =
   [%Trace.retn fun {pf} -> pf "%a" pp]
 
 let and_eqs sub formals actuals q =
-  let and_eq formal actual q =
+  let and_eq formal actual eqs =
     let actual' = Term.rename sub actual in
-    Sh.and_ (Formula.eq (Term.var formal) actual') q
+    Formula.eq (Term.var formal) actual' :: eqs
   in
-  IArray.fold2_exn ~f:and_eq formals actuals q
+  Sh.andN (IArray.fold2_exn ~f:and_eq formals actuals []) q
 
 let localize_entry tid globals actuals formals freturn locals shadow pre
     entry =

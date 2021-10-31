@@ -89,6 +89,9 @@ val pulse_model_type : Typ.name
 module ModeledField : sig
   val string_length : Fieldname.t
   (** Modeled field for string length *)
+
+  val internal_string : Fieldname.t
+  (** Modeled field for internal string *)
 end
 
 val eval :
@@ -114,7 +117,8 @@ val eval_structure_isl :
 (** Similar to eval but apply to data structures and ISL abduction. Return a list of abduced states
     (ISLOk and ISLErs); The boolean indicates whether it is data structures or not. *)
 
-val prune : PathContext.t -> Location.t -> condition:Exp.t -> t -> t AccessResult.t
+val prune :
+  PathContext.t -> Location.t -> condition:Exp.t -> t -> (t * ValueHistory.t) AccessResult.t
 
 val eval_deref :
      PathContext.t
@@ -170,7 +174,7 @@ val havoc_deref_field :
   -> t AccessResult.t
 (** Havoc dereferenced field address. *)
 
-val realloc_pvar : Tenv.t -> Pvar.t -> Typ.t -> Location.t -> t -> t
+val realloc_pvar : Tenv.t -> PathContext.t -> Pvar.t -> Typ.t -> Location.t -> t -> t
 
 val write_id : Ident.t -> AbstractValue.t * ValueHistory.t -> t -> t
 
@@ -253,7 +257,7 @@ val invalidate_biad_isl :
 (** record that the address is invalid. If the address has not been allocated, abduce ISL specs for
     both invalid (null, free, unint) and allocated heap. *)
 
-val allocate : Attribute.allocator -> Location.t -> AbstractValue.t * ValueHistory.t -> t -> t
+val allocate : Attribute.allocator -> Location.t -> AbstractValue.t -> t -> t
 
 val add_dynamic_type : Typ.t -> AbstractValue.t -> t -> t
 

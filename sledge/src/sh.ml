@@ -642,9 +642,13 @@ let and_ b q =
     ~call:(fun {pf} -> pf "@ (%a)@ (%a)" Formula.pp b pp q)
     ~retn:(fun {pf} -> pf "%a" pp)
   @@ fun () ->
-  let xs, q = bind_exists q ~wrt:(Formula.fv b) in
-  let b = Formula.map_terms ~f:(Context.normalize q.ctx) b in
-  exists xs (star (pure b) q)
+  let p = pure (Formula.map_terms ~f:(Context.normalize q.ctx) b) in
+  if is_emp p then q
+  else
+    let xs, q = bind_exists q ~wrt:(Formula.fv b) in
+    exists xs (star p q)
+
+let andN bs q = and_ (Formula.andN bs) q
 
 let and_subst subst q =
   [%Trace.call fun {pf} -> pf "@ %a@ %a" Context.Subst.pp subst pp q]
@@ -826,9 +830,19 @@ let norm s q =
 let rec freshen_nested_xs us q =
   [%Trace.call fun {pf} -> pf "@ %a" pp q]
   ;
-  (* trim xs to those that appear in the stem and sink the rest *)
-  let fv_stem = fv {q with xs= Var.Set.empty; djns= []} in
-  let xs_sink, xs = Var.Set.diff_inter q.xs fv_stem in
+  (* trim xs to those that appear in stem or >1 disjunction and sink rest *)
+  let xs_sink, _ =
+    let fv_stem = fv {q with xs= Var.Set.empty; djns= []} in
+    let xs_sink, xs_djns = (Var.Set.diff q.xs fv_stem, Var.Set.empty) in
+    List.fold q.djns (xs_sink, xs_djns) ~f:(fun djn (xs_sink, xs_djns) ->
+        Set.fold djn (xs_sink, xs_djns) ~f:(fun djt (xs_sink, xs_djns) ->
+            let fv_djt = fv djt in
+            let dont_sink = Var.Set.inter xs_djns fv_djt in
+            let xs_sink = Var.Set.diff xs_sink dont_sink in
+            let xs_djns = Var.Set.union xs_djns fv_djt in
+            (xs_sink, xs_djns) ) )
+  in
+  let xs = Var.Set.diff q.xs xs_sink in
   let us = Var.Set.union us q.us in
   let djns, hoisted, xs_below =
     List.fold_partition_map q.djns Var.Set.empty ~f:(fun djn xs_below ->
@@ -862,22 +876,21 @@ let rec propagate_context_ ancestor_vs ancestor_ctx q =
   [%Trace.call fun {pf} -> pf "@ (%a)@ %a" Context.pp ancestor_ctx pp q]
   ;
   (* extend vocabulary with variables in scope above *)
-  let ancestor_vs = Var.Set.union ancestor_vs (Var.Set.union q.us q.xs) in
-  (* decompose formula *)
-  let xs, stem, djns =
-    (q.xs, {q with us= ancestor_vs; xs= emp.xs; djns= emp.djns}, q.djns)
-  in
+  let q = {q with us= Var.Set.union ancestor_vs q.us} in
   (* strengthen context with that from above *)
-  let ancestor_stem = and_ctx_ ancestor_ctx stem in
-  let ancestor_ctx = ancestor_stem.ctx in
+  let q = and_ctx_ ancestor_ctx q in
+  (* decompose formula *)
+  let xs, q = bind_exists q ~wrt:Var.Set.empty in
+  let stem, djns = ({q with djns= emp.djns}, q.djns) in
+  (* propagate over disjunctions *)
   let q' =
-    List.fold djns ancestor_stem ~f:(fun djn q' ->
+    List.fold djns stem ~f:(fun djn q' ->
         let djn, dj_ctxs =
           Set.fold_map djn [] ~f:(fun dj dj_ctxs ->
-              let dj = propagate_context_ ancestor_vs ancestor_ctx dj in
-              (dj, dj.ctx :: dj_ctxs) )
+              let dj = propagate_context_ q.us q.ctx dj in
+              (dj, (dj.xs, dj.ctx) :: dj_ctxs) )
         in
-        let new_xs, djn_ctx = Context.interN ancestor_vs dj_ctxs in
+        let new_xs, djn_ctx = Context.interN q.us dj_ctxs in
         (* hoist xs appearing in disjunction's context *)
         let djn_xs = Var.Set.diff (Context.fv djn_ctx) q'.us in
         let djn = Set.map ~f:(elim_exists djn_xs) djn in
@@ -1002,8 +1015,10 @@ let rec simplify_ us ancestor_xs rev_xss survived ancestor_subst q =
     pf "%a@ %a" Context.Subst.pp stem_subst pp_raw q' ;
     invariant q']
 
+let count_simplify = ref (-1)
+
 let simplify q =
-  [%Trace.call fun {pf} -> pf "@ %a" pp_raw q]
+  [%Trace.call fun {pf} -> pf " %i@ %a" !count_simplify pp_raw q]
   ;
   ( if is_false q then false_ q.us
   else
@@ -1016,3 +1031,21 @@ let simplify q =
   [%Trace.retn fun {pf} q' ->
     pf "%a" pp_raw q' ;
     invariant q']
+
+(*
+ * Replay debugging
+ *)
+
+type call = Simplify of t [@@deriving sexp]
+
+let replay c =
+  match call_of_sexp (Sexp.of_string c) with
+  | Simplify q -> simplify q |> ignore
+
+let dump_simplify = ref (-1)
+
+let simplify q =
+  Int.incr count_simplify ;
+  if !count_simplify = !dump_simplify then
+    fail "%a" Sexp.pp_hum (sexp_of_call (Simplify q)) ()
+  else simplify q

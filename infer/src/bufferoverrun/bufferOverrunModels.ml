@@ -476,14 +476,6 @@ module StdArray = struct
       Dom.Mem.add_stack (Loc.of_id id) v mem
     in
     {exec; check= no_check}
-
-
-  let integer_size size =
-    let exec _ ~ret:(ret_id, _) mem =
-      let size_v = IntLit.of_int64 size |> Itv.of_int_lit |> Dom.Val.of_itv in
-      model_by_value size_v ret_id mem
-    in
-    {exec; check= no_check}
 end
 
 module ArrObjCommon = struct
@@ -952,9 +944,9 @@ module AbstractCollection (Lang : Lang) = struct
 
 
   let init_with_arg lhs_id rhs_exp =
-    let exec {integer_type_widths} ~ret:_ mem =
-      let itr = Sem.eval integer_type_widths rhs_exp mem in
-      model_by_value itr lhs_id mem
+    let exec model_env ~ret mem =
+      let length = eval_collection_length rhs_exp mem |> Dom.Val.get_itv in
+      change_size_by ~size_f:(fun _ -> length) lhs_id model_env ~ret mem
     and check = check_alloc_size ~can_be_zero:true rhs_exp in
     {exec; check}
 
@@ -1069,6 +1061,64 @@ end
 module Collection = AbstractCollection (struct
   let collection_internal_array_field = BufferOverrunField.java_collection_internal_array
 end)
+
+module Container = struct
+  include AbstractCollection (struct
+    let collection_internal_array_field = BufferOverrunField.cpp_collection_internal_array
+  end)
+
+  let integer_size size =
+    let exec _ ~ret:(ret_id, _) mem =
+      let size_v = IntLit.of_int64 size |> Itv.of_int_lit |> Dom.Val.of_itv in
+      model_by_value size_v ret_id mem
+    in
+    {exec; check= no_check}
+
+
+  module Iterator = struct
+    let begin_ exp =
+      let exec _ ~ret:_ mem =
+        let locs = Sem.eval_locs exp mem in
+        Dom.Mem.update_mem locs Dom.Val.Itv.zero mem
+      in
+      {exec; check= no_check}
+
+
+    let end_ {exp= con_exp} temp_exp =
+      let exec model_env ~ret:((ret_id, _) as ret) mem =
+        let mem = (size con_exp).exec model_env ~ret mem in
+        let locs = Sem.eval_locs temp_exp mem in
+        let v = Dom.Mem.find (Loc.of_id ret_id) mem in
+        Dom.Mem.update_mem locs v mem
+      in
+      {exec; check= no_check}
+
+
+    let iterator_ne lhs_exp rhs_exp =
+      let exec {integer_type_widths} ~ret:(ret_id, _) mem =
+        let v = Sem.eval integer_type_widths (Exp.BinOp (Binop.Ne, lhs_exp, rhs_exp)) mem in
+        let mem =
+          match (lhs_exp, rhs_exp) with
+          | Exp.Lvar iter, Exp.Lvar iter_end ->
+              (* NOTE: We heuristically select LHS as an iterator and RHS as the end of vector. *)
+              Dom.Mem.add_cpp_iterator_cmp_alias ret_id iter iter_end mem
+          | _, _ ->
+              mem
+        in
+        model_by_value v ret_id mem
+      in
+      {exec; check= no_check}
+
+
+    let iterator_incr iterator_exp =
+      let exec _ ~ret:_ mem =
+        let locs = Sem.eval_locs iterator_exp mem in
+        let v = Dom.Mem.find_set locs mem |> Dom.Val.get_itv |> Itv.incr |> Dom.Val.of_itv in
+        Dom.Mem.update_mem locs v mem
+      in
+      {exec; check= no_check}
+  end
+end
 
 module NSCollection = struct
   include AbstractCollection (struct
@@ -1659,6 +1709,41 @@ module InferAnnotation = struct
         no_model
 end
 
+let std_container _ str =
+  List.exists ~f:(String.equal str)
+    ["deque"; "list"; "map"; "set"; "unordered_map"; "unordered_set"; "vector"]
+
+
+(* libcpp - native library for mac *)
+let std_iterator_libcpp _ str =
+  List.exists ~f:(String.equal str)
+    [ "__deque_iterator"
+    ; "__hash_const_iterator"
+    ; "__hash_map_const_iterator"
+    ; "__hash_map_iterator"
+    ; "__list_const_iterator"
+    ; "__list_iterator"
+    ; "__map_const_iterator"
+    ; "__map_iterator"
+    ; "__tree_const_iterator"
+    ; "__wrap_iter" ]
+
+
+(* libstdcpp - native library for gnu/linux *)
+let std_iterator_libstdcpp _ str =
+  List.exists ~f:(String.equal str)
+    [ "_Deque_iterator"
+    ; "_List_const_iterator"
+    ; "_List_iterator"
+    ; "_Rb_tree_const_iterator"
+    ; "_Rb_tree_iterator" ]
+
+
+(* libstdcpp - std::__detail:: cases *)
+let std_iterator_libstdcpp_detail _ str =
+  List.exists ~f:(String.equal str) ["_Node_const_iterator"; "_Node_iterator"]
+
+
 module Call = struct
   let dispatch : (Tenv.t, model, unit) ProcnameDispatcher.Call.dispatcher =
     let open ProcnameDispatcher.Call in
@@ -1826,10 +1911,12 @@ module Call = struct
       ; -"folly" &:: "split" $ any_arg $+ any_arg
         $+ capt_arg_of_typ (-"std" &:: "vector")
         $+? capt_exp $--> Folly.Split.std_vector
+      ; -"std" &:: "integral_constant" < any_typ &+ capt_int >:: "operator_int"
+        &--> Container.integer_size
       ; -"std" &:: "__shared_ptr_access" &:: "operator->" $ capt_exp $--> id
       ; -"std" &:: "array" < any_typ &+ capt_int >:: "array" &--> StdArray.constructor
-      ; -"std" &:: "array" < any_typ &+ capt_int >:: "size" &--> StdArray.integer_size
-      ; -"std" &:: "array" < any_typ &+ capt_int >:: "max_size" &--> StdArray.integer_size
+      ; -"std" &:: "array" < any_typ &+ capt_int >:: "size" &--> Container.integer_size
+      ; -"std" &:: "array" < any_typ &+ capt_int >:: "max_size" &--> Container.integer_size
       ; -"std" &:: "array" < any_typ &+ capt_int >:: "at" $ capt_arg $+ capt_arg $!--> StdArray.at
       ; -"std" &:: "array" < any_typ &+ capt_int >:: "back" $ capt_arg $!--> StdArray.back
       ; -"std" &:: "array" < any_typ &+ capt_int >:: "begin" $ capt_arg $!--> StdArray.begin_
@@ -1875,6 +1962,41 @@ module Call = struct
         $+ any_arg_of_typ (-"std" &:: "basic_string")
         $--> by_value Dom.Val.Itv.unknown_bool
       ; -"std" &:: "shared_ptr" &:: "operator->" $ capt_exp $--> id
+        (*             Models for c++ iterators <begin>           *)
+      ; -"std" &::+ std_container &:: "begin" $ any_arg $+ capt_exp $--> Container.Iterator.begin_
+      ; -"std" &::+ std_container &:: "end" $ capt_arg $+ capt_exp $--> Container.Iterator.end_
+      ; -"std" &::+ std_container &:: "cbegin" $ any_arg $+ capt_exp $--> Container.Iterator.begin_
+      ; -"std" &::+ std_container &:: "cend" $ capt_arg $+ capt_exp $--> Container.Iterator.end_
+        (*             Models for c++ iterators <end>             *)
+        (*     Models for c++ operators <begin> -- libcpp/mac     *)
+      ; -"std" &:: "operator!="
+        $ capt_exp_of_typ (-"std" &::+ std_iterator_libcpp)
+        $+ capt_exp $--> Container.Iterator.iterator_ne
+      ; -"std" &::+ std_iterator_libcpp &:: "operator++" $ capt_exp
+        $+...$--> Container.Iterator.iterator_incr
+        (*          Models for c++ operators -- gnu/linx          *)
+      ; -"std" &:: "operator!="
+        $ capt_exp_of_typ (-"std" &::+ std_iterator_libstdcpp)
+        $+ capt_exp $--> Container.Iterator.iterator_ne
+      ; -"std" &::+ std_iterator_libstdcpp &:: "operator++" $ capt_exp
+        $+...$--> Container.Iterator.iterator_incr
+        (*    vectors have a different namespace in gnu/linux     *)
+      ; -"__gnu_cxx" &:: "operator!="
+        $ capt_exp_of_typ (-"__gnu_cxx" &:: "__normal_iterator")
+        $+ capt_exp $--> Container.Iterator.iterator_ne
+      ; -"__gnu_cxx" &:: "__normal_iterator" &:: "operator++" $ capt_exp
+        $--> Container.Iterator.iterator_incr
+        (*    unordered sets representation includes __detail     *)
+      ; -"std" &:: "operator!="
+        $ capt_exp_of_typ (-"std" &:: "__detail" &::+ std_iterator_libstdcpp_detail)
+        $+ capt_exp $--> Container.Iterator.iterator_ne
+      ; -"std" &:: "__detail" &::+ std_iterator_libstdcpp_detail &:: "operator++" $ capt_exp
+        $+...$--> Container.Iterator.iterator_incr
+        (*             Models for c++ operators <end>             *)
+        (*             Models for std::map <begin>                *)
+      ; -"std" &:: "map" &:: "size" $ capt_exp $--> Container.size
+        (*             Models for std::map <end>                  *)
+        (*             Models for std::vector <begin>             *)
       ; -"std" &:: "vector" < capt_typ &+ any_typ >:: "data" $ capt_arg $--> StdVector.data
       ; -"std" &:: "vector" < capt_typ &+ any_typ >:: "emplace_back" $ capt_arg $+ capt_exp
         $--> StdVector.push_back
@@ -1899,6 +2021,7 @@ module Call = struct
       ; -"std" &:: "vector" < capt_typ &+ any_typ >:: "vector"
         $ capt_arg_of_typ (-"std" &:: "vector")
         $--> StdVector.constructor_empty
+        (*             Models for std::vector <end>               *)
       ; -"google" &:: "StrLen" <>$ capt_exp $--> strlen
       ; (* Java models *)
         -"java.lang.Object" &:: "clone" <>$ capt_exp $--> id

@@ -6,8 +6,9 @@
  *)
 open! IStd
 module F = Format
+module CallEvent = PulseCallEvent
 module Invalidation = PulseInvalidation
-module PathContext = PulsePathContext
+module Timestamp = PulseTimestamp
 module Trace = PulseTrace
 module ValueHistory = PulseValueHistory
 
@@ -54,15 +55,15 @@ module Attribute = struct
     | AddressOfStackVariable of Var.t * Location.t * ValueHistory.t
     | Allocated of allocator * Trace.t
     | Closure of Procname.t
-    | DeepDeallocate
     | DynamicType of Typ.t
     | EndOfCollection
     | Invalid of Invalidation.t * Trace.t
     | ISLAbduced of Trace.t
-    | MustBeInitialized of PathContext.timestamp * Trace.t
-    | MustBeValid of PathContext.timestamp * Trace.t * Invalidation.must_be_valid_reason option
+    | MustBeInitialized of Timestamp.t * Trace.t
+    | MustBeValid of Timestamp.t * Trace.t * Invalidation.must_be_valid_reason option
     | StdVectorReserve
     | Uninitialized
+    | UnknownEffect of CallEvent.t * ValueHistory.t
     | UnreachableAt of Location.t
     | WrittenTo of Trace.t
   [@@deriving compare, variants]
@@ -73,7 +74,7 @@ module Attribute = struct
 
   let to_rank = Variants.to_rank
 
-  let dummy_trace = Trace.Immediate {location= Location.dummy; history= []}
+  let dummy_trace = Trace.Immediate {location= Location.dummy; history= Epoch}
 
   let closure_rank = Variants.to_rank (Closure (Procname.from_string_c_fun ""))
 
@@ -83,20 +84,18 @@ module Attribute = struct
     let pname = Procname.from_string_c_fun "" in
     let var = Var.of_pvar (Pvar.mk (Mangled.from_string "") pname) in
     let location = Location.dummy in
-    Variants.to_rank (AddressOfStackVariable (var, location, []))
+    Variants.to_rank (AddressOfStackVariable (var, location, Epoch))
 
 
   let invalid_rank =
     Variants.to_rank (Invalid (Invalidation.ConstantDereference IntLit.zero, dummy_trace))
 
 
-  let must_be_valid_rank = Variants.to_rank (MustBeValid (PathContext.t0, dummy_trace, None))
+  let must_be_valid_rank = Variants.to_rank (MustBeValid (Timestamp.t0, dummy_trace, None))
 
   let std_vector_reserve_rank = Variants.to_rank StdVectorReserve
 
   let allocated_rank = Variants.to_rank (Allocated (CMalloc, dummy_trace))
-
-  let deep_deallocate_rank = Variants.to_rank DeepDeallocate
 
   let dynamic_type_rank = Variants.to_rank (DynamicType StdTyp.void)
 
@@ -114,7 +113,7 @@ module Attribute = struct
         true
     | (MustBeValid _ | Allocated _ | ISLAbduced _), Invalid _ ->
         false
-    | _, DeepDeallocate ->
+    | _, UnknownEffect _ ->
         (* ignore *)
         true
     | Invalid _, _ | _, Uninitialized ->
@@ -125,9 +124,11 @@ module Attribute = struct
 
   let uninitialized_rank = Variants.to_rank Uninitialized
 
+  let unknown_effect_rank = Variants.to_rank (UnknownEffect (Model "", Epoch))
+
   let unreachable_at_rank = Variants.to_rank (UnreachableAt Location.dummy)
 
-  let must_be_initialized_rank = Variants.to_rank (MustBeInitialized (PathContext.t0, dummy_trace))
+  let must_be_initialized_rank = Variants.to_rank (MustBeInitialized (Timestamp.t0, dummy_trace))
 
   let pp f attribute =
     let pp_string_if_debug string fmt =
@@ -144,8 +145,6 @@ module Attribute = struct
           trace
     | Closure pname ->
         Procname.pp f pname
-    | DeepDeallocate ->
-        F.fprintf f "DeepDeallocate"
     | DynamicType typ ->
         F.fprintf f "DynamicType %a" (Typ.pp Pp.text) typ
     | EndOfCollection ->
@@ -170,6 +169,8 @@ module Attribute = struct
         F.pp_print_string f "std::vector::reserve()"
     | Uninitialized ->
         F.pp_print_string f "Uninitialized"
+    | UnknownEffect (call, hist) ->
+        F.fprintf f "UnknownEffect(%a, %a)" CallEvent.pp call ValueHistory.pp hist
     | UnreachableAt location ->
         F.fprintf f "UnreachableAt(%a)" Location.pp location
     | WrittenTo trace ->
@@ -184,11 +185,11 @@ module Attribute = struct
     | AddressOfCppTemporary _
     | AddressOfStackVariable _
     | Closure _
-    | DeepDeallocate
     | DynamicType _
     | EndOfCollection
     | StdVectorReserve
     | Uninitialized
+    | UnknownEffect _
     | UnreachableAt _
     | WrittenTo _ ->
         false
@@ -203,46 +204,40 @@ module Attribute = struct
     | AddressOfCppTemporary _
     | AddressOfStackVariable _
     | Closure _
-    | DeepDeallocate
     | DynamicType _
     | EndOfCollection
     | StdVectorReserve
     | Uninitialized
+    | UnknownEffect _
     | WrittenTo _ ->
         true
 
 
-  let add_call path proc_name call_location caller_history attr =
+  let add_call timestamp proc_name call_location caller_history attr =
     let add_call_to_trace in_call =
       Trace.ViaCall {f= Call proc_name; location= call_location; history= caller_history; in_call}
     in
     match attr with
-    | Allocated (proc_name, trace) -> (
-      match
-        Trace.trace_up_to_key_event caller_history ~is_key_event:(function
-          | Allocation _ ->
-              true
-          | _ ->
-              false )
-      with
-      | Some alloc_trace ->
-          Allocated (proc_name, alloc_trace)
-      | None ->
-          Allocated (proc_name, add_call_to_trace trace) )
+    | Allocated (proc_name, trace) ->
+        Allocated (proc_name, add_call_to_trace trace)
     | Invalid (invalidation, trace) ->
         Invalid (invalidation, add_call_to_trace trace)
     | ISLAbduced trace ->
         ISLAbduced (add_call_to_trace trace)
     | MustBeValid (_timestamp, trace, reason) ->
-        MustBeValid (path.PathContext.timestamp, add_call_to_trace trace, reason)
+        MustBeValid (timestamp, add_call_to_trace trace, reason)
     | MustBeInitialized (_timestamp, trace) ->
-        MustBeInitialized (path.PathContext.timestamp, add_call_to_trace trace)
+        MustBeInitialized (timestamp, add_call_to_trace trace)
+    | UnknownEffect (call, hist) ->
+        UnknownEffect
+          ( call
+          , ValueHistory.singleton
+              (Call {f= Call proc_name; location= call_location; in_call= hist; timestamp}) )
     | WrittenTo trace ->
         WrittenTo (add_call_to_trace trace)
     | ( AddressOfCppTemporary _
       | AddressOfStackVariable _
       | Closure _
-      | DeepDeallocate
       | DynamicType _
       | EndOfCollection
       | StdVectorReserve
@@ -312,6 +307,7 @@ module Attributes = struct
   let is_modified attrs =
     Option.is_some (Set.find_rank attrs Attribute.written_to_rank)
     || Option.is_some (Set.find_rank attrs Attribute.invalid_rank)
+    || Option.is_some (Set.find_rank attrs Attribute.unknown_effect_rank)
 
 
   let is_uninitialized attrs = Set.find_rank attrs Attribute.uninitialized_rank |> Option.is_some
@@ -330,8 +326,11 @@ module Attributes = struct
            trace )
 
 
-  let is_deep_deallocated attrs =
-    Set.find_rank attrs Attribute.deep_deallocate_rank |> Option.is_some
+  let get_unknown_effect attrs =
+    Set.find_rank attrs Attribute.unknown_effect_rank
+    |> Option.map ~f:(fun attr ->
+           let[@warning "-8"] (Attribute.UnknownEffect (call, hist)) = attr in
+           (call, hist) )
 
 
   let get_dynamic_type attrs =
@@ -388,9 +387,9 @@ module Attributes = struct
         Set.add acc attr1 )
 
 
-  let add_call path proc_name call_location caller_history attrs =
+  let add_call timestamp proc_name call_location caller_history attrs =
     Set.map attrs ~f:(fun attr ->
-        Attribute.add_call path proc_name call_location caller_history attr )
+        Attribute.add_call timestamp proc_name call_location caller_history attr )
 
 
   let get_allocated_not_freed attributes =

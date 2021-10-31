@@ -10,6 +10,7 @@ open PulseBasicInterface
 module BaseDomain = PulseBaseDomain
 module BaseMemory = PulseBaseMemory
 module BaseStack = PulseBaseStack
+module PathContext = PulsePathContext
 
 (** Layer on top of {!BaseDomain} to propagate operations on the current state to the pre-condition
     when necessary
@@ -131,7 +132,7 @@ module AddressAttributes : sig
 
   val invalidate : AbstractValue.t * ValueHistory.t -> Invalidation.t -> Location.t -> t -> t
 
-  val allocate : Attribute.allocator -> AbstractValue.t * ValueHistory.t -> Location.t -> t -> t
+  val allocate : Attribute.allocator -> AbstractValue.t -> Location.t -> t -> t
 
   val add_dynamic_type : Typ.t -> AbstractValue.t -> t -> t
 
@@ -162,9 +163,15 @@ module AddressAttributes : sig
     -> (t, [> `ISLError of t | `InvalidAccess of Invalidation.t * Trace.t * t]) result list
 end
 
-val deallocate_all_reachable_from : AbstractValue.t -> t -> t
-
-val deep_deallocate : AbstractValue.t -> t -> t
+val apply_unknown_effect :
+     ?havoc_filter:(AbstractValue.t -> BaseMemory.Access.t -> BaseMemory.AddrTrace.t -> bool)
+  -> ValueHistory.t
+  -> AbstractValue.t
+  -> t
+  -> t
+(** do as much as possible to assume "the best" happened at that location: deallocate and initialize
+    everything reachable from the address, then havoc all the edges starting from the address
+    passing [havoc_filter] (by default everything passes the filter) *)
 
 val is_local : Var.t -> t -> bool
 
@@ -228,6 +235,7 @@ val initialize : AbstractValue.t -> t -> t
 
 val set_uninitialized :
      Tenv.t
+  -> PathContext.t
   -> [ `LocalDecl of Pvar.t * AbstractValue.t option
        (** the second optional parameter is for the address of the variable *)
      | `Malloc of AbstractValue.t  (** the address parameter is a newly allocated address *) ]

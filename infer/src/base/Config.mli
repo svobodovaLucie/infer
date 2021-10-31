@@ -24,6 +24,7 @@ type build_system =
   | BMvn
   | BNdk
   | BRebar3
+  | BErlc
   | BXcode
 
 type scheduler = File | Restart | SyntacticCallGraph [@@deriving equal]
@@ -543,6 +544,8 @@ val pulse_model_transfer_ownership : string list
 val pulse_report_latent_issues : bool
 
 val pulse_recency_limit : int
+
+val pulse_scuba_logging : bool
 
 val pulse_widen_threshold : int
 

@@ -79,6 +79,9 @@ val pure : Formula.t -> t
 val and_ : Formula.t -> t -> t
 (** Conjoin a boolean constraint to a formula. *)
 
+val andN : Formula.t list -> t -> t
+(** Conjoin boolean constraints to a formula. *)
+
 val and_ctx : Context.t -> t -> t
 (** Conjoin a context to that of a formula, extending to a common
     vocabulary, and avoiding capturing existentials. *)
@@ -157,3 +160,8 @@ val fold_dnf :
 
 val dnf : t -> disjunction
 (** Convert to disjunctive-normal form. *)
+
+(**/**)
+
+val dump_simplify : int ref
+val replay : string -> unit

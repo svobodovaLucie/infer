@@ -698,6 +698,12 @@ ifeq ($(BUILD_JAVA_ANALYZERS),yes)
 	test -d      '$(DESTDIR)$(libdir)/infer/infer/lib/java/' || \
 	  $(MKDIR_P) '$(DESTDIR)$(libdir)/infer/infer/lib/java/'
 endif
+ifeq ($(BUILD_ERLANG_ANALYZERS),yes)
+	test -d      '$(DESTDIR)$(libdir)/infer/infer/lib/erlang/' || \
+	  $(MKDIR_P) '$(DESTDIR)$(libdir)/infer/infer/lib/erlang/'
+	test -d      '$(DESTDIR)$(libdir)/infer/infer/lib/erlang/infer_parse_transform/src/' || \
+	  $(MKDIR_P) '$(DESTDIR)$(libdir)/infer/infer/lib/erlang/infer_parse_transform/src/'
+endif
 	test -d      '$(DESTDIR)$(libdir)/infer/infer/annotations/' || \
 	  $(MKDIR_P) '$(DESTDIR)$(libdir)/infer/infer/annotations/'
 	test -d      '$(DESTDIR)$(libdir)/infer/infer/lib/wrappers/' || \
@@ -736,6 +742,20 @@ ifeq ($(BUILD_JAVA_ANALYZERS),yes)
 	  $(INSTALL_DATA) -C \{\} '$(DESTDIR)$(libdir)'/infer/\{\}
 	$(INSTALL_PROGRAM) -C      '$(LIB_DIR)'/wrappers/javac \
 	  '$(DESTDIR)$(libdir)'/infer/infer/lib/wrappers/
+endif
+ifeq ($(BUILD_ERLANG_ANALYZERS),yes)
+	$(INSTALL_PROGRAM) -C      '$(LIB_DIR)'/erlang/erlang.sh \
+	  '$(DESTDIR)$(libdir)'/infer/infer/lib/erlang/
+	$(INSTALL_PROGRAM) -C      '$(LIB_DIR)'/erlang/erlang.escript \
+	  '$(DESTDIR)$(libdir)'/infer/infer/lib/erlang/
+	$(INSTALL_PROGRAM) -C      '$(LIB_DIR)'/erlang/extract.escript \
+	  '$(DESTDIR)$(libdir)'/infer/infer/lib/erlang/
+	$(INSTALL_DATA) -C         '$(LIB_DIR)'/erlang/infer_parse_transform/rebar.config \
+	  '$(DESTDIR)$(libdir)'/infer/infer/lib/erlang/infer_parse_transform/
+	$(INSTALL_DATA) -C         '$(LIB_DIR)'/erlang/infer_parse_transform/src/infer_parse_transform.app.src \
+	  '$(DESTDIR)$(libdir)'/infer/infer/lib/erlang/infer_parse_transform/src/
+	$(INSTALL_DATA) -C         '$(LIB_DIR)'/erlang/infer_parse_transform/src/infer_parse_transform.erl \
+	  '$(DESTDIR)$(libdir)'/infer/infer/lib/erlang/infer_parse_transform/src/
 endif
 	$(INSTALL_PROGRAM) -C '$(INFER_BIN)' '$(DESTDIR)$(libdir)'/infer/infer/bin/
 	(cd '$(DESTDIR)$(bindir)/' && \
@@ -869,17 +889,6 @@ conf-clean: clean
 	$(REMOVE_DIR) $(MODELS_DIR)/cpp/out/
 	$(REMOVE_DIR) $(MODELS_DIR)/java/infer-out/
 	$(REMOVE_DIR) $(MODELS_DIR)/objc/out/
-
-
-# phony because it depends on opam's internal state
-.PHONY: opam/infer.opam.locked
-opam/infer.opam.locked: opam/infer.opam
-# allow users to not force a run of opam update since it's very slow
-ifeq ($(NO_OPAM_UPDATE),)
-	$(QUIET)$(call silent_on_success,opam update,$(OPAM) update)
-endif
-	$(QUIET)$(call silent_on_success,generating opam/infer.opam.locked,\
-	  $(OPAM) lock opam/infer.opam)
 
 OPAM_DEV_DEPS = ocp-indent merlin utop webbrowser
 

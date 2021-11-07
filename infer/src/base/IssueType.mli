@@ -157,6 +157,12 @@ val dangling_pointer_dereference_maybe : t
 
 val dead_store : t
 
+val double_locking : t
+
+val double_unlocking : t
+
+val release_without_acquisition : t
+
 val deadlock : t
 
 val divide_by_zero : t

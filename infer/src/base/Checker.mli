@@ -27,6 +27,7 @@ type t =
   | Liveness
   | LoopHoisting
   | NullsafeDeprecated
+  | ParameterNotNullChecked
   | PrintfArgs
   | Pulse
   | PurityAnalysis

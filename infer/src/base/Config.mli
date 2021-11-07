@@ -73,9 +73,6 @@ val idempotent_getters : bool
 
 val initial_analysis_time : float
 
-val is_WSL : bool
-(** Windows Subsystem for Linux *)
-
 val ivar_attributes : string
 
 val java_lambda_marker_infix : string
@@ -602,6 +599,8 @@ val reports_include_ml_loc : bool
 val rest : string list
 
 val results_dir : string
+
+val sarif : bool
 
 val scheduler : scheduler
 

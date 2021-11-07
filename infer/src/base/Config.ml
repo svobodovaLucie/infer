@@ -127,15 +127,6 @@ let fail_on_issue_exit_code = 2
 (** If true, treat calls to no-arg getters as idempotent w.r.t non-nullness *)
 let idempotent_getters = true
 
-let is_WSL =
-  match Utils.read_file "/proc/version" with
-  | Ok [line] ->
-      let re = Str.regexp "Linux.+-Microsoft" in
-      Str.string_match re line 0
-  | _ ->
-      false
-
-
 let ivar_attributes = "ivar_attributes"
 
 let java_lambda_marker_infix = "$Lambda$"
@@ -2373,6 +2364,12 @@ and results_dir =
     ~meta:"dir" "Write results and internal files in the specified directory"
 
 
+and sarif =
+  CLOpt.mk_bool ~long:"sarif" ~default:false
+    ~in_help:InferCommand.[(Run, manual_generic)]
+    "Output issues in SARIF (Static Analysis Results Interchange Format) in infer-out/report.sarif"
+
+
 and scheduler =
   CLOpt.mk_symbol ~long:"scheduler" ~default:File ~eq:equal_scheduler
     ~in_help:InferCommand.[(Analyze, manual_generic)]
@@ -2603,13 +2600,7 @@ and sqlite_vacuum =
     "$(b,VACUUM) the SQLite DB after performing capture."
 
 
-and sqlite_vfs =
-  let default =
-    (* on WSL (bash on Windows) standard SQLite VFS can't be used, see WSL/issues/1927 WSL/issues/2395 *)
-    if is_WSL then Some "unix-excl" else None
-  in
-  CLOpt.mk_string_opt ?default ~long:"sqlite-vfs" "VFS for SQLite"
-
+and sqlite_vfs = CLOpt.mk_string_opt ~long:"sqlite-vfs" "VFS for SQLite"
 
 and (_ : bool ref) =
   CLOpt.mk_bool ~default:false "[DEPRECATED][DOES NOTHING] option does not exist any more"
@@ -3550,6 +3541,8 @@ and report_suppress_errors = RevList.to_list !report_suppress_errors
 and reports_include_ml_loc = !reports_include_ml_loc
 
 and results_dir = !results_dir
+
+and sarif = !sarif
 
 and scheduler = !scheduler
 

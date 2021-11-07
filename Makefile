@@ -116,6 +116,7 @@ DIRECT_TESTS += \
   objc_linters-def-folder \
   objc_linters-for-test-only \
   objc_liveness \
+  objc_parameter-not-null-checked \
   objc_performance \
   objc_pulse \
   objc_quandary \
@@ -752,6 +753,8 @@ ifeq ($(BUILD_ERLANG_ANALYZERS),yes)
 	  '$(DESTDIR)$(libdir)'/infer/infer/lib/erlang/
 	$(INSTALL_DATA) -C         '$(LIB_DIR)'/erlang/infer_parse_transform/rebar.config \
 	  '$(DESTDIR)$(libdir)'/infer/infer/lib/erlang/infer_parse_transform/
+	$(INSTALL_DATA) -C         '$(LIB_DIR)'/erlang/infer_parse_transform/rebar.config.script \
+	  '$(DESTDIR)$(libdir)'/infer/infer/lib/erlang/infer_parse_transform/
 	$(INSTALL_DATA) -C         '$(LIB_DIR)'/erlang/infer_parse_transform/src/infer_parse_transform.app.src \
 	  '$(DESTDIR)$(libdir)'/infer/infer/lib/erlang/infer_parse_transform/src/
 	$(INSTALL_DATA) -C         '$(LIB_DIR)'/erlang/infer_parse_transform/src/infer_parse_transform.erl \
@@ -1036,7 +1039,14 @@ new-website-version: doc-publish
 	find docs versioned_docs -name versions.md \
 	  -exec sed -i -e 's#^- \[latest released version (\([^)]*\))\](/docs/getting-started)$$#- [latest released version ($(INFER_MAJOR).$(INFER_MINOR).$(INFER_PATCH))](/docs/getting-started)\n- [previous version (\1)](/docs/\1/getting-started)#' \{\} \+
 
-# print list of targets
+# for debugging: print list of targets
 .PHONY: show-targets
 show-targets:
 	$(QUIET)$(MAKE) -pqrR . | grep --only-matching -e '^[a-zA-Z0-9][^ ]*:' | cut -d ':' -f 1 | sort
+
+# For debugging: run the specified command in the Makefile's environment; you need to specify
+# CMD_DIR and CMD. To evaluate shell variables in CMD, you need to add $$ in front of them and not
+# just one $, eg make run-cmd CMD='echo $$PATH'. Setting CMD_DIR is optional.
+.PHONY: run-cmd
+run-cmd:
+	$(QUIET)cd $(CMD_DIR) || true; $(CMD)

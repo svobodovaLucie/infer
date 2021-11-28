@@ -12,13 +12,6 @@ open! IStd
 module F = Format
 module Domain = DeadlockDomain
 
-(* module Payload = SummaryPayload.Make (struct
-  type t = DeadlockDomain.summary
-  let update_payloads post (payloads : Payloads.t) = {payloads with deadlock= Some post}
-
-  let of_payloads (payloads : Payloads.t) = payloads.deadlock
-  end) *)
-
 type analysis_data =
   {interproc: DeadlockDomain.summary InterproceduralAnalysis.t; extras: FormalMap.t; tmp:int}
 
@@ -30,28 +23,8 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
 
   type nonrec analysis_data = analysis_data
 
-  let exec_instr astate {interproc= {proc_desc; analyze_dependency=_}; extras} (_cfg_node : CFG.Node.t) _idx (instr: HilInstr.t) =
+  let exec_instr astate {interproc= {proc_desc; analyze_dependency}; extras} (_cfg_node : CFG.Node.t) _idx (instr: HilInstr.t) =
     let pname = Procdesc.get_proc_name proc_desc in
-
-    (*
-    let foo arg = match arg with
-    | (0,0,0) -> 0
-    | (1,1,1) -> 1
-    | (x,y,z) -> x
-    in
-
-    let list = [0;1;2;3] in
-    let first = List.hd list in
-    let first = match first with
-    | Some x -> x
-    | None -> 0
-    in
-
-    let x = if 1 > 0 then (
-      0
-    ) else 0
-    in
-    *)
 
 (* l1 + l2 / l3 -> [l1] *)
     let get_path actuals =
@@ -63,10 +36,11 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
       match ConcurrencyModels.get_lock_effect callee_pname actuals with
       | Lock _ ->
       (* lock(l1) *)
-          (* F.printf "lock at line %a\n" Location.pp loc; *)
+          F.printf "lock at line %a\n" Location.pp loc;
           get_path actuals
           |> Option.value_map ~default:astate ~f:(fun path -> Domain.acquire path astate loc extras pname)
       | Unlock _ ->
+          F.printf "unlock at line %a\n" Location.pp loc;
           get_path actuals
           |> Option.value_map ~default:astate ~f:(fun path -> Domain.release path astate loc extras pname)
       (* TODO try_lock *)
@@ -74,7 +48,6 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
           astate
       (* User function call *)
       | NoEffect ->
-      (*
         analyze_dependency callee_pname
         |> Option.value_map ~default:(astate) ~f:(fun (_, summary) ->
             let callee_formals = 
@@ -86,8 +59,6 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
             in
             Domain.integrate_summary astate callee_pname loc summary callee_formals actuals pname
         )
-        *)
-        astate  (* TODO remove this line and fix commented section ↑ *)
       | _ -> (
         (* Those cases were added later on, not implemented by Vlado *)
         assert(false)
@@ -262,15 +233,15 @@ let _report_deadlocks dependencies =
 let reporting {InterproceduralAnalysis.procedures=_; file_exe_env=_; analyze_file_dependency=_; source_file=_} =
   (* Getting all lock dependencies in the analysed program. *)
 
-  (* TODO fucking section commented
+  (*
   let locks_dependencies =
     List.fold procedures ~f:(fun acc procname ->
       match analyze_file_dependency procname with
-      (* TODO was here before
+      (*
       | Some (_pdesc, (summary : Domain.t)) -> Domain.Edges.union summary.dependencies acc
       | None -> acc
       *)
-      (* | Some (_pdesc, (_summary: Domain.t)) -> (* FIXME was here: Domain.Edges.union summary.dependencies *)
+      (* | Some (_pdesc, (_summary: Domain.t)) -> (* *)
         Printf.printf "something in Deadlock Checker";
         acc *)
       | None -> acc
@@ -300,8 +271,8 @@ let reporting {InterproceduralAnalysis.procedures=_; file_exe_env=_; analyze_fil
       F.printf "post: %a\n" Domain.LockEvent.pp eve
   in
   Domain.DfsLG.iter g ~pre:print_pre ~post:print_post; *)
-  (* TODO commented by Luc  report_deadlocks locks_dependencies ; *)
+  (* report_deadlocks locks_dependencies ; *)
+  *)
 
-  TODO uncomment this fucking section*)
   IssueLog.empty
   (* IssueLog.store Config.deadlock_issues_dir_name source_file *)

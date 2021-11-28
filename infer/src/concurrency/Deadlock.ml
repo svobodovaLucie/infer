@@ -30,26 +30,28 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
 
   type nonrec analysis_data = analysis_data
 
-  let exec_instr astate {interproc= {proc_desc; analyze_dependency}; extras} (_cfg_node : CFG.Node.t) _idx (instr: HilInstr.t) =
+  let exec_instr astate {interproc= {proc_desc; analyze_dependency=_}; extras} (_cfg_node : CFG.Node.t) _idx (instr: HilInstr.t) =
     let pname = Procdesc.get_proc_name proc_desc in
 
-    let _foo arg = match arg with
+    (*
+    let foo arg = match arg with
     | (0,0,0) -> 0
     | (1,1,1) -> 1
-    | (x,_,_) -> x
+    | (x,y,z) -> x
     in
 
     let list = [0;1;2;3] in
-    let _first = List.hd list in
-    let _first = match _first with
+    let first = List.hd list in
+    let first = match first with
     | Some x -> x
     | None -> 0
     in
 
-    let _x = if 1 > 0 then (
+    let x = if 1 > 0 then (
       0
     ) else 0
     in
+    *)
 
 (* l1 + l2 / l3 -> [l1] *)
     let get_path actuals =
@@ -72,23 +74,26 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
           astate
       (* User function call *)
       | NoEffect ->
+      (*
         analyze_dependency callee_pname
         |> Option.value_map ~default:(astate) ~f:(fun (_, summary) ->
-            let callee_formals =
-              match AnalysisCallbacks.get_model_proc_desc callee_pname with
+            let callee_formals = 
+              match AnalysisCallbacks.proc_resolve_attributes callee_pname with
               | Some callee_attr ->
-                Procdesc.get_formals callee_attr
+                callee_attr.ProcAttributes.formals
               | None ->
                 []
             in
             Domain.integrate_summary astate callee_pname loc summary callee_formals actuals pname
         )
+        *)
+        astate  (* TODO remove this line and fix commented section ↑ *)
       | _ -> (
         (* Those cases were added later on, not implemented by Vlado *)
         assert(false)
       )
     )
-    | _ ->
+    | _ ->  
       astate
 
   let pp_session_name _node fmt = F.pp_print_string fmt "deadlock";
@@ -98,8 +103,6 @@ module CFG = ProcCfg.Normal
 
 module L2D2 = LowerHil.MakeAbstractInterpreter (TransferFunctions(ProcCfg.Normal))
 
-
-
 let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log} as interproc) =
   let formals = FormalMap.make proc_desc in
   (* let proc_data = ProcData.make proc_desc tenv formals in  *)
@@ -108,35 +111,35 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log} as interproc) 
   | Some post ->
       (* Remove local locks *)
       let post_without_locals : Domain.t =
-        {
-          lockset = (Domain.Lockset.inter post.lockset post.wereLocked);
-          unlockset = post.unlockset;
-          dependencies = post.dependencies;
-          locked = post.locked;
-          unlocked = post.unlocked;
-          order = post.order;
+        { 
+          lockset = (Domain.Lockset.inter post.lockset post.wereLocked); 
+          unlockset = post.unlockset; 
+          dependencies = post.dependencies; 
+          locked = post.locked; 
+          unlocked = post.unlocked; 
+          order = post.order; 
           wereLocked = post.wereLocked
         }
       in
       (* Report warnings *)
-      DeadlockDomain.ReportSet.iter
+      DeadlockDomain.ReportSet.iter 
       (fun (dllock, dlloc, dlpname, dlstr, dltype) ->
           let locks : string list = List.fold dllock ~init:[] ~f:(fun accum elem ->
             accum@[(DeadlockDomain.LockWarning.make_string_of_lock elem)])
           in
           let message = F.asprintf "%s of %s at function '%s'\n"
             dlstr (String.concat ~sep:", " locks)
-            (Procname.to_string dlpname)
+            (Procname.to_string dlpname) 
           in
           let ltr : Errlog.loc_trace_elem list =
             [Errlog.make_trace_element 0 dlloc "" [Errlog.Procedure_start dlpname]]
           in
           let log_func = Reporting.log_issue proc_desc err_log ~loc:dlloc in
           log_func ~ltr DeadlockChecker dltype message
-          (* Reporting.log_issue_external
-          dlpname
-          Exceptions.Warning
-          ~loc: dlloc
+          (* Reporting.log_issue_external 
+          dlpname 
+          Exceptions.Warning 
+          ~loc: dlloc 
           ~ltr
           dltype
           message; *)
@@ -149,12 +152,12 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log} as interproc) 
   | None -> None
 
 (**
- * Deadlocks reporting by first creating a relation of all dependencies and
- * computing the transitive closure of that relation. Deadlock is reported if
+ * Deadlocks reporting by first creating a relation of all dependencies and 
+ * computing the transitive closure of that relation. Deadlock is reported if 
  * some lock depends on itself in the transitive closure. Every deadlock found
  * by our analyser is reported twice, at each trace starting point.
  *)
-let report_deadlocks dependencies =
+let _report_deadlocks dependencies =
 
   (* Returns set of all locks used in an analysed program. *)
   let get_all_locks : Domain.Edges.t -> Domain.Lockset.t =
@@ -171,7 +174,7 @@ let report_deadlocks dependencies =
 
   (**
    * Creates a list from a set of locks used in an analysed program.
-   * The lock index in this list serves as a lock index in the formed matrix.
+   * The lock index in this list serves as a lock index in the formed matrix. 
    *)
   let list_of_all_locks = Domain.Lockset.elements (get_all_locks dependencies) in
 
@@ -191,31 +194,31 @@ let report_deadlocks dependencies =
         let first = find (fst pair.edge) list_of_all_locks in
         let second = find (snd pair.edge) list_of_all_locks in
         acc.(first).(second) <- true;
-        acc)
-    dependencies m
-  in
+        acc) 
+    dependencies m 
+    in
 
   (* A Computing of transitive closure and reporting of deadlocks. *)
   for k = 0 to (n - 1) do
     for i = 0 to (n - 1) do
       for j = 0 to (n - 1) do
         matrix.(i).(j) <- matrix.(i).(j) || (matrix.(i).(k) && matrix.(k).(j));
-        if(matrix.(i).(j) && (phys_equal i j)) then (
+        if(matrix.(i).(j) && (phys_equal i j)) then (       (* FIXME tento if vraci unit *)
           (* Finding the first pair that is causing a deadlock. *)
           let first_pair =
-            let e : Domain.Edge.t =
+            let e : Domain.Edge.t = 
               {edge = ((List.nth_exn list_of_all_locks k),(List.nth_exn list_of_all_locks j)); pname = Procname.empty_block}
-            in
+            in 
             try Some (Domain.Edges.find e dependencies)
             with Caml.Not_found -> None
           in
           (* Finding the second pair that is causing a deadlock. *)
-          let second_pair =
-            let e : Domain.Edge.t =
+          let second_pair = 
+            let e : Domain.Edge.t = 
               {edge = ((List.nth_exn list_of_all_locks j),(List.nth_exn list_of_all_locks k)); pname = Procname.empty_block}
             in
             try Some (Domain.Edges.find e dependencies)
-            with Caml.Not_found -> None
+            with Caml.Not_found -> None 
           in
           match (first_pair, second_pair) with
           | (Some a, Some b) ->
@@ -229,7 +232,8 @@ let report_deadlocks dependencies =
                   [Errlog.make_trace_element 0 (snd(fst(a.edge))) "" [Errlog.Procedure_start a.pname]]
                 in
 
-                (* let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
+                (*
+                 let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
                 let message = F.asprintf "Leaked %a resource(s)" ResourceLeakDomain.pp post in
                 let log_t = Reporting.log_issue proc_desc err_log ~loc:last_loc ResourceLeakLabExercise in
                 log_t IssueType.lab_resource_leak message *)
@@ -237,15 +241,17 @@ let report_deadlocks dependencies =
                 log_func ~ltr DeadlockChecker dltype message
 
                 Reporting.log_issue_external
-                  a.pname
-                  Exceptions.Error
-                  ~loc
+                  a.pname 
+                  Exception.Error
+                  ~loc 
                   ~ltr
                   IssueType.deadlock
-                  message; *)
+                  message;
+                  *)
+
                   ()
                 )
-          | (_,_) -> ()
+          | (_, _) -> ()
         )
       done;
     done;
@@ -253,25 +259,33 @@ let report_deadlocks dependencies =
 
   (* {callback: Callbacks.file_callback_t; issue_dir: ResultsDirEntryName.id} *)
 
-(* let reporting {InterproceduralAnalysis.procedures; file_exe_env=_; analyze_file_dependency; source_file=_} = *)
-let reporting {InterproceduralAnalysis.procedures; analyze_file_dependency} =
+let reporting {InterproceduralAnalysis.procedures=_; file_exe_env=_; analyze_file_dependency=_; source_file=_} =
   (* Getting all lock dependencies in the analysed program. *)
+
+  (* TODO fucking section commented
   let locks_dependencies =
     List.fold procedures ~f:(fun acc procname ->
       match analyze_file_dependency procname with
+      (* TODO was here before
       | Some (_pdesc, (summary : Domain.t)) -> Domain.Edges.union summary.dependencies acc
       | None -> acc
-    ) ~init:Domain.Edges.empty
-  in
-  (* let g =
+      *)
+      (* | Some (_pdesc, (_summary: Domain.t)) -> (* FIXME was here: Domain.Edges.union summary.dependencies *)
+        Printf.printf "something in Deadlock Checker";
+        acc *)
+      | None -> acc
+    ) ~init:Domain.Edges.empty 
+    in
+    (* locks_dependencies *)
+  (* let g = 
     let e : Domain.Edge.t -> Domain.LocksGraph.t -> Domain.LocksGraph.t =
       fun edge acc ->
-        DeadlockDomain.LocksGraph.add_edge_e acc (edge.edge);
+        DeadlockDomain.LocksGraph.add_edge_e acc (edge.edge); 
         acc
     in
-    DeadlockDomain.Edges.fold e locks_dependencies (DeadlockDomain.LocksGraph.create ())
+    DeadlockDomain.Edges.fold e locks_dependencies (DeadlockDomain.LocksGraph.create ())   
   in
-  let print_graph =
+  let print_graph = 
     let print_edge e e' = F.printf "edge: %a -> %a\n" Domain.LockEvent.pp e Domain.LockEvent.pp e' in
     Domain.LocksGraph.iter_edges print_edge g
   in
@@ -286,6 +300,8 @@ let reporting {InterproceduralAnalysis.procedures; analyze_file_dependency} =
       F.printf "post: %a\n" Domain.LockEvent.pp eve
   in
   Domain.DfsLG.iter g ~pre:print_pre ~post:print_post; *)
-  report_deadlocks locks_dependencies ;
+  (* TODO commented by Luc  report_deadlocks locks_dependencies ; *)
+
+  TODO uncomment this fucking section*)
   IssueLog.empty
   (* IssueLog.store Config.deadlock_issues_dir_name source_file *)

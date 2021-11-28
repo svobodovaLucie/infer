@@ -20,7 +20,7 @@
     (* compare (AccessPath.t * Location.t) (AccessPath.t * Location.t) *)
 
     (* AccessPath.t = base * access list *)
-
+    
     let compare (((base, aclist) as lock), _) ((((base'), aclist') as lock' ), _) =
       if phys_equal lock lock' then 0
       else begin
@@ -42,9 +42,9 @@
     (** IssueType := DoubleLocking | DoubleUnlocking | ReleaseWithoutAcquisition
      *)
     type t = LockEvent.t list * Location.t * Procname.t * string * IssueType.t [@@deriving compare]
-
+    
     let pp fmt _ = F.fprintf fmt "Locking error\n"
-
+    
     let make_string_of_lock : LockEvent.t -> string =
       fun lock ->
         F.asprintf "%a" LockEvent.pp lock
@@ -60,7 +60,7 @@
   end
 
   module Edge = struct
-    type t = {edge:LocksGraph.E.t; pname: Procname.t}
+    type t = {edge:LocksGraph.E.t; pname: Procname.t} 
 
     let compare edge edge' =
       let edge1 = edge.edge in
@@ -75,10 +75,10 @@
         end
         else
           res
-      end
+      end    
 
     let equal edge edge' =
-      if LockEvent.equal (fst edge) (fst edge') &&
+      if LockEvent.equal (fst edge) (fst edge') && 
         LockEvent.equal (snd edge) (snd edge') then
         true
       else
@@ -86,8 +86,8 @@
 
     let pp : F.formatter -> t -> unit =
       fun fmt astate ->
-        F.fprintf fmt "%a -> %a in %a"
-          LockEvent.pp (fst astate.edge)
+        F.fprintf fmt "%a -> %a in %a" 
+          LockEvent.pp (fst astate.edge) 
           LockEvent.pp (snd astate.edge)
           (MarkupFormatter.wrap_monospaced Procname.pp)
           astate.pname
@@ -97,7 +97,7 @@
   module Edges = AbstractDomain.FiniteSet(Edge)
   module ReportSet = AbstractDomain.FiniteSet(LockWarning)
 
-  type t =
+  type t = 
   {
     (* PRECONDITION *)
     locked: Lockset.t;  (* locks that should be locked before calling the function*)
@@ -107,18 +107,18 @@
     unlockset: Lockset.t; (* the currently unlocked locks *)
     dependencies: Edges.t; (* dependecies of the type A->B: B got locked at a moment when A was still locked *)
     order: Edges.t; (* dependencies of the unlock->lock type, to safely determine the order of operations *)
-    wereLocked: Lockset.t (* all the locks that were locked in the function *)
+    wereLocked: Lockset.t (* all the locks that were locked in the function *) 
   }
 
-  let empty =
+  let empty = 
   {
-    lockset = Lockset.empty;
-    unlockset = Lockset.empty;
-    dependencies = Edges.empty;
-    locked = Lockset.empty;
-    unlocked = Lockset.empty;
+    lockset = Lockset.empty; 
+    unlockset = Lockset.empty; 
+    dependencies = Edges.empty; 
+    locked = Lockset.empty; 
+    unlocked = Lockset.empty; 
     order = Edges.empty;
-    wereLocked = Lockset.empty
+    wereLocked = Lockset.empty 
   }
 
   let reportMap = ref ReportSet.empty
@@ -130,40 +130,40 @@
       | ProgramVar pvar -> Pvar.is_local pvar
 
   let is_formal ((base,_), _) extras =
-    FormalMap.is_formal base extras
-
+    FormalMap.is_formal base extras 
+    
   let acquire lockid astate loc extras pname =
     let lock : LockEvent.t = (lockid, loc) in
-
-    (* Compare each element of a set with the currently released lock. *)
+    
+    (* Compare each element of a set with the currently released lock. *)    
     let cmp elem =  if (LockEvent.equal elem lock) then true else false in
-
+    
     (* For each element in the current 'lockset' create a pair (element, acquired_lock). *)
-    let add_pair elem acc =
+    let add_pair elem acc = 
       Edges.add {edge = (elem, lock); pname = pname} acc
     in
 
     let new_astate : t =
       let locked = astate.locked in
-      let unlocked =
-        if (Lockset.exists cmp astate.locked) ||
+      let unlocked = 
+        if (Lockset.exists cmp astate.locked) || 
           (Lockset.exists cmp astate.unlocked) ||
-          ((is_local lock) && (not(is_formal lock extras))) then
+          ((is_local lock) && (not(is_formal lock extras))) then 
           astate.unlocked
         else
           if not(Lockset.exists cmp astate.unlockset) then
             (** Lock is the first operation with a given lock, so this lock is
              *  added to the precondition ('unlocked' set) of the analysed function.
-             *  (only globals or formals are added to the precondition)
+             *  (only globals or formals are added to the precondition) 
              *)
             Lockset.add lock astate.unlocked
           else
             astate.unlocked
       in
       let lockset =
-        if ((Lockset.exists cmp astate.lockset)) then begin
+        if ((Lockset.exists cmp astate.lockset)) then begin 
           if Config.locking_error then
-            (** Double locking and heuritics turned on (Config.locking_error=True).
+            (** Double locking and heuritics turned on (Config.locking_error=True). 
               *  We assume that our analyser used a non-existent path to reach the lock statement
               *  so we discard the current locket (no longer trustworthy), and the only
               *  lock left in it is currently acquired onw, as it is the only one about we
@@ -171,7 +171,7 @@
               *)
             Lockset.add lock Lockset.empty
           else begin
-            (** Double locking and heuritics turned off (Config.locking_error=False).
+            (** Double locking and heuritics turned off (Config.locking_error=False). 
              *  We assume that program is in inconsistent state, so warning is reported.
              *)
             reportMap := ReportSet.add ([lock], loc, pname, "Double locking", IssueType.double_locking) !reportMap;
@@ -179,26 +179,26 @@
           end
         end
         else
-          Lockset.add lock astate.lockset
+          Lockset.add lock astate.lockset 
       in
       let unlockset = Lockset.remove lock astate.unlockset in
       let dependencies =
         if ((Lockset.exists cmp astate.lockset) && Config.locking_error) then
-          (** Double locking and heuritics turned on (Config.locking_error=True).
+          (** Double locking and heuritics turned on (Config.locking_error=True). 
            *  Don't emit an edge with the currently acquired lock, since current
            *  lockset is no longer trustworthy.
            *)
           astate.dependencies
-        else
-          Lockset.fold add_pair astate.lockset astate.dependencies
+        else   
+          Lockset.fold add_pair astate.lockset astate.dependencies 
       in
       let order = Lockset.fold add_pair astate.unlockset astate.order in
-      let wereLocked =
+      let wereLocked = 
         (* Only globals or formals are added to the 'wereLocked' set *)
         if((is_local lock) && (not(is_formal lock extras))) then
           astate.wereLocked
         else
-          Lockset.add lock astate.wereLocked
+          Lockset.add lock astate.wereLocked 
       in
       { lockset; unlockset; dependencies; locked; unlocked; order; wereLocked }
     in
@@ -206,20 +206,20 @@
 
   let release lockid astate loc extras pname =
     let lock : LockEvent.t = (lockid, loc) in
-    (* Compare each element of a set with the currently released lock. *)
+    (* Compare each element of a set with the currently released lock. *)    
     let cmp elem =  if (LockEvent.equal elem lock) then true else false in
 
     let new_astate : t =
       let locked =
-        if (Lockset.exists cmp astate.locked) ||
+        if (Lockset.exists cmp astate.locked) || 
           (Lockset.exists cmp astate.unlocked) ||
           ((is_local lock) && (not(is_formal lock extras))) then
           astate.locked
         else
-          if not(Lockset.exists cmp astate.lockset) then
+          if not(Lockset.exists cmp astate.lockset) then 
             (** Release is the first operation with a given lock, so this lock is
              *  added to the precondition ('locked' set) of the analysed function.
-             *  (only globals or formals are added to the precondition)
+             *  (only globals or formals are added to the precondition) 
              *)
             Lockset.add lock astate.locked
           else
@@ -228,23 +228,23 @@
       let unlocked = astate.unlocked in
       let lockset =
         (* if(not(Lockset.exists cmp astate.lockset) && not(Lockset.exists cmp astate.locked)) then *)
-        if (Lockset.exists cmp astate.unlockset) then
+        if (Lockset.exists cmp astate.unlockset) then 
           if Config.locking_error then
-            (** Double unlocking and heuritics turned on (Config.locking_error=True).
+            (** Double unlocking and heuritics turned on (Config.locking_error=True). 
              *  We assume that our analyser used a non-existent path to reach the unlock statement
              *  so we discard the current locket (no longer trustworthy), thereby eliminating any
-             *  dependencies that straddle the locking error.
-             *)
+             *  dependencies that straddle the locking error. 
+             *) 
             Lockset.empty
           else begin
-            (** Double unlocking and heuritics turned of (Config.locking_error=False).
+            (** Double unlocking and heuritics turned of (Config.locking_error=False). 
              *  We assume that program is in inconsistent state, so warning is reported.
              *)
             reportMap := ReportSet.add ([lock], loc, pname, "Double unlocking", IssueType.double_unlocking) !reportMap;
             Lockset.remove lock astate.lockset
           end
-        else
-          Lockset.remove lock astate.lockset
+        else 
+          Lockset.remove lock astate.lockset 
       in
       let unlockset = Lockset.add lock astate.unlockset in
       let dependencies = astate.dependencies in
@@ -255,7 +255,7 @@
     new_astate
 
 
-  let integrate_summary astate callee_pname loc callee_summary callee_formals actuals caller_pname=
+  let integrate_summary astate callee_pname loc callee_summary callee_formals actuals caller_pname= 
     let formal_to_access_path : Mangled.t * Typ.t -> AccessPath.t = fun (name, typ) ->
       let pvar = Pvar.mk name callee_pname in
       AccessPath.base_of_pvar pvar typ, []
@@ -265,15 +265,15 @@
       let rec find x lst =
         match lst with
         | [] -> -1
-        | h :: t -> if AccessPath.equal x (formal_to_access_path h) then 0 else 1 + find x t
+        | h :: t -> if AccessPath.equal x (formal_to_access_path h) then 0 else 1 + find x t 
       in
-      List.nth actuals (find formal callee_formals)
-      |> Option.value_map ~default:[] ~f:HilExp.get_access_exprs
+      List.nth actuals (find formal callee_formals) 
+      |> Option.value_map ~default:[] ~f:HilExp.get_access_exprs 
       |> List.hd |> Option.map ~f:HilExp.AccessExpression.to_access_path
     in
 
     let replace_formals_with_actuals summary_set formal =
-      let replace_basis ((summary_element, loc) as le) =
+      let replace_basis ((summary_element, loc) as le) = 
           if AccessPath.is_prefix (formal_to_access_path formal) summary_element then begin
             let actual = get_corresponding_actual (formal_to_access_path formal) in
             (* create an element with base of acutal and acl of summ_element*)
@@ -281,7 +281,7 @@
             | Some a ->
                 let new_element = (AccessPath.append a (snd summary_element), loc) in
                 new_element
-            | None ->
+            | None -> 
                 le
           end
           else le
@@ -303,7 +303,7 @@
                 {edge = new_edge; pname = edge_t.pname}
             | None -> edge_t
           end
-          else if AccessPath.is_prefix (formal_to_access_path formal) (fst (snd edge)) then begin
+          else if AccessPath.is_prefix (formal_to_access_path formal) (fst (snd edge)) then begin  
             let actual = get_corresponding_actual (fst (snd edge)) in
             match actual with
             | Some a ->
@@ -312,7 +312,7 @@
                 let new_edge = ((fst edge), new_element) in
                 {edge = new_edge; pname = edge_t.pname}
             | None -> edge_t
-          end
+          end       
           else
             edge_t
       in
@@ -332,13 +332,13 @@
       List.fold callee_formals ~init:callee_summary.locked ~f:replace_formals_with_actuals in
     let summary_unlocked =
       List.fold callee_formals ~init:callee_summary.unlocked ~f:replace_formals_with_actuals in
-    let summary_wereLocked =
+    let summary_wereLocked = 
       List.fold callee_formals ~init:callee_summary.wereLocked ~f:replace_formals_with_actuals in
     let summary_dependencies =
       List.fold callee_formals ~init:callee_summary.dependencies ~f:replace_formals_with_actuals_dependencies in
     let summary_order =
       List.fold callee_formals ~init:callee_summary.order ~f:replace_formals_with_actuals_dependencies in
-
+    
     (* Check of a precondition *)
     if (not(Lockset.is_empty (Lockset.inter astate.lockset summary_unlocked)) &&
        not(Config.locking_error)) then begin
@@ -349,53 +349,53 @@
     if (not(Lockset.is_empty (Lockset.inter astate.unlockset summary_locked)) &&
        not(Config.locking_error)) then begin
       (* Double unlocking *)
-      let erroneously_locks = Lockset.elements (Lockset.inter summary_locked astate.unlockset) in
+      let erroneously_locks = Lockset.elements (Lockset.inter summary_locked astate.unlockset) in  
       reportMap := ReportSet.add (erroneously_locks, loc, callee_pname, "Double unlocking", IssueType.double_unlocking) !reportMap
     end;
 
     let new_astate : t =
       let locked = Lockset.fold (fun elem acc ->
         (** Check that all the locks that should be locked before calling the callee
-         *  are in the current 'lockset'. I they are not, it means that they must be
-         *  locked even before the currently analysed function, so we update its
+         *  are in the current 'lockset'. I they are not, it means that they must be 
+         *  locked even before the currently analysed function, so we update its 
          *  precondition (by adding the lock to its 'locked' set).
          *)
-        if not(Lockset.exists (fun p ->if (LockEvent.equal p elem) then true else false) astate.lockset) then
-          Lockset.add elem acc
-        else acc) summary_locked astate.locked
+        if not(Lockset.exists (fun p ->if (LockEvent.equal p elem) then true else false) astate.lockset) then 
+          Lockset.add elem acc 
+        else acc) summary_locked astate.locked 
       in
       let unlocked = Lockset.fold (fun elem acc ->
         (** Same as above, but instead of checking locked locks, we check those which
          *  should be unlocked (so now we look to the 'unlockset').
          *)
-        if not(Lockset.exists (fun p ->if (LockEvent.equal p elem) then true else false) astate.unlockset) then
-          Lockset.add elem acc
-        else acc) summary_unlocked astate.unlocked
+        if not(Lockset.exists (fun p ->if (LockEvent.equal p elem) then true else false) astate.unlockset) then 
+          Lockset.add elem acc 
+        else acc) summary_unlocked astate.unlocked 
       in
       let unlockset = Lockset.union (Lockset.diff astate.unlockset summary_lockset) summary_unlockset in
-      let order = Edges.union astate.order summary_order in
+      let order = Edges.union astate.order summary_order in 
       let wereLocked = Lockset.union astate.wereLocked summary_wereLocked in
       if ( ( not(Lockset.is_empty (Lockset.inter astate.lockset summary_unlocked))
           || not(Lockset.is_empty (Lockset.inter astate.unlockset summary_locked)) )
           && Config.locking_error ) then begin
-        (** Double locking/unlocking and heuritics turned on (Config.locking_error=True).
+        (** Double locking/unlocking and heuritics turned on (Config.locking_error=True). 
          *  Our analyser used a non-existent path to reach the function call and
          *  therefore the current lockset is discarded (no longer trustworthy).
          *  Also, no new dependency will be generated with locks in the bad lockset.
          *)
         let lockset = summary_lockset in
-        let dependencies = Edges.union astate.dependencies summary_dependencies in
+        let dependencies = Edges.union astate.dependencies summary_dependencies in  
         { lockset; unlockset; dependencies; locked; unlocked; order; wereLocked }
-      end
+      end 
       else begin
         let lockset = Lockset.diff (Lockset.union astate.lockset summary_lockset) summary_unlockset in
         (** Add a new dependecies between currently held locks and locks which 'wereLocked'
          *  in the callee. Before adding a newly created dependency X->Y, we need to verify
-         *  whether the lock X from the current 'lockset' was not unlocked before locking
+         *  whether the lock X from the current 'lockset' was not unlocked before locking 
          *  the lock Y in the callee (to do that we use the 'order' set in the summary of a callee).
          *)
-        let dependencies =
-          let add_pair : Lockset.elt -> Edges.t -> Edges.t =
+        let dependencies = 
+          let add_pair : Lockset.elt -> Edges.t -> Edges.t = 
             fun astate_lockest_elem astate_dependencies ->
               Lockset.fold (fun summary_wereLocked_elem astate_dependencies ->
                 let inter_check : Edges.elt -> bool =
@@ -406,13 +406,13 @@
                 if not(Edges.exists inter_check summary_order) then
                   Edges.add {edge = (astate_lockest_elem, summary_wereLocked_elem); pname = caller_pname} astate_dependencies
                 else
-                  astate_dependencies) summary_wereLocked astate_dependencies
+                  astate_dependencies) summary_wereLocked astate_dependencies 
           in
           let emit_dependencies = Lockset.fold add_pair astate.lockset astate.dependencies in
-          Edges.union astate.dependencies emit_dependencies
-        in
+          Edges.union astate.dependencies emit_dependencies 
+        in  
         { lockset; unlockset; dependencies; locked; unlocked; order; wereLocked }
-      end
+      end              
     in
     new_astate
 
@@ -432,19 +432,19 @@
       let lockset = Lockset.union astate1.lockset astate2.lockset in
       let unlockset = Lockset.union astate1.unlockset astate2.unlockset in
       let dependencies = Edges.union astate1.dependencies astate2.dependencies in
-      let locked = Lockset.union astate1.locked astate2.locked in
+      let locked = Lockset.union astate1.locked astate2.locked in 
       let unlocked = Lockset.union astate1.unlocked astate2.unlocked in
       let order = Edges.inter astate1.order astate2.order in
       let wereLocked = Lockset.union astate1.wereLocked astate2.wereLocked in
       { lockset; unlockset; dependencies; locked; unlocked; order; wereLocked}
     in
-    new_astate
-
+    new_astate 
+  
   let widen ~prev ~next ~num_iters:_ =
     join prev next
 
   let pp : F.formatter -> t -> unit =
-    fun fmt astate ->
+    fun fmt astate -> 
       F.fprintf fmt "locked=%a\n" Lockset.pp astate.locked;
       F.fprintf fmt "unlocked=%a\n" Lockset.pp astate.unlocked;
       F.fprintf fmt "lockset=%a\n" Lockset.pp astate.lockset;

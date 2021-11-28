@@ -12,7 +12,8 @@ open! IStd
 let () =
   AnalysisCallbacks.set_callbacks
     { html_debug_new_node_session_f= NodePrinter.with_session
-    ; get_model_proc_desc_f= Summary.OnDisk.get_model_proc_desc }
+    ; get_model_proc_desc_f= Summary.OnDisk.get_model_proc_desc
+    ; proc_resolve_attributes_f= Summary.OnDisk.proc_resolve_attributes }
 
 
 let mk_interprocedural_t ~f_analyze_dep ~get_payload exe_env summary

@@ -16,7 +16,8 @@ type callbacks =
       -> Procdesc.Node.t
       -> f:(unit -> 'a)
       -> 'a
-  ; get_model_proc_desc_f: Procname.t -> Procdesc.t option }
+  ; get_model_proc_desc_f: Procname.t -> Procdesc.t option
+  ; proc_resolve_attributes_f: Procname.t -> ProcAttributes.t option }
 
 let callbacks_ref : callbacks option ref = ref None
 
@@ -35,3 +36,5 @@ let html_debug_new_node_session ?kind ~pp_name node ~f =
 
 
 let get_model_proc_desc proc_name = (get_callbacks ()).get_model_proc_desc_f proc_name
+
+let proc_resolve_attributes proc_name = (get_callbacks ()).proc_resolve_attributes_f proc_name

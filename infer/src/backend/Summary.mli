@@ -94,4 +94,9 @@ module OnDisk : sig
   (** Iterates over all analysis artefacts listed above, for each procedure *)
 
   val get_model_proc_desc : Procname.t -> Procdesc.t option
+
+  val proc_resolve_attributes : Procname.t -> ProcAttributes.t option
+    (** Try to find the attributes for a defined proc. First look at specs (to get attributes computed
+        by analysis) then look at the attributes table. If no attributes can be found, return None. *)
+
 end

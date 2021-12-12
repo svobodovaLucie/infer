@@ -13,7 +13,7 @@ module F = Format
 module Domain = DeadlockDomain
 
 type analysis_data =
-  {interproc: DeadlockDomain.summary InterproceduralAnalysis.t; extras: FormalMap.t; tmp:int}
+  {interproc: DeadlockDomain.summary InterproceduralAnalysis.t; extras: FormalMap.t}
 
 
 module TransferFunctions (CFG : ProcCfg.S) = struct
@@ -72,12 +72,15 @@ end
 
 module CFG = ProcCfg.Normal
 
+(* An analyser definition *)
 module L2D2 = LowerHil.MakeAbstractInterpreter (TransferFunctions(ProcCfg.Normal))
-
-let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log} as interproc) =
+let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc) =
   let formals = FormalMap.make proc_desc in
   (* let proc_data = ProcData.make proc_desc tenv formals in  *)
-  let data = {interproc; extras= formals; tmp=0} in
+  let data = {interproc; extras= formals} in
+  let proc_name = Procdesc.get_proc_name proc_desc in
+
+  (* Compute the abstract state for a given function *)
   match L2D2.compute_post data ~initial:Domain.empty proc_desc with
   | Some post ->
       (* Remove local locks *)
@@ -93,7 +96,7 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log} as interproc) 
         }
       in
       (* Report warnings *)
-      DeadlockDomain.ReportSet.iter 
+      DeadlockDomain.ReportSet.iter
       (fun (dllock, dlloc, dlpname, dlstr, dltype) ->
           let locks : string list = List.fold dllock ~init:[] ~f:(fun accum elem ->
             accum@[(DeadlockDomain.LockWarning.make_string_of_lock elem)])
@@ -105,22 +108,21 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log} as interproc) 
           let ltr : Errlog.loc_trace_elem list =
             [Errlog.make_trace_element 0 dlloc "" [Errlog.Procedure_start dlpname]]
           in
-          let log_func = Reporting.log_issue proc_desc err_log ~loc:dlloc in
-          log_func ~ltr DeadlockChecker dltype message
-          (* Reporting.log_issue_external 
-          dlpname 
-          Exceptions.Warning 
-          ~loc: dlloc 
-          ~ltr
-          dltype
-          message; *)
+          ignore (Reporting.log_issue_external (* ignore() bcs this expr should return unit *)
+            dlpname
+            ~issue_log:IssueLog.empty (* TODO: check what should be in issue_log *)
+            ~loc:dlloc
+            ~ltr
+            DeadlockChecker
+            dltype
+            message);
       ) !DeadlockDomain.reportMap;
-
       DeadlockDomain.reportMap := DeadlockDomain.ReportSet.empty;
       Some post_without_locals
 
-
-  | None -> None
+  | None ->
+    Logging.die InternalError
+    "The detection of deadlock failed to compute a post for '%a'." Procname.pp proc_name
 
 (**
  * Deadlocks reporting by first creating a relation of all dependencies and 
@@ -128,7 +130,7 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log} as interproc) 
  * some lock depends on itself in the transitive closure. Every deadlock found
  * by our analyser is reported twice, at each trace starting point.
  *)
-let _report_deadlocks dependencies =
+let report_deadlocks dependencies =
 
   (* Returns set of all locks used in an analysed program. *)
   let get_all_locks : Domain.Edges.t -> Domain.Lockset.t =
@@ -174,7 +176,8 @@ let _report_deadlocks dependencies =
     for i = 0 to (n - 1) do
       for j = 0 to (n - 1) do
         matrix.(i).(j) <- matrix.(i).(j) || (matrix.(i).(k) && matrix.(k).(j));
-        if(matrix.(i).(j) && (phys_equal i j)) then (       (* FIXME tento if vraci unit *)
+        (* if there is (L, L) in the closure, we report deadlock *)
+        if(matrix.(i).(j) && (phys_equal i j)) then (
           (* Finding the first pair that is causing a deadlock. *)
           let first_pair =
             let e : Domain.Edge.t = 
@@ -194,36 +197,26 @@ let _report_deadlocks dependencies =
           match (first_pair, second_pair) with
           | (Some a, Some b) ->
               if not(Domain.Edge.equal a.edge b.edge) then (
-                let _message = F.asprintf "Deadlock between:\t%a\n\t\t\t%a\n"
+                let message = F.asprintf "Deadlock between:\t%a\n\t\t\t%a\n"
                   Domain.Edge.pp a
                   Domain.Edge.pp b;
                 in
-                let _loc = (snd(fst(a.edge))) in
-                let _ltr : Errlog.loc_trace_elem list =
+                let loc = (snd(fst(a.edge))) in
+                let ltr : Errlog.loc_trace_elem list =
                   [Errlog.make_trace_element 0 (snd(fst(a.edge))) "" [Errlog.Procedure_start a.pname]]
                 in
-
-                (*
-                 let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
-                let message = F.asprintf "Leaked %a resource(s)" ResourceLeakDomain.pp post in
-                let log_t = Reporting.log_issue proc_desc err_log ~loc:last_loc ResourceLeakLabExercise in
-                log_t IssueType.lab_resource_leak message *)
-                (* let log_func = Reporting.log_issue proc_desc err_log ~loc:dlloc in
-                log_func ~ltr DeadlockChecker dltype message
-
-                Reporting.log_issue_external
-                  a.pname 
-                  Exception.Error
-                  ~loc 
+                ignore (Reporting.log_issue_external (* ignore() bcs this expr should return unit *)
+                  a.pname
+                  ~issue_log:IssueLog.empty (* TODO: check what should be in issue_log *)
+                  ~loc
                   ~ltr
+                  DeadlockChecker
                   IssueType.deadlock
-                  message;
-                  *)
-
+                  message);
                   ()
                 )
           | (_, _) -> ()
-        )
+        ) else ()
       done;
     done;
   done

@@ -60,7 +60,6 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
             Domain.integrate_summary astate callee_pname loc summary callee_formals actuals pname
         )
       | _ -> (
-        (* Those cases were added later on, not implemented by Vlado *)
         assert(false)
       )
     )
@@ -221,27 +220,18 @@ let report_deadlocks dependencies =
     done;
   done
 
-  (* {callback: Callbacks.file_callback_t; issue_dir: ResultsDirEntryName.id} *)
-
-let reporting {InterproceduralAnalysis.procedures=_; file_exe_env=_; analyze_file_dependency=_; source_file=_} =
-  (* Getting all lock dependencies in the analysed program. *)
-
-  (*
+(* {callback: Callbacks.file_callback_t; issue_dir: ResultsDirEntryName.id} *)
+(* let reporting {InterproceduralAnalysis.procedures; file_exe_env=_; analyze_file_dependency; source_file=_} = *)
+let reporting (analysis_data : Domain.t InterproceduralAnalysis.file_t) : IssueLog.t =
+    (* Getting all lock dependencies in the analysed program. *)
   let locks_dependencies =
-    List.fold procedures ~f:(fun acc procname ->
-      match analyze_file_dependency procname with
-      (*
-      | Some (_pdesc, (summary : Domain.t)) -> Domain.Edges.union summary.dependencies acc
+    List.fold analysis_data.procedures ~f:(fun acc procname ->
+      match analysis_data.analyze_file_dependency procname with
+      | Some (summary : Domain.t) -> Domain.Edges.union summary.dependencies acc
       | None -> acc
-      *)
-      (* | Some (_pdesc, (_summary: Domain.t)) -> (* *)
-        Printf.printf "something in Deadlock Checker";
-        acc *)
-      | None -> acc
-    ) ~init:Domain.Edges.empty 
-    in
-    (* locks_dependencies *)
-  (* let g = 
+    ) ~init:Domain.Edges.empty
+  in
+  let g =
     let e : Domain.Edge.t -> Domain.LocksGraph.t -> Domain.LocksGraph.t =
       fun edge acc ->
         DeadlockDomain.LocksGraph.add_edge_e acc (edge.edge); 
@@ -263,9 +253,9 @@ let reporting {InterproceduralAnalysis.procedures=_; file_exe_env=_; analyze_fil
     fun eve ->
       F.printf "post: %a\n" Domain.LockEvent.pp eve
   in
-  Domain.DfsLG.iter g ~pre:print_pre ~post:print_post; *)
-  (* report_deadlocks locks_dependencies ; *)
-  *)
+  Domain.DfsLG.iter g ~pre:print_pre ~post:print_post;
+  report_deadlocks locks_dependencies;
 
-  IssueLog.empty
-  (* IssueLog.store Config.deadlock_issues_dir_name source_file *)
+  (* IssueLog.empty *)
+  IssueLog.store ~entry:DeadlockIssues ~file:analysis_data.source_file (IssueLog.load DeadlockIssues);
+  IssueLog.load DeadlockIssues

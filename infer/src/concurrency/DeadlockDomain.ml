@@ -18,9 +18,7 @@
     type t = AccessPath.t * Location.t
 
     (* compare (AccessPath.t * Location.t) (AccessPath.t * Location.t) *)
-
     (* AccessPath.t = base * access list *)
-    
     let compare (((base, aclist) as lock), _) ((((base'), aclist') as lock' ), _) =
       if phys_equal lock lock' then 0
       else begin

@@ -144,7 +144,9 @@ end = struct
     ; {def with classname= "std::recursive_mutex"; recursive= true}
     ; {def with classname= "std::recursive_timed_mutex"; recursive= true}
     ; {shd with classname= "std::shared_mutex"}
-    ; {def with classname= "std::timed_mutex"} ]
+    ; {def with classname= "std::timed_mutex"}
+    ; {def with lock= ["pthread_mutex_lock"]}
+    ; {def with unlock = ["pthread_mutex_unlock"]} ]
 
 
   let is_recursive_lock_type qname =

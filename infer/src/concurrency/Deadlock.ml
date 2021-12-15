@@ -36,10 +36,12 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
       match ConcurrencyModels.get_lock_effect callee_pname actuals with
       | Lock _ ->
       (* lock(l1) *)
+          F.printf "Function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
           F.printf "lock at line %a\n" Location.pp loc;
           get_path actuals
           |> Option.value_map ~default:astate ~f:(fun path -> Domain.acquire path astate loc extras pname)
       | Unlock _ ->
+        F.printf "Function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
           F.printf "unlock at line %a\n" Location.pp loc;
           get_path actuals
           |> Option.value_map ~default:astate ~f:(fun path -> Domain.release path astate loc extras pname)
@@ -48,6 +50,7 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
           astate
       (* User function call *)
       | NoEffect ->
+        F.printf "User defined function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
         analyze_dependency callee_pname
         |> Option.value_map ~default:(astate) ~f:(fun (_, summary) ->
             let callee_formals = 
@@ -210,7 +213,7 @@ let report_deadlocks dependencies =
                   ~loc
                   ~ltr
                   DeadlockChecker
-                  IssueType.deadlock
+                  IssueType.deadlock_L2D2
                   message);
                   ()
                 )

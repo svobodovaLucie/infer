@@ -165,6 +165,8 @@ val release_without_acquisition : t
 
 val deadlock : t
 
+val deadlock_L2D2 : t
+
 val divide_by_zero : t
 
 val do_not_report : t

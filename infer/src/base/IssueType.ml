@@ -480,6 +480,10 @@ let deadlock =
   register ~id:"DEADLOCK" Error Starvation
     ~user_documentation:[%blob "../../documentation/issues/DEADLOCK.md"]
 
+let deadlock_L2D2 =
+  register ~id:"DEADLOCK_L2D2" Error DeadlockChecker
+   ~user_documentation:[%blob "../../documentation/issues/DEADLOCK_L2D2.md"]
+
 let double_locking =
   register ~id:"DOUBLE_LOCKING" Error DeadlockChecker
     ~user_documentation:""

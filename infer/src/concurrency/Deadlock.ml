@@ -75,7 +75,7 @@ module CFG = ProcCfg.Normal
 
 (* An analyser definition *)
 module L2D2 = LowerHil.MakeAbstractInterpreter (TransferFunctions(ProcCfg.Normal))
-let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc) =
+let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log} as interproc) =
   let formals = FormalMap.make proc_desc in
   let data = {interproc; extras= formals} in
   let proc_name = Procdesc.get_proc_name proc_desc in
@@ -98,40 +98,25 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc
       (* Report warnings *)
       DeadlockDomain.ReportSet.iter
       (fun (dllock, dlloc, dlpname, dlstr, dltype) ->
-          let locks : string list = List.fold dllock ~init:[] ~f:(fun accum elem ->
-            accum@[(DeadlockDomain.LockWarning.make_string_of_lock elem)])
-          in
-          let message = F.asprintf "%s of %s at function '%s'\n"
-            dlstr (String.concat ~sep:", " locks)
-            (Procname.to_string dlpname) 
-          in
-          let ltr : Errlog.loc_trace_elem list =
-            [Errlog.make_trace_element 0 dlloc "" [Errlog.Procedure_start dlpname]]
-          in
-          ignore (Reporting.log_issue_external (* ignore() bcs this expr should return unit *)
-            dlpname
-            ~issue_log:IssueLog.empty (* TODO: check what should be in issue_log *)
-            ~loc:dlloc
-            ~ltr
-            DeadlockChecker
-            dltype
-            message);
+        let locks : string list = List.fold dllock ~init:[] ~f:(fun accum elem ->
+          accum@[(DeadlockDomain.LockWarning.make_string_of_lock elem)])
+        in
+        let message = F.asprintf "%s of %s at function '%s'\n"
+          dlstr (String.concat ~sep:", " locks)
+          (Procname.to_string dlpname)
+        in
+        let ltr : Errlog.loc_trace_elem list =
+          [Errlog.make_trace_element 0 dlloc "" [Errlog.Procedure_start dlpname]]
+        in
+        let err_desc = Localise.verbatim_desc message
+        in
+        let issue_to_report : IssueToReport.t = {issue_type=dltype; description=err_desc; ocaml_pos=None}
+        in
+        Reporting.log_issue_from_summary ~severity_override:Warning proc_desc err_log
+          ~node:UnknownNode ~session:0 ~loc:dlloc ~ltr DeadlockChecker issue_to_report
       ) !DeadlockDomain.reportMap;
       DeadlockDomain.reportMap := DeadlockDomain.ReportSet.empty;
-      (*
-
-      let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
-      let message = "Deadlock error message\n" in
-      ignore(Reporting.log_issue proc_desc err_log ~loc:last_loc DeadlockChecker IssueType.deadlock_L2D2 message);
-
-      *)
-
-      (*    let ltr : Errlog.loc_trace_elem list =
-            [Errlog.make_trace_element 0 last_loc "" [Errlog.Procedure_start proc_name]]
-          in
-       ignore (Reporting.log_issue_external proc_name ~issue_log:IssueLog.empty ~loc:last_loc ~ltr DeadlockChecker IssueType.deadlock_L2D2 message); *)
       Some post_without_locals
-
   | None ->
     Logging.die InternalError
     "The detection of deadlock failed to compute a post for '%a'." Procname.pp proc_name
@@ -223,7 +208,7 @@ let report_deadlocks dependencies : IssueLog.t=
         let ltr : Errlog.loc_trace_elem list =
           [Errlog.make_trace_element 0 (snd(fst(a.edge))) "" [Errlog.Procedure_start a.pname]]
         in
-        Reporting.log_issue_external a.pname ~issue_log ~loc ~ltr
+        Reporting.log_issue_external a.pname ~issue_log ~severity_override:Error ~loc ~ltr
           DeadlockChecker IssueType.deadlock_L2D2 message
       ) else issue_log
     | (_, _) -> issue_log

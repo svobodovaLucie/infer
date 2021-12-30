@@ -31,17 +31,21 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
       |> Option.map ~f:HilExp.AccessExpression.to_access_path
     in
     match instr with
-    | Call (_, Direct callee_pname, actuals, _, loc) ->(
+    | Call (_, Direct callee_pname, actuals, _, loc) -> (
       match ConcurrencyModels.get_lock_effect callee_pname actuals with
       | Lock _ ->
         (* lock(l1) *)
+        (*
         F.printf "Function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
         F.printf "lock at line %a\n" Location.pp loc;
+        *)
         get_path actuals
         |> Option.value_map ~default:astate ~f:(fun path -> Domain.acquire path astate loc extras pname)
       | Unlock _ ->
+        (*
         F.printf "Function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
         F.printf "unlock at line %a\n" Location.pp loc;
+        *)
         get_path actuals
         |> Option.value_map ~default:astate ~f:(fun path -> Domain.release path astate loc extras pname)
       (* TODO try_lock *)
@@ -49,24 +53,19 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
           astate
       (* User function call *)
       | NoEffect ->
-        F.printf "User defined function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
+        (* F.printf "User defined function %a at line %a\n" Procname.pp callee_pname Location.pp loc; *)
         analyze_dependency callee_pname
         |> Option.value_map ~default:(astate) ~f:(fun (_, summary) ->
           let callee_formals =
             match AnalysisCallbacks.proc_resolve_attributes callee_pname with
-            | Some callee_attr ->
-              callee_attr.ProcAttributes.formals
-            | None ->
-              []
+            | Some callee_attr -> callee_attr.ProcAttributes.formals
+            | None -> []
           in
           Domain.integrate_summary astate callee_pname loc summary callee_formals actuals pname
         )
-      | _ -> (
-        assert(false)
-      )
+      | _ -> assert(false)
     )
-    | _ ->  
-      astate
+    | _ -> astate
 
   let pp_session_name _node fmt = F.pp_print_string fmt "deadlock";
 end
@@ -79,7 +78,6 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log} as interproc) 
   let formals = FormalMap.make proc_desc in
   let data = {interproc; extras= formals} in
   let proc_name = Procdesc.get_proc_name proc_desc in
-
   (* Compute the abstract state for a given function *)
   match L2D2.compute_post data ~initial:Domain.empty proc_desc with
   | Some post ->
@@ -101,7 +99,7 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log} as interproc) 
         let locks : string list = List.fold dllock ~init:[] ~f:(fun accum elem ->
           accum@[(DeadlockDomain.LockWarning.make_string_of_lock elem)])
         in
-        let message = F.asprintf "%s of %s at function '%s'\n"
+        let message = F.asprintf "%s of '%s' at function '%s'\n"
           dlstr (String.concat ~sep:", " locks)
           (Procname.to_string dlpname)
         in
@@ -128,7 +126,6 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log} as interproc) 
  * by our analyser is reported twice, at each trace starting point.
  *)
 let report_deadlocks dependencies : IssueLog.t=
-
   (* Returns set of all locks used in an analysed program. *)
   let get_all_locks : Domain.Edges.t -> Domain.Lockset.t =
     fun dependencies ->
@@ -141,24 +138,20 @@ let report_deadlocks dependencies : IssueLog.t=
       in
       Domain.Edges.fold f dependencies set_of_all_locks
   in
-
   (**
    * Creates a list from a set of locks used in an analysed program.
    * The lock index in this list serves as a lock index in the formed matrix. 
    *)
   let list_of_all_locks = Domain.Lockset.elements (get_all_locks dependencies) in
-
   let rec find : Domain.Lockset.elt -> Domain.Lockset.elt list -> int =
     fun x lst ->
       match lst with
       | [] -> raise (Failure "Not Found")
       | h :: t -> if Domain.LockEvent.equal x h then 0 else 1 + find x t
   in
-
   (* number of locks (matrix dimension) *)
   let n = (Domain.Lockset.cardinal (get_all_locks dependencies)) in
   let m = Array.make_matrix ~dimx:n ~dimy:n false in
-
   (* A matrix representing dependencies between locks. *)
   let matrix = Domain.Edges.fold (fun pair acc ->
         let first = find (fst pair.edge) list_of_all_locks in
@@ -249,5 +242,4 @@ let reporting (analysis_data : Domain.t InterproceduralAnalysis.file_t) : IssueL
   in
   Domain.DfsLG.iter g ~pre:print_pre ~post:print_post;
   *)
-
   report_deadlocks locks_dependencies

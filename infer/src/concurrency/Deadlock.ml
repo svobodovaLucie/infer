@@ -15,7 +15,6 @@ module Domain = DeadlockDomain
 type analysis_data =
   {interproc: DeadlockDomain.summary InterproceduralAnalysis.t; extras: FormalMap.t}
 
-
 module TransferFunctions (CFG : ProcCfg.S) = struct
   module CFG = CFG
   module Domain = DeadlockDomain
@@ -24,9 +23,9 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
   type nonrec analysis_data = analysis_data
 
   let exec_instr astate {interproc= {proc_desc; analyze_dependency}; extras} (_cfg_node : CFG.Node.t) _idx (instr: HilInstr.t) =
-    let pname = Procdesc.get_proc_name proc_desc in
-
-(* l1 + l2 / l3 -> [l1] *)
+    let pname = Procdesc.get_proc_name proc_desc
+    in
+    (* l1 + l2 / l3 -> [l1] *)
     let get_path actuals =
       List.hd actuals |> Option.value_map ~default:[] ~f:HilExp.get_access_exprs |> List.hd
       |> Option.map ~f:HilExp.AccessExpression.to_access_path
@@ -35,16 +34,16 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
     | Call (_, Direct callee_pname, actuals, _, loc) ->(
       match ConcurrencyModels.get_lock_effect callee_pname actuals with
       | Lock _ ->
-      (* lock(l1) *)
-          F.printf "Function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
-          F.printf "lock at line %a\n" Location.pp loc;
-          get_path actuals
-          |> Option.value_map ~default:astate ~f:(fun path -> Domain.acquire path astate loc extras pname)
+        (* lock(l1) *)
+        F.printf "Function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
+        F.printf "lock at line %a\n" Location.pp loc;
+        get_path actuals
+        |> Option.value_map ~default:astate ~f:(fun path -> Domain.acquire path astate loc extras pname)
       | Unlock _ ->
         F.printf "Function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
-          F.printf "unlock at line %a\n" Location.pp loc;
-          get_path actuals
-          |> Option.value_map ~default:astate ~f:(fun path -> Domain.release path astate loc extras pname)
+        F.printf "unlock at line %a\n" Location.pp loc;
+        get_path actuals
+        |> Option.value_map ~default:astate ~f:(fun path -> Domain.release path astate loc extras pname)
       (* TODO try_lock *)
       | LockedIfTrue _ ->
           astate
@@ -53,14 +52,14 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
         F.printf "User defined function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
         analyze_dependency callee_pname
         |> Option.value_map ~default:(astate) ~f:(fun (_, summary) ->
-            let callee_formals = 
-              match AnalysisCallbacks.proc_resolve_attributes callee_pname with
-              | Some callee_attr ->
-                callee_attr.ProcAttributes.formals
-              | None ->
-                []
-            in
-            Domain.integrate_summary astate callee_pname loc summary callee_formals actuals pname
+          let callee_formals =
+            match AnalysisCallbacks.proc_resolve_attributes callee_pname with
+            | Some callee_attr ->
+              callee_attr.ProcAttributes.formals
+            | None ->
+              []
+          in
+          Domain.integrate_summary astate callee_pname loc summary callee_formals actuals pname
         )
       | _ -> (
         assert(false)
@@ -78,7 +77,6 @@ module CFG = ProcCfg.Normal
 module L2D2 = LowerHil.MakeAbstractInterpreter (TransferFunctions(ProcCfg.Normal))
 let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc) =
   let formals = FormalMap.make proc_desc in
-  (* let proc_data = ProcData.make proc_desc tenv formals in  *)
   let data = {interproc; extras= formals} in
   let proc_name = Procdesc.get_proc_name proc_desc in
 
@@ -120,6 +118,18 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc
             message);
       ) !DeadlockDomain.reportMap;
       DeadlockDomain.reportMap := DeadlockDomain.ReportSet.empty;
+      (*
+
+      let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
+      let message = "Deadlock error message\n" in
+      ignore(Reporting.log_issue proc_desc err_log ~loc:last_loc DeadlockChecker IssueType.deadlock_L2D2 message);
+
+      *)
+
+      (*    let ltr : Errlog.loc_trace_elem list =
+            [Errlog.make_trace_element 0 last_loc "" [Errlog.Procedure_start proc_name]]
+          in
+       ignore (Reporting.log_issue_external proc_name ~issue_log:IssueLog.empty ~loc:last_loc ~ltr DeadlockChecker IssueType.deadlock_L2D2 message); *)
       Some post_without_locals
 
   | None ->
@@ -132,7 +142,7 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc
  * some lock depends on itself in the transitive closure. Every deadlock found
  * by our analyser is reported twice, at each trace starting point.
  *)
-let report_deadlocks dependencies =
+let report_deadlocks dependencies : IssueLog.t=
 
   (* Returns set of all locks used in an analysed program. *)
   let get_all_locks : Domain.Edges.t -> Domain.Lockset.t =
@@ -171,62 +181,57 @@ let report_deadlocks dependencies =
         acc.(first).(second) <- true;
         acc) 
     dependencies m 
-    in
-
+  in
+  let deadlocks_list = ref []
+  in
   (* A Computing of transitive closure and reporting of deadlocks. *)
   for k = 0 to (n - 1) do
     for i = 0 to (n - 1) do
       for j = 0 to (n - 1) do
         matrix.(i).(j) <- matrix.(i).(j) || (matrix.(i).(k) && matrix.(k).(j));
         (* if there is (L, L) in the closure, we report deadlock *)
-        if(matrix.(i).(j) && (phys_equal i j)) then (
-          (* Finding the first pair that is causing a deadlock. *)
-          let first_pair =
-            let e : Domain.Edge.t = 
-              {edge = ((List.nth_exn list_of_all_locks k),(List.nth_exn list_of_all_locks j)); pname = Procname.empty_block}
-            in 
-            try Some (Domain.Edges.find e dependencies)
-            with Caml.Not_found -> None
-          in
-          (* Finding the second pair that is causing a deadlock. *)
-          let second_pair = 
-            let e : Domain.Edge.t = 
-              {edge = ((List.nth_exn list_of_all_locks j),(List.nth_exn list_of_all_locks k)); pname = Procname.empty_block}
-            in
-            try Some (Domain.Edges.find e dependencies)
-            with Caml.Not_found -> None 
-          in
-          match (first_pair, second_pair) with
-          | (Some a, Some b) ->
-              if not(Domain.Edge.equal a.edge b.edge) then (
-                let message = F.asprintf "Deadlock between:\t%a\n\t\t\t%a\n"
-                  Domain.Edge.pp a
-                  Domain.Edge.pp b;
-                in
-                let loc = (snd(fst(a.edge))) in
-                let ltr : Errlog.loc_trace_elem list =
-                  [Errlog.make_trace_element 0 (snd(fst(a.edge))) "" [Errlog.Procedure_start a.pname]]
-                in
-                ignore (Reporting.log_issue_external (* ignore() bcs this expr should return unit *)
-                  a.pname
-                  ~issue_log:IssueLog.empty (* TODO: check what should be in issue_log *)
-                  ~loc
-                  ~ltr
-                  DeadlockChecker
-                  IssueType.deadlock_L2D2
-                  message);
-                  ()
-                )
-          | (_, _) -> ()
-        ) else ()
+        if(matrix.(i).(j) && (phys_equal i j)) then
+          deadlocks_list := (j, k) :: !deadlocks_list
       done;
     done;
-  done
+  done;
+  let fold issue_log (j, k) : IssueLog.t =
+    (* Finding the first pair that is causing a deadlock. *)
+    let first_pair =
+      let e : Domain.Edge.t =
+        {edge = ((List.nth_exn list_of_all_locks k),(List.nth_exn list_of_all_locks j)); pname = Procname.empty_block}
+      in
+      try Some (Domain.Edges.find e dependencies)
+      with Caml.Not_found -> None
+    in
+    (* Finding the second pair that is causing a deadlock. *)
+    let second_pair =
+      let e : Domain.Edge.t =
+        {edge = ((List.nth_exn list_of_all_locks j),(List.nth_exn list_of_all_locks k)); pname = Procname.empty_block}
+      in
+      try Some (Domain.Edges.find e dependencies)
+      with Caml.Not_found -> None
+    in
+    match (first_pair, second_pair) with
+    | (Some a, Some b) ->
+      if not(Domain.Edge.equal a.edge b.edge) then (
+        let message = F.asprintf "Deadlock between:\t%a\n\t\t\t%a\n"
+          Domain.Edge.pp a Domain.Edge.pp b;
+        in
+        let loc = (snd(fst(a.edge)))
+        in
+        let ltr : Errlog.loc_trace_elem list =
+          [Errlog.make_trace_element 0 (snd(fst(a.edge))) "" [Errlog.Procedure_start a.pname]]
+        in
+        Reporting.log_issue_external a.pname ~issue_log ~loc ~ltr
+          DeadlockChecker IssueType.deadlock_L2D2 message
+      ) else issue_log
+    | (_, _) -> issue_log
+  in
+  List.fold !deadlocks_list ~init:IssueLog.empty ~f:fold
 
-(* {callback: Callbacks.file_callback_t; issue_dir: ResultsDirEntryName.id} *)
-(* let reporting {InterproceduralAnalysis.procedures; file_exe_env=_; analyze_file_dependency; source_file=_} = *)
 let reporting (analysis_data : Domain.t InterproceduralAnalysis.file_t) : IssueLog.t =
-    (* Getting all lock dependencies in the analysed program. *)
+  (* Getting all lock dependencies in the analysed program. *)
   let locks_dependencies =
     List.fold analysis_data.procedures ~f:(fun acc procname ->
       match analysis_data.analyze_file_dependency procname with
@@ -234,6 +239,7 @@ let reporting (analysis_data : Domain.t InterproceduralAnalysis.file_t) : IssueL
       | None -> acc
     ) ~init:Domain.Edges.empty
   in
+  (* debug log
   let g =
     let e : Domain.Edge.t -> Domain.LocksGraph.t -> Domain.LocksGraph.t =
       fun edge acc ->
@@ -257,8 +263,6 @@ let reporting (analysis_data : Domain.t InterproceduralAnalysis.file_t) : IssueL
       F.printf "post: %a\n" Domain.LockEvent.pp eve
   in
   Domain.DfsLG.iter g ~pre:print_pre ~post:print_post;
-  report_deadlocks locks_dependencies;
+  *)
 
-  (* IssueLog.empty *)
-  IssueLog.store ~entry:DeadlockIssues ~file:analysis_data.source_file (IssueLog.load DeadlockIssues);
-  IssueLog.load DeadlockIssues
+  report_deadlocks locks_dependencies

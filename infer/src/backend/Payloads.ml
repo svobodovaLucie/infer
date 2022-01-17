@@ -16,9 +16,9 @@ type t =
   ; config_checks_between_markers: ConfigChecksBetweenMarkers.Summary.t option
   ; config_impact_analysis: ConfigImpactAnalysis.Summary.t option
   ; cost: CostDomain.summary option
+  ; deadlock: DeadlockDomain.summary option
   ; disjunctive_demo: DisjunctiveDemo.domain option
   ; dotnet_resource_leaks: ResourceLeakCSDomain.summary option
-  ; interval_checker: IntervalCheckerDomain.summary option
   ; lab_resource_leaks: ResourceLeakDomain.summary option
   ; litho_required_props: LithoDomain.summary option
   ; pulse: PulseSummary.t option
@@ -52,13 +52,13 @@ let fields =
       mk f "ConfigChecksBetweenMarkers" ConfigChecksBetweenMarkers.Summary.pp )
     ~config_impact_analysis:(fun f -> mk f "ConfigImpactAnalysis" ConfigImpactAnalysis.Summary.pp)
     ~cost:(fun f -> mk f "Cost" CostDomain.pp_summary)
+    ~deadlock:(fun f -> mk f "Deadlock" DeadlockDomain.pp)
     ~disjunctive_demo:(fun f -> mk f "Disjunctive Demo" DisjunctiveDemo.pp_domain)
     ~litho_required_props:(fun f -> mk f "Litho Required Props" LithoDomain.pp_summary)
     ~pulse:(fun f -> mk f "Pulse" PulseSummary.pp)
     ~purity:(fun f -> mk f "Purity" PurityDomain.pp_summary)
     ~quandary:(fun f -> mk f "Quandary" QuandarySummary.pp)
     ~racerd:(fun f -> mk f "RacerD" RacerDDomain.pp_summary)
-    ~interval_checker:(fun f -> mk f "Interval Checker" IntervalCheckerDomain.pp)
     ~lab_resource_leaks:(fun f -> mk f "Resource Leaks Lab" ResourceLeakDomain.pp)
     ~dotnet_resource_leaks:(fun f -> mk f "DOTNET Resource Leaks" ResourceLeakCSDomain.Summary.pp)
     ~siof:(fun f -> mk f "Siof" SiofDomain.Summary.pp)
@@ -81,9 +81,9 @@ let empty =
   ; config_checks_between_markers= None
   ; config_impact_analysis= None
   ; cost= None
+  ; deadlock= None
   ; disjunctive_demo= None
   ; dotnet_resource_leaks= None
-  ; interval_checker= None
   ; lab_resource_leaks= None
   ; litho_required_props= None
   ; pulse= None

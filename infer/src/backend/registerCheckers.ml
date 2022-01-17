@@ -82,9 +82,6 @@ let all_checkers =
              Payloads.Fields.buffer_overrun_analysis BufferOverrunChecker.checker
          in
          [(bo_checker, Clang); (bo_checker, Java)] ) }
-  ; { checker= IntervalExperimentalChecker
-    ; callbacks=
-        [ (interprocedural Payloads.Fields.interval_checker IntervalChecker.checker, Clang ) ] }
   ; { checker= PurityAnalysis
     ; callbacks=
         (let purity =
@@ -125,6 +122,14 @@ let all_checkers =
              Payloads.Fields.buffer_overrun_analysis Payloads.Fields.purity Cost.checker
          in
          [(checker, Clang); (checker, Java)] ) }
+  ; { checker= DeadlockChecker
+      ; callbacks=
+          (let deadlock = interprocedural Payloads.Fields.deadlock Deadlock.checker in
+           let deadlock_file_reporting =
+             file DeadlockIssues Payloads.Fields.deadlock Deadlock.reporting
+           in
+           [ (deadlock, Clang)
+           ; (deadlock_file_reporting, Clang) ] ) }
   ; {checker= Uninit; callbacks= [(interprocedural Payloads.Fields.uninit Uninit.checker, Clang)]}
   ; {checker= SIOF; callbacks= [(interprocedural Payloads.Fields.siof Siof.checker, Clang)]}
   ; { checker= LithoRequiredProps

@@ -16,6 +16,7 @@ type id =
   | CaptureDBWal
   | CaptureDependencies
   | ChangedFunctions
+  | DeadlockIssues
   | Debug
   | Differential
   | DuplicateFunctions
@@ -86,6 +87,11 @@ let of_id = function
       ; kind= File
       ; before_incremental_analysis= Delete
       ; before_caching_capture= Keep }
+  | DeadlockIssues ->
+        { rel_path= "deadlock_issues"
+        ; kind= IssuesDirectory
+        ; before_incremental_analysis= Delete
+        ; before_caching_capture= Delete }
   | Debug ->
       { rel_path= "captured"
       ; kind= Directory

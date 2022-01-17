@@ -15,6 +15,7 @@ type t =
   | ConfigChecksBetweenMarkers
   | ConfigImpactAnalysis
   | Cost
+  | DeadlockChecker
   | DisjunctiveDemo
   | Eradicate
   | FragmentRetainsView

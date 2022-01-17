@@ -1630,6 +1630,10 @@ and impurity_report_immutable_modifications =
 and inclusive_cost =
   CLOpt.mk_bool ~long:"inclusive-cost" ~default:true "Computes the inclusive cost"
 
+and locking_error =
+  CLOpt.mk_bool ~long:"locking-error" ~default:false
+    "enable heurestic which cuts of lock-error (double locking/release before \
+    previous acquisition) paths."
 
 and incremental_analysis =
   CLOpt.mk_bool ~long:"incremental-analysis" ~default:false
@@ -3286,6 +3290,8 @@ and impurity_report_immutable_modifications = !impurity_report_immutable_modific
 
 and inclusive_cost = !inclusive_cost
 
+and locking_error = !locking_error
+
 and incremental_analysis = !incremental_analysis
 
 and issues_tests = !issues_tests
@@ -3468,7 +3474,6 @@ and pulse_report_ignore_unknown_java_methods_patterns =
       None
   | patts ->
       Some (Str.regexp (String.concat ~sep:"\\|" patts))
-
 
 and pulse_model_transfer_ownership_namespace, pulse_model_transfer_ownership =
   let models =

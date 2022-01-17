@@ -82,9 +82,6 @@ let all_checkers =
              Payloads.Fields.buffer_overrun_analysis BufferOverrunChecker.checker
          in
          [(bo_checker, Clang); (bo_checker, Java)] ) }
-  ; { checker= IntervalExperimentalChecker
-    ; callbacks=
-        [ (interprocedural Payloads.Fields.interval_checker IntervalChecker.checker, Clang ) ] }
   ; { checker= PurityAnalysis
     ; callbacks=
         (let purity =

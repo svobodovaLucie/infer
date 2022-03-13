@@ -208,17 +208,10 @@ let exec_inst tid i q =
   | Load {reg; ptr; len= _; loc= _} -> Ok (assign reg ptr q)
   | Nondet {reg= Some reg; msg= _; loc= _} -> Ok (exec_kill tid reg q)
   | Nondet {reg= None; msg= _; loc= _} | Alloc _ | Free _ -> Ok q
-  | AtomicRMW {reg; _}
-   |AtomicCmpXchg {reg; _}
-   |Intrinsic {reg= Some reg; _} ->
+  | AtomicRMW {reg; _} | AtomicCmpXchg {reg; _} | Builtin {reg= Some reg; _}
+    ->
       Ok (exec_kill tid reg q)
-  | Intrinsic {reg= None; _} -> Ok q
-  | Abort {loc} ->
-      Error
-        { Alarm.kind= Abort
-        ; loc
-        ; pp_action= Fun.flip Llair.Inst.pp i
-        ; pp_state= Fun.flip pp q }
+  | Builtin {reg= None; _} -> Ok q
 
 let enter_scope _ _ q = q
 
@@ -262,12 +255,17 @@ let retn tid _ freturn {areturn; caller_q} callee_q =
   | Some aret, None -> exec_kill tid aret caller_q
   | None, _ -> caller_q
 
+type term_code = unit [@@deriving compare, sexp_of]
+
+let term _ _ _ _ = ()
+let move_term_code _ _ () q = q
+
 (** map actuals to formals (via temporary registers), stash constraints on
     caller-local variables. Note that this exploits the non-relational-ness
     of Box to ignore all variables other than the formal/actual params/
     returns; this will not be possible if extended to a relational domain *)
-let call ~summaries _ ~globals:_ ~actuals ~areturn ~formals ~freturn:_
-    ~locals:_ q =
+let call ~summaries _ ?child:_ ~globals:_ ~actuals ~areturn ~formals
+    ~freturn:_ ~locals:_ q =
   if summaries then
     todo "Summaries not yet implemented for interval analysis" ()
   else

@@ -38,17 +38,6 @@ type t = {pv_hash: int; pv_name: Mangled.t; pv_kind: pvar_kind} [@@deriving comp
 
 let yojson_of_t {pv_name} = [%yojson_of: Mangled.t] pv_name
 
-let build_formal_from_pvar var =
-  match var.pv_kind with
-  | Local_var pname ->
-      Mangled.from_string
-        (F.asprintf "%s[%a]" (Mangled.to_string var.pv_name)
-           (Procname.pp_simplified_string ~withclass:false)
-           pname )
-  | _ ->
-      var.pv_name
-
-
 let compare_modulo_this x y =
   if phys_equal x y then 0
   else
@@ -60,8 +49,6 @@ let compare_modulo_this x y =
       else if Mangled.is_this x.pv_name || Mangled.is_self x.pv_name then 0
       else compare_pvar_kind x.pv_kind y.pv_kind
 
-
-let equal = [%compare.equal: t]
 
 let get_declaring_function pv =
   match pv.pv_kind with
@@ -208,6 +195,8 @@ let pp pe f pv =
   F.fprintf f "%s%a" ampersand pp_value pv
 
 
+let equal = [%compare.equal: t]
+
 (** Dump a program variable. *)
 let d (pvar : t) = L.d_pp_with_pe pp pvar
 
@@ -337,11 +326,6 @@ module Map = PrettyPrintable.MakePPMap (struct
 
   let pp = pp Pp.text
 end)
-
-let get_pvar_formals (attributes : ProcAttributes.t) =
-  let pname = attributes.proc_name in
-  List.map attributes.formals ~f:(fun (name, typ) -> (mk name pname, typ))
-
 
 let is_local_to_procedure proc_name pvar =
   get_declaring_function pvar |> Option.exists ~f:(Procname.equal proc_name)

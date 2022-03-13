@@ -10,28 +10,61 @@ module L = Logging
 open PulseDomainInterface
 open PulseBasicInterface
 
-let is_constructor = function Procname.ObjC_Cpp {kind= CPPConstructor _} -> true | _ -> false
+let get_var_opt args =
+  match args with
+  | (Exp.Var id, _) :: _ ->
+      Some (Var.of_id id)
+  | (Exp.Lvar pvar, _) :: _ ->
+      Some (Var.of_pvar pvar)
+  | _ ->
+      None
 
-let add_copies location call_exp actuals (flags : CallFlags.t) astates astate_non_disj =
-  List.fold astates ~init:astate_non_disj
-    ~f:(fun astate_non_disj (exec_state : ExecutionDomain.t) ->
-      match (exec_state, (call_exp : Exp.t), actuals) with
-      | ( ContinueProgram disjunct
-        , (Const (Cfun procname) | Closure {name= procname})
-        , (Exp.Lvar pvar, _) :: _ )
-        when is_constructor procname && flags.cf_is_copy_ctor ->
-          let copied_var = Var.of_pvar pvar in
-          if Var.appears_in_source_code copied_var then
-            let heap = (disjunct.post :> BaseDomain.t).heap in
-            NonDisjDomain.add copied_var (Copied {heap; location}) astate_non_disj
-          else astate_non_disj
-      | ISLLatentMemoryError _, _, _
-      | AbortProgram _, _, _
-      | ContinueProgram _, _, _
-      | ExitProgram _, _, _
-      | LatentAbortProgram _, _, _
-      | LatentInvalidAccess _, _, _ ->
-          astate_non_disj )
+
+let is_modeled_as_returning_copy proc_name =
+  Option.exists Config.pulse_model_returns_copy_pattern ~f:(fun r ->
+      let s = Procname.to_string proc_name in
+      Str.string_match r s 0 )
+
+
+let add_copies location call_exp actuals astates astate_non_disj =
+  let aux (copy_check_fn, args_map_fn) init astates =
+    List.fold_map astates ~init ~f:(fun astate_non_disj (exec_state : ExecutionDomain.t) ->
+        match (exec_state, (call_exp : Exp.t), args_map_fn actuals) with
+        | ( ContinueProgram disjunct
+          , (Const (Cfun procname) | Closure {name= procname})
+          , (Exp.Lvar copy_pvar, _) :: rest_args )
+          when copy_check_fn procname ->
+            let copied_var = Var.of_pvar copy_pvar in
+            if Var.appears_in_source_code copied_var then
+              let heap = (disjunct.post :> BaseDomain.t).heap in
+              let copied = NonDisjDomain.Copied {heap; location} in
+              let source_addr_opt =
+                let open IOption.Let_syntax in
+                let* source_var = get_var_opt rest_args in
+                let+ source_addr, _ = Stack.find_opt source_var disjunct in
+                source_addr
+              in
+              let copy_addr, _ = Option.value_exn (Stack.find_opt copied_var disjunct) in
+              let disjunct' =
+                Option.value_map source_addr_opt ~default:disjunct ~f:(fun source_addr ->
+                    AddressAttributes.add_one source_addr (CopiedVar copied_var) disjunct
+                    |> AddressAttributes.add_one copy_addr (SourceOriginOfCopy source_addr) )
+              in
+              ( NonDisjDomain.add copied_var ~source_addr_opt copied astate_non_disj
+              , ExecutionDomain.continue disjunct' )
+            else (astate_non_disj, exec_state)
+        | ExceptionRaised _, _, _
+        | ISLLatentMemoryError _, _, _
+        | AbortProgram _, _, _
+        | ContinueProgram _, _, _
+        | ExitProgram _, _, _
+        | LatentAbortProgram _, _, _
+        | LatentInvalidAccess _, _, _ ->
+            (astate_non_disj, exec_state) )
+  in
+  let astate_n, astates = aux (Procname.is_copy_ctor, Fn.id) astate_non_disj astates in
+  (* For functions that return a copy, the last argument is the assigned copy *)
+  aux (is_modeled_as_returning_copy, List.rev) astate_n astates
 
 
 let get_matching_dest_addr_opt (edges_curr, attr_curr) edges_orig : AbstractValue.t list option =
@@ -71,11 +104,14 @@ let is_modified_since_copy addr ~current_heap ~current_attrs ~copy_heap
           match (current_edges_opt, copy_edges_opt) with
           | None, None ->
               aux ~addr_to_explore ~visited
-          | Some _, None ->
-              let is_written =
-                BaseAddressAttributes.get_written_to addr current_attrs |> Option.is_some
+          | Some edges_curr, None ->
+              BaseAddressAttributes.get_written_to addr current_attrs |> Option.is_some
+              ||
+              let addr_to_explore =
+                BaseMemory.Edges.fold edges_curr ~init:addr_to_explore ~f:(fun acc (_, (addr, _)) ->
+                    addr :: acc )
               in
-              is_written || aux ~addr_to_explore ~visited
+              aux ~addr_to_explore ~visited
           | None, Some _ ->
               aux ~addr_to_explore ~visited
           | Some edges_curr, Some edges_orig ->
@@ -86,8 +122,9 @@ let is_modified_since_copy addr ~current_heap ~current_attrs ~copy_heap
   aux ~addr_to_explore:[addr] ~visited:AbstractValue.Set.empty
 
 
-let mark_modified_copy_at ~address var astate (astate_n : NonDisjDomain.t) : NonDisjDomain.t =
-  NonDisjDomain.mark_copy_as_modified var astate_n ~is_modified:(fun copy_heap ->
+let mark_modified_address_at ~address ~source_addr_opt ?(is_source = false) var astate
+    (astate_n : NonDisjDomain.t) : NonDisjDomain.t =
+  NonDisjDomain.mark_copy_as_modified var ~source_addr_opt astate_n ~is_modified:(fun copy_heap ->
       let reachable_addresses_from_copy =
         BaseDomain.reachable_addresses_from
           (Caml.List.to_seq [address])
@@ -95,19 +132,34 @@ let mark_modified_copy_at ~address var astate (astate_n : NonDisjDomain.t) : Non
       in
       let current_heap = (astate.AbductiveDomain.post :> BaseDomain.t).heap in
       let current_attrs = (astate.AbductiveDomain.post :> BaseDomain.t).attrs in
-      L.d_printfln_escaped "Current heap  %a" BaseMemory.pp current_heap ;
-      L.d_printfln_escaped "Copy heap %a" BaseMemory.pp copy_heap ;
+      let reachable_from heap =
+        BaseMemory.filter
+          (fun address _ -> AbstractValue.Set.mem address reachable_addresses_from_copy)
+          heap
+      in
+      if Config.debug_mode then (
+        L.d_printfln_escaped "Current reachable heap %a" BaseMemory.pp (reachable_from current_heap) ;
+        L.d_printfln_escaped "%s reachable heap %a"
+          (if is_source then "Source" else "Copy")
+          BaseMemory.pp (reachable_from copy_heap) ) ;
       is_modified_since_copy address ~current_heap ~copy_heap ~current_attrs
         ~reachable_addresses_from_copy )
 
 
 let mark_modified_copies vars astate astate_n =
+  let mark_modified_copy var default =
+    Stack.find_opt var astate
+    |> Option.value_map ~default ~f:(fun (address, _history) ->
+           let source_addr_opt = AddressAttributes.get_source_origin_of_copy address astate in
+           mark_modified_address_at ~address ~source_addr_opt var astate default )
+  in
   List.fold vars ~init:astate_n ~f:(fun astate_n var ->
-      match Stack.find_opt var astate with
-      | Some (address, _history) ->
-          mark_modified_copy_at ~address var astate astate_n
-      | None ->
-          astate_n )
+      (let open IOption.Let_syntax in
+      let* source_addr, _ = Stack.find_opt var astate in
+      let+ copy_var = AddressAttributes.get_copied_var source_addr astate in
+      mark_modified_address_at ~address:source_addr ~source_addr_opt:(Some source_addr)
+        ~is_source:true copy_var astate astate_n)
+      |> Option.value ~default:(mark_modified_copy var astate_n) )
 
 
 let mark_modified_copies vars disjuncts astate_n =
@@ -115,6 +167,7 @@ let mark_modified_copies vars disjuncts astate_n =
       match exec_state with
       | ISLLatentMemoryError _
       | AbortProgram _
+      | ExceptionRaised _
       | ExitProgram _
       | LatentAbortProgram _
       | LatentInvalidAccess _ ->

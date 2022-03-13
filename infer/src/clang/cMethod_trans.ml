@@ -131,10 +131,9 @@ let should_create_procdesc cfg procname ~defined ~set_objc_accessor_attr =
       true
 
 
-(** Returns a list of the indices of expressions in [args] which point to const-typed values. Each
-    index is offset by [shift]. *)
-let get_const_params_indices ~shift params =
-  let i = ref shift in
+(** Returns a list of the indices of expressions in [args] which point to const-typed values *)
+let get_const_params_indices params =
+  let i = ref 0 in
   let rec aux result = function
     | [] ->
         List.rev result
@@ -204,9 +203,7 @@ let create_local_procdesc ?(set_objc_accessor_attr = false) ?(record_lambda_capt
         Public
   in
   let captured_mangled =
-    List.map
-      ~f:(fun (var, typ, capture_mode) -> {CapturedVar.name= Pvar.get_name var; typ; capture_mode})
-      captured
+    List.map ~f:(fun (pvar, typ, capture_mode) -> {CapturedVar.pvar; typ; capture_mode}) captured
   in
   (* Retrieve captured variables from procdesc created when translating captured variables in lambda expression *)
   (* We want to do this before `should_create_procdesc` is called as it can remove previous procdesc *)
@@ -222,23 +219,12 @@ let create_local_procdesc ?(set_objc_accessor_attr = false) ?(record_lambda_capt
   let create_new_procdesc () =
     let all_params = Option.to_list ms.CMethodSignature.class_param @ ms.CMethodSignature.params in
     let has_added_return_param = ms.CMethodSignature.has_added_return_param in
-    let method_annotation =
-      let return = snd ms.CMethodSignature.ret_type in
-      let params = List.map ~f:(fun ({annot} : CMethodSignature.param_type) -> annot) all_params in
-      Annot.Method.{return; params}
-    in
     let formals =
-      List.map ~f:(fun ({name; typ} : CMethodSignature.param_type) -> (name, typ)) all_params
+      List.map
+        ~f:(fun ({name; typ; annot} : CMethodSignature.param_type) -> (name, typ, annot))
+        all_params
     in
-    (* Captured variables for blocks are treated as parameters, but not for cpp lambdas *)
-    let captured_as_formals =
-      if is_cpp_lambda_call_operator then []
-      else List.map ~f:(fun {CapturedVar.name; typ} -> (name, typ)) captured_mangled
-    in
-    let formals = captured_as_formals @ formals in
-    let const_formals =
-      get_const_params_indices ~shift:(List.length captured_as_formals) all_params
-    in
+    let const_formals = get_const_params_indices all_params in
     let source_range = ms.CMethodSignature.loc in
     L.(debug Capture Verbose)
       "@\nCreating a new procdesc for function: '%a'@\n@." Procname.pp proc_name ;
@@ -250,7 +236,7 @@ let create_local_procdesc ?(set_objc_accessor_attr = false) ?(record_lambda_capt
       CLocation.location_of_source_range ~pick_location:`End
         trans_unit_ctx.CFrontend_config.source_file source_range
     in
-    let ret_type = fst ms.CMethodSignature.ret_type in
+    let ret_type, ret_annots = ms.CMethodSignature.ret_type in
     let objc_property_accessor =
       if set_objc_accessor_attr then get_objc_property_accessor tenv ms else None
     in
@@ -275,8 +261,8 @@ let create_local_procdesc ?(set_objc_accessor_attr = false) ?(record_lambda_capt
         ; loc= loc_start
         ; clang_method_kind
         ; objc_accessor= objc_property_accessor
-        ; method_annotation
-        ; ret_type }
+        ; ret_type
+        ; ret_annots }
       in
       Cfg.create_proc_desc cfg proc_attributes
     in
@@ -311,7 +297,8 @@ let create_external_procdesc trans_unit_ctx cfg proc_name clang_method_kind type
     let ret_type, formals =
       match type_opt with
       | Some (ret_type, arg_types) ->
-          (ret_type, List.map ~f:(fun typ -> (Mangled.from_string "x", typ)) arg_types)
+          ( ret_type
+          , List.map ~f:(fun typ -> (Mangled.from_string "x", typ, Annot.Item.empty)) arg_types )
       | None ->
           (StdTyp.void, [])
     in

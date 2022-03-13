@@ -949,11 +949,8 @@ let execute_load ?(report_deref_errors = true) ({InterproceduralAnalysis.tenv; _
 
 
 let load_ret_annots pname =
-  match Attributes.load pname with
-  | Some attrs ->
-      attrs.ProcAttributes.method_annotation.return
-  | None ->
-      Annot.Item.empty
+  Attributes.load pname
+  |> Option.value_map ~default:Annot.Item.empty ~f:(fun {ProcAttributes.ret_annots} -> ret_annots)
 
 
 let execute_store ?(report_deref_errors = true) ({InterproceduralAnalysis.tenv; _} as analysis_data)
@@ -1114,8 +1111,8 @@ let rec sym_exec
               Sil.Call (ret, proc_exp', par' @ par, loc, call_flags)
           | Exp.Const (Const.Cfun callee_pname) when ObjCDispatchModels.is_model callee_pname -> (
             match ObjCDispatchModels.get_dispatch_closure_opt par with
-            | Some (cname, args) ->
-                Sil.Call (ret, Exp.Const (Const.Cfun cname), args, loc, call_flags)
+            | Some (_cname, closure_exp, args) ->
+                Sil.Call (ret, closure_exp, args, loc, call_flags)
             | None ->
                 Sil.Call (ret, exp', par, loc, call_flags) )
           | _ ->
@@ -1187,7 +1184,7 @@ let rec sym_exec
                 proc_call resolved_summary (call_args prop_ callee_pname norm_args ret_id_typ loc)
             | Some reason ->
                 let proc_attrs = Procdesc.get_attributes callee_proc_desc in
-                let ret_annots = proc_attrs.ProcAttributes.method_annotation.return in
+                let ret_annots = proc_attrs.ProcAttributes.ret_annots in
                 exec_skip_call ~reason resolved_pname ret_annots proc_attrs.ProcAttributes.ret_type
             ) )
       | Java callee_pname_java ->
@@ -1213,7 +1210,7 @@ let rec sym_exec
                   proc_call callee_summary handled_args
               | Some reason ->
                   let proc_attrs = Procdesc.get_attributes callee_proc_desc in
-                  let ret_annots = proc_attrs.ProcAttributes.method_annotation.return in
+                  let ret_annots = proc_attrs.ProcAttributes.ret_annots in
                   exec_skip_call ~reason ret_annots proc_attrs.ProcAttributes.ret_type )
           in
           List.fold ~f:(fun acc pname -> exec_one_pname pname @ acc) ~init:[] resolved_pnames
@@ -1240,7 +1237,7 @@ let rec sym_exec
                   proc_call callee_summary handled_args
               | Some reason ->
                   let proc_attrs = Procdesc.get_attributes callee_proc_desc in
-                  let ret_annots = proc_attrs.ProcAttributes.method_annotation.return in
+                  let ret_annots = proc_attrs.ProcAttributes.ret_annots in
                   exec_skip_call ~reason ret_annots proc_attrs.ProcAttributes.ret_type )
           in
           List.fold ~f:(fun acc pname -> exec_one_pname pname @ acc) ~init:[] resolved_pnames
@@ -1276,7 +1273,7 @@ let rec sym_exec
                 let ret_annots =
                   match resolved_summary_opt with
                   | Some (proc_desc, _) ->
-                      (Procdesc.get_attributes proc_desc).ProcAttributes.method_annotation.return
+                      (Procdesc.get_attributes proc_desc).ProcAttributes.ret_annots
                   | None ->
                       load_ret_annots resolved_pname
                 in
@@ -1299,13 +1296,9 @@ let rec sym_exec
                   (call_args prop resolved_pname n_actual_params ret_id_typ loc)
           in
           List.concat_map ~f:do_call sentinel_result ) )
-  | Sil.Call (ret_id_typ, fun_exp, actual_params, loc, call_flags) ->
+  | Sil.Call (ret_id_typ, fun_exp, actual_params, loc, _) ->
       (* Call via function pointer *)
       let prop_r, n_actual_params = normalize_params analysis_data prop_ actual_params in
-      if
-        call_flags.CallFlags.cf_is_objc_block
-        && not (Rearrange.is_only_pt_by_fld_or_param_nonnull current_pdesc tenv prop_r fun_exp)
-      then Rearrange.check_call_to_objc_block_error tenv current_pdesc prop_r fun_exp loc ;
       Rearrange.check_dereference_error tenv current_pdesc prop_r fun_exp loc ;
       L.d_str "Unknown function pointer " ;
       Exp.d_exp fun_exp ;
@@ -1631,7 +1624,7 @@ and proc_call (callee_pdesc, callee_summary)
   let callee_pname = Procdesc.get_proc_name callee_pdesc in
   let callee_attributes = Procdesc.get_attributes callee_pdesc in
   check_inherently_dangerous_function analysis_data callee_pname ;
-  let formal_types = List.map ~f:snd callee_attributes.ProcAttributes.formals in
+  let formal_types = List.map ~f:snd3 callee_attributes.ProcAttributes.formals in
   let rec comb actual_pars formal_types =
     match (actual_pars, formal_types) with
     | [], [] ->

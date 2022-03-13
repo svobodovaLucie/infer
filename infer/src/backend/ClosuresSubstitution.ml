@@ -93,23 +93,42 @@ let replace_closure_call node (astate : Domain.t) (instr : Sil.instr) : Sil.inst
               instr
           | Some c ->
               L.d_printfln "found closure %a for variable %a\n" Exp.pp (Exp.Closure c) Ident.pp id ;
-              let captured_values =
-                List.map ~f:(fun (id_exp, _, typ, _) -> (id_exp, typ)) c.captured_vars
-              in
-              let actual_params = captured_values @ actual_params in
               let new_instr =
-                Sil.Call (ret_id_typ, Const (Cfun c.name), actual_params, loc, call_flags)
+                Sil.Call (ret_id_typ, Exp.Closure c, actual_params, loc, call_flags)
               in
               L.d_printfln "replaced by call %a " (Sil.pp_instr Pp.text ~print_types:true) new_instr ;
               new_instr )
+      | Call (ret_id_typ, Const (Cfun pname), actual_params, loc, call_flags) ->
+          L.d_printfln "call  %a " (Sil.pp_instr Pp.text ~print_types:true) instr ;
+          let captured_by_args =
+            List.concat_map actual_params ~f:(function
+              | Exp.Closure c, _ ->
+                  L.d_printfln "found closure %a in arguments\n" Exp.pp (Exp.Closure c) ;
+                  c.captured_vars
+              | _ ->
+                  [] )
+          in
+          if List.is_empty captured_by_args then (
+            L.d_printfln "(no closure found)" ;
+            instr )
+          else
+            let new_instr =
+              Sil.Call
+                ( ret_id_typ
+                , Exp.Closure {name= pname; captured_vars= captured_by_args}
+                , actual_params
+                , loc
+                , call_flags )
+            in
+            L.d_printfln "replaced by call %a " (Sil.pp_instr Pp.text ~print_types:true) new_instr ;
+            new_instr
       | _ ->
           instr )
 
 
 (** [replace_closure_param] propagates closures to function parameters, so that more functions are
-    specialized by [CCallSpecializedWithClosures.process]. Note that unlike [replace_closure_call]
-    running at the analysis phase, [replace_closure_param] should run before
-    [CCallSpecializedWithClosures.process] at the capture phase. *)
+    specialized by [CCallSpecializedWithClosures.process]. Note that [replace_closure_param] should
+    run before [CCallSpecializedWithClosures.process] in the capture phase. *)
 let replace_closure_param node (astate : Domain.t) (instr : Sil.instr) : Sil.instr =
   let kind = `ExecNode in
   let pp_name fmt = Format.pp_print_string fmt "Closure Param Substitution" in
@@ -149,9 +168,6 @@ let process_common replace_instr pdesc =
   ()
 
 
-let process_closure_call summary =
-  let pdesc = Summary.get_proc_desc summary in
-  process_common replace_closure_call pdesc
-
+let process_closure_call pdesc = process_common replace_closure_call pdesc
 
 let process_closure_param pdesc = process_common replace_closure_param pdesc

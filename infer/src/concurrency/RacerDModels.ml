@@ -358,7 +358,7 @@ let threadsafe_annotations =
 (* returns true if the annotation is @ThreadSafe, @ThreadSafe(enableChecks = true), or is defined
    as an alias of @ThreadSafe in a .inferconfig file. *)
 let is_thread_safe item_annot =
-  let f ((annot : Annot.t), _) =
+  let f (annot : Annot.t) =
     List.exists ~f:(Annotations.annot_ends_with annot) threadsafe_annotations
     &&
     match annot.Annot.parameters with
@@ -372,7 +372,7 @@ let is_thread_safe item_annot =
 
 (* returns true if the annotation is @ThreadSafe(enableChecks = false) *)
 let is_assumed_thread_safe item_annot =
-  let f (annot, _) =
+  let f annot =
     Annotations.annot_ends_with annot Annotations.thread_safe
     &&
     match annot.Annot.parameters with
@@ -651,3 +651,19 @@ end
 
 let get_litho_explanation tenv pname =
   Litho.get_class_annot pname tenv |> Option.map ~f:Litho.message
+
+
+let class_is_ignored_by_racerd class_name =
+  Typ.Name.name class_name |> String.Set.mem Config.racerd_ignore_classes
+
+
+let proc_is_ignored_by_racerd callee =
+  Procname.get_class_type_name callee |> Option.exists ~f:class_is_ignored_by_racerd
+
+
+let is_kotlin_coroutine_generated classname =
+  Tenv.load_global ()
+  |> Option.bind ~f:(fun tenv -> Tenv.lookup tenv classname)
+  |> Option.exists ~f:(fun (tstruct : Struct.t) ->
+         List.mem tstruct.supers ~equal:Typ.Name.equal
+           StdTyp.Name.Java.kotlin_coroutines_jvm_internal_restrictedsuspendlambda )

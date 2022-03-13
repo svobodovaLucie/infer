@@ -92,25 +92,19 @@ let __erlang_error_if_clause = create_procname "__erlang_error_if_clause"
 
 let __erlang_error_try_clause = create_procname "__erlang_error_try_clause"
 
-let __erlang_lists_append2 = create_procname "__erlang_list_append2"
-
-let __erlang_lists_reverse = create_procname "__erlang_list_reverse"
-
 let __erlang_make_cons = create_procname "__erlang_make_cons"
 
 let __erlang_make_map = create_procname "__erlang_make_map"
 
-let __erlang_maps_is_key = create_procname "__erlang_map_is_key"
-
-let __erlang_maps_get = create_procname "__erlang_map_get"
-
-let __erlang_maps_put = create_procname "__erlang_map_put"
-
 let __erlang_make_nil = create_procname "__erlang_make_nil"
+
+let __erlang_make_atom = create_procname "__erlang_make_atom"
 
 let __erlang_make_tuple = create_procname "__erlang_make_tuple"
 
-let __erlang_missing_translation = create_procname "__erlang_missing_translation"
+let __erlang_make_str_const = create_procname "__erlang_make_str_const"
+
+let __erlang_str_equal = create_procname "__erlang_str_equal"
 
 let __exit = create_procname "_exit"
 
@@ -140,13 +134,13 @@ let __infer_skip_gcc_asm_stmt = Procname.from_string_c_fun "__infer_skip_gcc_asm
 
 let __instanceof = create_procname "__instanceof"
 
+let __java_throw = create_procname "__java_throw"
+
 let __method_set_ignore_attribute = create_procname "__method_set_ignore_attribute"
 
 let __new = create_procname "__new"
 
 let __new_array = create_procname "__new_array"
-
-let __objc_alloc = create_procname "__objc_alloc"
 
 let __objc_alloc_no_fail = create_procname "__objc_alloc_no_fail"
 
@@ -155,6 +149,10 @@ let __objc_cast = create_procname "__objc_cast"
 let __objc_dictionary_literal =
   create_objc_class_method "NSDictionary" "dictionaryWithObjects:forKeys:count:" [None; None; None]
 
+
+let __objc_get_ref_count = create_procname "__objc_get_ref_count"
+
+let __objc_set_ref_count = create_procname "__objc_set_ref_count"
 
 let __placement_delete = create_procname "__placement_delete"
 
@@ -189,6 +187,8 @@ let __throw = create_procname "__throw"
 let __unwrap_exception = create_procname "__unwrap_exception"
 
 let abort = create_procname "abort"
+
+let dispatch_sync = create_procname "dispatch_sync"
 
 let exit = create_procname "exit"
 

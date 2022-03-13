@@ -91,6 +91,8 @@ module Node = struct
     | InitializeDynamicArrayLength
     | InitListExp
     | LoopBody
+    | LoopIterIncr
+    | LoopIterInit
     | MessageCall of string
     | MethodBody
     | MonitorEnter
@@ -357,6 +359,10 @@ module Node = struct
         F.pp_print_string fmt "InitListExp"
     | LoopBody ->
         F.pp_print_string fmt "LoopBody"
+    | LoopIterIncr ->
+        F.pp_print_string fmt "LoopIterIncr"
+    | LoopIterInit ->
+        F.pp_print_string fmt "LoopIterInit"
     | MessageCall selector ->
         F.fprintf fmt "Message Call: %s" selector
     | MethodBody ->
@@ -528,7 +534,7 @@ let get_proc_name pdesc = pdesc.attributes.proc_name
 (** Return name and type of formal parameters *)
 let get_formals pdesc = pdesc.attributes.formals
 
-let get_pvar_formals pdesc = Pvar.get_pvar_formals pdesc.attributes
+let get_pvar_formals pdesc = ProcAttributes.get_pvar_formals pdesc.attributes
 
 let get_loc pdesc = pdesc.attributes.loc
 
@@ -563,7 +569,7 @@ let get_ret_type_from_signature pdesc =
   if pdesc.attributes.has_added_return_param then
     List.last pdesc.attributes.formals
     |> Option.value_map
-         ~f:(fun (_, typ) ->
+         ~f:(fun (_, typ, _) ->
            match typ.Typ.desc with Tptr (t, _) -> t | _ -> pdesc.attributes.ret_type )
          ~default:pdesc.attributes.ret_type
   else pdesc.attributes.ret_type
@@ -702,13 +708,42 @@ let create_node pdesc loc kind instrs =
   create_node_from_not_reversed pdesc loc kind (Instrs.of_list instrs)
 
 
-let shallow_copy_code_from_pdesc ~orig_pdesc ~dest_pdesc =
-  dest_pdesc.nodes <- orig_pdesc.nodes ;
-  dest_pdesc.nodes_num <- orig_pdesc.nodes_num ;
-  dest_pdesc.start_node <- orig_pdesc.start_node ;
-  dest_pdesc.exit_node <- orig_pdesc.exit_node ;
-  dest_pdesc.loop_heads <- orig_pdesc.loop_heads ;
-  dest_pdesc.wto <- orig_pdesc.wto
+let deep_copy_code_from_pdesc ~orig_pdesc ~dest_pdesc =
+  let pname = dest_pdesc.start_node.pname in
+  let memoized = Hashtbl.create (List.length orig_pdesc.nodes) in
+  let rec copy_node node =
+    let node' =
+      match Hashtbl.find_opt memoized node with
+      | Some node' ->
+          node'
+      | None ->
+          let node' =
+            {node with Node.pname; preds= []; succs= []; instrs= Instrs.copy node.Node.instrs}
+          in
+          Hashtbl.add memoized node node' ;
+          node'.Node.succs <- List.map node.Node.succs ~f:copy_node ;
+          node'.Node.preds <- List.map node.Node.preds ~f:copy_node ;
+          node'
+    in
+    node'
+  in
+  dest_pdesc.nodes <- List.map orig_pdesc.nodes ~f:copy_node ;
+  let find_or_die node =
+    match Hashtbl.find_opt memoized node with
+    | None ->
+        L.die InternalError
+          "Trying to deep copy pdesc from %a to %a. Node %a is not part of origin pdesc's nodes. \
+           Origin pdesc might be empty or misconstructed"
+          Procname.pp node.Node.pname Procname.pp pname Node.pp node
+    | Some node' ->
+        node'
+  in
+  dest_pdesc.exit_node <- find_or_die orig_pdesc.exit_node ;
+  dest_pdesc.start_node <- find_or_die orig_pdesc.start_node ;
+  dest_pdesc.loop_heads <-
+    Option.map orig_pdesc.loop_heads ~f:(fun loop_heads ->
+        NodeSet.map (fun loop_head -> find_or_die loop_head) loop_heads ) ;
+  dest_pdesc.nodes_num <- orig_pdesc.nodes_num
 
 
 (** Set the successor and exception nodes. If this is a join node right before the exit node, add an
@@ -807,16 +842,16 @@ let pp_variable_list fmt etl =
   if List.is_empty etl then Format.pp_print_string fmt "None"
   else
     List.iter
-      ~f:(fun (id, ty) -> Format.fprintf fmt " %a:%a" Mangled.pp id (Typ.pp_full Pp.text) ty)
+      ~f:(fun (id, ty, _) -> Format.fprintf fmt " %a:%a" Mangled.pp id (Typ.pp_full Pp.text) ty)
       etl
 
 
 let pp_captured_list fmt etl =
   List.iter
-    ~f:(fun {CapturedVar.name; typ; capture_mode} ->
+    ~f:(fun {CapturedVar.pvar; typ; capture_mode} ->
       Format.fprintf fmt " [%s] %a:%a"
         (CapturedVar.string_of_capture_mode capture_mode)
-        Mangled.pp name (Typ.pp_full Pp.text) typ )
+        (Pvar.pp Pp.text) pvar (Typ.pp_full Pp.text) typ )
     etl
 
 
@@ -840,10 +875,9 @@ let pp_signature fmt pdesc =
     (get_locals pdesc) ;
   if not (List.is_empty (get_captured pdesc)) then
     Format.fprintf fmt ", Captured: %a" pp_captured_list (get_captured pdesc) ;
-  let method_annotation = attributes.ProcAttributes.method_annotation in
-  ( if not (Annot.Method.is_empty method_annotation) then
-    let pname_string = Procname.to_string pname in
-    Format.fprintf fmt ", Annotation: %a" (Annot.Method.pp pname_string) method_annotation ) ;
+  let ret_annots = attributes.ProcAttributes.ret_annots in
+  if not (Annot.Item.is_empty ret_annots) then
+    Format.fprintf fmt ", Return annotations: %a" Annot.Item.pp ret_annots ;
   Format.fprintf fmt "]@]@;"
 
 
@@ -859,7 +893,7 @@ let is_captured_pvar procdesc pvar =
   let pvar_local_matches (var_data : ProcAttributes.var_data) =
     Mangled.equal var_data.name pvar_name
   in
-  let pvar_matches (name, _) = Mangled.equal name pvar_name in
+  let pvar_matches (name, _, _) = Mangled.equal name pvar_name in
   let is_captured_var_cpp_lambda =
     (* var is captured if the procedure is a lambda and the var is not in the locals or formals *)
     Procname.is_cpp_lambda procname
@@ -867,7 +901,9 @@ let is_captured_pvar procdesc pvar =
          ( List.exists ~f:pvar_local_matches (get_locals procdesc)
          || List.exists ~f:pvar_matches (get_formals procdesc) )
   in
-  let pvar_matches_in_captured {CapturedVar.name} = Mangled.equal name pvar_name in
+  let pvar_matches_in_captured {CapturedVar.pvar= captured} =
+    Mangled.equal (Pvar.get_name captured) pvar_name
+  in
   let is_captured_var_objc_block =
     (* var is captured if the procedure is a objc block and the var is in the captured *)
     Procname.is_objc_block procname
@@ -893,6 +929,15 @@ let size pdesc =
     size + 1 + List.length (Node.get_succs node) + Instrs.count (Node.get_instrs node)
   in
   fold_nodes pdesc ~init:0 ~f
+
+
+let is_too_big checker ~max_cfg_size pdesc =
+  let proc_size = size pdesc in
+  if proc_size > max_cfg_size then (
+    L.internal_error "Skipped large procedure (%a, size:%d) in %s.@\n" Procname.pp
+      (get_proc_name pdesc) proc_size (Checker.get_id checker) ;
+    true )
+  else false
 
 
 module SQLite = SqliteUtils.MarshalledNullableDataNOTForComparison (struct

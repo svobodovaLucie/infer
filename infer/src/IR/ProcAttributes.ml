@@ -39,7 +39,7 @@ let pp_objc_accessor_type fmt objc_accessor_type =
   F.fprintf fmt "%s<%a:%a@,[%a]>"
     (kind_of_objc_accessor_type objc_accessor_type)
     Fieldname.pp fieldname (Typ.pp Pp.text) typ
-    (Pp.semicolon_seq ~print_env:Pp.text_break (Pp.pair ~fst:Annot.pp ~snd:F.pp_print_bool))
+    (Pp.semicolon_seq ~print_env:Pp.text_break Annot.pp)
     annots
 
 
@@ -54,14 +54,14 @@ let pp_var_data fmt {name; typ; modify_in_block; is_declared_unused} =
 
 type specialized_with_blocks_info =
   { orig_proc: Procname.t
-  ; formals_to_procs_and_new_formals: (Procname.t * (Mangled.t * Typ.t) list) Mangled.Map.t }
+  ; formals_to_procs_and_new_formals: (Procname.t * CapturedVar.t list) Mangled.Map.t }
 [@@deriving compare]
 
 type t =
   { access: access  (** visibility access *)
   ; captured: CapturedVar.t list  (** name and type of variables captured in blocks *)
   ; exceptions: string list  (** exceptions thrown by the procedure *)
-  ; formals: (Mangled.t * Typ.t) list  (** name and type of formal parameters *)
+  ; formals: (Mangled.t * Typ.t * Annot.Item.t) list  (** name and type of formal parameters *)
   ; const_formals: int list  (** list of indices of formals that are const-qualified *)
   ; is_abstract: bool  (** the procedure is abstract *)
   ; is_biabduction_model: bool  (** the procedure is a model for the biabduction analysis *)
@@ -86,38 +86,23 @@ type t =
   ; loc: Location.t  (** location of this procedure in the source code *)
   ; translation_unit: SourceFile.t  (** translation unit to which the procedure belongs *)
   ; mutable locals: var_data list  (** name, type and attributes of local variables *)
-  ; method_annotation: Annot.Method.t  (** annotations for all methods *)
   ; objc_accessor: objc_accessor_type option  (** type of ObjC accessor, if any *)
   ; proc_name: Procname.t  (** name of the procedure *)
   ; ret_type: Typ.t  (** return type *)
+  ; ret_annots: Annot.Item.t  (** annotations of return type *)
   ; has_added_return_param: bool  (** whether or not a return param was added *)
   ; is_ret_type_pod: bool  (** whether or not the return type is POD *)
   ; is_ret_constexpr: bool  (** whether the (C++) function or method is declared as [constexpr] *)
   }
 
-let get_annotated_formals {method_annotation= {params}; formals} =
-  let rec zip_params ial parl =
-    match (ial, parl) with
-    | ia :: ial', param :: parl' ->
-        (param, ia) :: zip_params ial' parl'
-    | [], param :: parl' ->
-        (* List of annotations exhausted before the list of params -
-           treat lack of annotation info as an empty annotation *)
-        (param, Annot.Item.empty) :: zip_params [] parl'
-    | [], [] ->
-        []
-    | _ :: _, [] ->
-        (* List of params exhausted before the list of annotations -
-           this should never happen *)
-        assert false
-  in
-  (* zip formal params with annotation *)
-  List.rev (zip_params (List.rev params) (List.rev formals))
-
-
 let get_access attributes = attributes.access
 
 let get_formals attributes = attributes.formals
+
+let get_pvar_formals attributes =
+  let pname = attributes.proc_name in
+  List.map attributes.formals ~f:(fun (name, typ, _) -> (Pvar.mk name pname, typ))
+
 
 let get_proc_name attributes = attributes.proc_name
 
@@ -148,23 +133,21 @@ let default translation_unit proc_name =
   ; translation_unit
   ; locals= []
   ; has_added_return_param= false
-  ; method_annotation= Annot.Method.empty
   ; objc_accessor= None
   ; proc_name
   ; ret_type= StdTyp.void
+  ; ret_annots= Annot.Item.empty
   ; is_ret_type_pod= true
   ; is_ret_constexpr= false }
 
 
 let pp_parameters =
-  Pp.semicolon_seq ~print_env:Pp.text_break (Pp.pair ~fst:Mangled.pp ~snd:(Typ.pp_full Pp.text))
+  Pp.semicolon_seq ~print_env:Pp.text_break (fun f (mangled, typ, _) ->
+      Pp.pair ~fst:Mangled.pp ~snd:(Typ.pp_full Pp.text) f (mangled, typ) )
 
 
 let pp_specialized_with_blocks_info fmt info =
-  let pp_new_formal fmt el =
-    F.fprintf fmt "%a:%a" Mangled.pp (fst el) (Typ.pp_full Pp.text) (snd el)
-  in
-  let pp_new_formals = Pp.semicolon_seq ~print_env:Pp.text_break pp_new_formal in
+  let pp_new_formals = Pp.semicolon_seq ~print_env:Pp.text_break CapturedVar.pp in
   F.fprintf fmt "orig_procname=%a, formals_to_procs_and_new_formals=%a" Procname.pp info.orig_proc
     (Mangled.Map.pp ~pp_value:(Pp.pair ~fst:Procname.pp ~snd:pp_new_formals))
     info.formals_to_procs_and_new_formals
@@ -197,10 +180,10 @@ let pp f
      ; translation_unit
      ; locals
      ; has_added_return_param
-     ; method_annotation
      ; objc_accessor
      ; proc_name
      ; ret_type
+     ; ret_annots
      ; is_ret_type_pod
      ; is_ret_constexpr } [@warning "+9"] ) =
   let default = default translation_unit proc_name in
@@ -264,12 +247,12 @@ let pp f
   F.fprintf f "; locals= [@[%a@]]@," (Pp.semicolon_seq ~print_env:Pp.text_break pp_var_data) locals ;
   pp_bool_default ~default:default.has_added_return_param "has_added_return_param"
     has_added_return_param f () ;
-  if not (Annot.Method.is_empty method_annotation) then
-    F.fprintf f "; method_annotation= %a@," (Annot.Method.pp "") method_annotation ;
   if not ([%compare.equal: objc_accessor_type option] default.objc_accessor objc_accessor) then
     F.fprintf f "; objc_accessor= %a@," (Pp.option pp_objc_accessor_type) objc_accessor ;
   (* always print ret type *)
   F.fprintf f "; ret_type= %a @," (Typ.pp_full Pp.text) ret_type ;
+  if not (Annot.Item.is_empty ret_annots) then
+    F.fprintf f "; ret_annots= %a@," Annot.Item.pp ret_annots ;
   pp_bool_default ~default:default.is_ret_type_pod "is_ret_type_pod" is_ret_type_pod f () ;
   pp_bool_default ~default:default.is_ret_constexpr "is_ret_constexpr" is_ret_constexpr f () ;
   F.fprintf f "; proc_id= %a }@]" Procname.pp_unique_id proc_name

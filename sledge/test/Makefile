@@ -34,7 +34,7 @@ export PATH:=$(shell $$(opam var conf-llvm:config) --bindir):$(PATH)
 
 # query llvm-config for compilation flags
 C_FLAGS:=$(shell $$(opam var conf-llvm:config) --cflags)
-CXX_FLAGS:=$(shell $$(opam var conf-llvm:config) --cxxflags)
+CXX_FLAGS:=$(shell $$(opam var conf-llvm:config) --cxxflags) -fexceptions
 
 # configure sort
 export LANG:=C
@@ -264,8 +264,10 @@ cleanout:
 
 clean: cleanbc cleanout
 
+AnalyzeHs:=$(shell find -L {,local/}analyze -name '*.h' 2>/dev/null)
+
 fmt:
-	clang-format -i $(AnalyzeCs) $(AnalyzeCPPs)
+	clang-format -i $(AnalyzeHs) $(AnalyzeCs) $(AnalyzeCPPs)
 
 # print any variable for Makefile debugging
 print-%:

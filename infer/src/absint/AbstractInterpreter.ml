@@ -84,9 +84,26 @@ end
 module type Make = functor (TransferFunctions : TransferFunctions.SIL) ->
   S with module TransferFunctions = TransferFunctions
 
+module type TransferFunctionsWithExceptions = sig
+  include TransferFunctions.SIL
+
+  val filter_normal : Domain.t -> Domain.t
+  (** Refines the abstract state to select non-exceptional concrete states. Should return bottom if
+      no such states exist *)
+
+  val filter_exceptional : Domain.t -> Domain.t
+  (** Refines the abstract state to select exceptional concrete states. Should return bottom if no
+      such states exist *)
+
+  val transform_on_exceptional_edge : Domain.t -> Domain.t
+  (** Change the nature normal/exceptional when flowing through an exceptional edge. For a forward
+      analysis, it should turn an exceptional state into normal. For a backward analysis, it should
+      turn a normal state into exceptional. *)
+end
+
 (** internal module that extends transfer functions *)
 module type NodeTransferFunctions = sig
-  include TransferFunctions.SIL
+  include TransferFunctionsWithExceptions
 
   val exec_node_instrs :
        Domain.t State.t option
@@ -102,8 +119,37 @@ end
 module SimpleNodeTransferFunctions (T : TransferFunctions.SIL) = struct
   include T
 
+  (* Warning: we provide a very simple default implementation for the three next functions. If
+     you really wish to take into account exceptions, you may need to seriously add an exceptional
+     state in your abstract domain. *)
+  let filter_normal x = x
+
+  let filter_exceptional x = x
+
+  let transform_on_exceptional_edge x = x
+
   let exec_node_instrs _old_state_opt ~exec_instr pre instrs =
     Instrs.foldi ~init:pre instrs ~f:exec_instr
+end
+
+module BackwardNodeTransferFunction (T : TransferFunctionsWithExceptions) = struct
+  include T
+
+  (*
+     In a backward block, each instruction should receive the normal states from is successor instr,
+     plus the exceptional states from the successor nodes
+         instr1; <-- ingoing exn edge from exceptional successor nodes
+         instr2; <-- ingoing exn edge from exceptional successor nodes
+         intrs3; <-- ingoing exn edge from exceptional successor nodes
+          ^
+          |-- ingoing normal edge from normal successor nodes
+
+     We assume the backward post does not have an exceptional state.
+  *)
+  let exec_node_instrs _old_state_opt ~exec_instr pre instrs =
+    let pre_exn = filter_exceptional pre in
+    let f idx astate instr = exec_instr idx (Domain.join astate pre_exn) instr in
+    Instrs.foldi ~init:pre instrs ~f
 end
 
 (** build a disjunctive domain and transfer functions *)
@@ -207,13 +253,25 @@ struct
       F.fprintf f "\n Non-disj state:@[%a@]@;" T.NonDisjDomain.pp non_disj
   end
 
-  (** the number of remaining disjuncts taking into account disjuncts already recorded in the post
-      of a node (and therefore that will stay there) *)
-  let remaining_disjuncts = ref None
+  let filter_disjuncts ~f ((l, nd) : Domain.t) =
+    let filtered = List.filter l ~f in
+    if List.is_empty filtered then ([], T.NonDisjDomain.bottom) else (filtered, nd)
+
+
+  let filter_normal x = filter_disjuncts x ~f:T.DisjDomain.is_normal
+
+  let filter_exceptional x = filter_disjuncts x ~f:T.DisjDomain.is_exceptional
+
+  let transform_on_exceptional_edge x =
+    let l, nd = filter_exceptional x in
+    (List.map ~f:T.DisjDomain.exceptional_to_normal l, nd)
+
 
   let exec_instr (pre_disjuncts, non_disj) analysis_data node _ instr =
-    (* always called from [exec_node_instrs] so [remaining_disjuncts] should always be [Some _] *)
-    let limit = Option.value_exn !remaining_disjuncts in
+    (* [remaining_disjuncts] is the number of remaining disjuncts taking into account disjuncts
+       already recorded in the post of a node (and therefore that will stay there).  It is always
+       set from [exec_node_instrs], so [remaining_disjuncts] should always be [Some _]. *)
+    let limit = Option.value_exn (AnalysisState.get_remaining_disjuncts ()) in
     let (disjuncts, non_disj_astates), _ =
       List.foldi (List.rev pre_disjuncts)
         ~init:(([], []), 0)
@@ -255,7 +313,7 @@ struct
       List.foldi (List.rev pre) ~init:current_post_n
         ~f:(fun i (((post, non_disj_astates) as post_astate), n_disjuncts) pre_disjunct ->
           let limit = disjunct_limit - n_disjuncts in
-          remaining_disjuncts := Some limit ;
+          AnalysisState.set_remaining_disjuncts limit ;
           if limit <= 0 then (
             L.d_printfln "@[Reached disjunct limit: already got %d disjuncts@]@;" limit ;
             (post_astate, n_disjuncts) )
@@ -448,18 +506,24 @@ module AbstractInterpreterCommon (TransferFunctions : NodeTransferFunctions) = s
 
   let compute_pre cfg node inv_map =
     let extract_post_ pred = extract_post (Node.id pred) inv_map in
-    CFG.fold_preds cfg node ~init:None ~f:(fun joined_post_opt pred ->
-        match extract_post_ pred with
-        | None ->
-            joined_post_opt
-        | Some post as some_post -> (
-          match joined_post_opt with
-          | None ->
-              some_post
-          | Some joined_post ->
-              let res = Domain.join post joined_post in
-              if Config.write_html then debug_absint_operation (`Join (joined_post, post, res)) ;
-              Some res ) )
+    let join_opt =
+      let f a1 a2 =
+        let res = Domain.join a1 a2 in
+        if Config.write_html then debug_absint_operation (`Join (a1, a2, res)) ;
+        res
+      in
+      Option.merge ~f
+    in
+    let filter_and_join ~f joined_post_opt pred =
+      let pred_post = Option.map ~f (extract_post_ pred) in
+      join_opt pred_post joined_post_opt
+    in
+    let fold_normal =
+      CFG.fold_normal_preds cfg node ~init:None
+        ~f:(filter_and_join ~f:TransferFunctions.filter_normal)
+    in
+    CFG.fold_exceptional_preds cfg node ~init:fold_normal
+      ~f:(filter_and_join ~f:TransferFunctions.transform_on_exceptional_edge)
 
 
   (* shadowed for HTML debug *)
@@ -484,9 +548,9 @@ end
 
 module MakeWithScheduler
     (Scheduler : Scheduler.S)
-    (TransferFunctions : TransferFunctions.SIL with module CFG = Scheduler.CFG) =
+    (NodeTransferFunctions : NodeTransferFunctions with module CFG = Scheduler.CFG) =
 struct
-  include AbstractInterpreterCommon (SimpleNodeTransferFunctions (TransferFunctions))
+  include AbstractInterpreterCommon (NodeTransferFunctions)
 
   let rec exec_worklist ~pp_instr cfg analysis_data work_queue inv_map =
     match Scheduler.pop work_queue with
@@ -531,8 +595,9 @@ struct
   let compute_post ?do_narrowing:_ = make_compute_post ~exec_cfg_internal ~do_narrowing:false
 end
 
-module MakeRPO (T : TransferFunctions.SIL) =
+module MakeRPONode (T : NodeTransferFunctions) =
   MakeWithScheduler (Scheduler.ReversePostorder (T.CFG)) (T)
+module MakeRPO (T : TransferFunctions.SIL) = MakeRPONode (SimpleNodeTransferFunctions (T))
 
 module MakeWTONode (TransferFunctions : NodeTransferFunctions) = struct
   include AbstractInterpreterCommon (TransferFunctions)
@@ -659,3 +724,11 @@ module MakeDisjunctive
     (T : TransferFunctions.DisjReady)
     (DConfig : TransferFunctions.DisjunctiveConfig) =
   MakeWTONode (MakeDisjunctiveTransferFunctions (T) (DConfig))
+
+module type MakeExceptional = functor (T : TransferFunctionsWithExceptions) ->
+  S with module TransferFunctions = T
+
+module MakeBackwardRPO (T : TransferFunctionsWithExceptions) =
+  MakeRPONode (BackwardNodeTransferFunction (T))
+module MakeBackwardWTO (T : TransferFunctionsWithExceptions) =
+  MakeWTONode (BackwardNodeTransferFunction (T))

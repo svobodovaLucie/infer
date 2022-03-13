@@ -21,6 +21,7 @@ val call :
   -> ret:Ident.t * Typ.t
   -> actuals:((AbstractValue.t * ValueHistory.t) * Typ.t) list
   -> formals_opt:(Pvar.t * Typ.t) list option
+  -> call_kind:PulseOperations.call_kind
   -> t
   -> ExecutionDomain.t AccessResult.t list
 (** perform an interprocedural call: apply the summary for the call proc name passed as argument if

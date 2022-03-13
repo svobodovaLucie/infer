@@ -51,16 +51,6 @@ OPTIONS
            reactive analysis should start. Source files should be specified
            relative to project root or be absolute
 
-       --config-checks-between-markers
-           Activates: checker config-checks-between-markers: [EXPERIMENTAL]
-           Collects config checks between marker start and end. (Conversely:
-           --no-config-checks-between-markers)
-
-       --config-checks-between-markers-only
-           Activates: Enable config-checks-between-markers and disable all
-           other checkers (Conversely:
-           --no-config-checks-between-markers-only)
-
        --config-impact-analysis
            Activates: checker config-impact-analysis: [EXPERIMENTAL] Collects
            function that are called without config checks. (Conversely:
@@ -77,9 +67,10 @@ OPTIONS
            --incremental-analysis. (Conversely: --no-continue-analysis)
 
        --cost
-           Activates: checker cost: Computes the time complexity of functions
-           and methods. Can be used to detect changes in runtime complexity
-           with `infer reportdiff`. (Conversely: --no-cost)
+           Activates: checker cost: Computes the asymptotic complexity of
+           functions with respect to execution cost or other user defined
+           resources. Can be used to detect changes in the complexity with
+           `infer reportdiff`. (Conversely: --no-cost)
 
        --cost-only
            Activates: Enable cost and disable all other checkers (Conversely:
@@ -124,8 +115,9 @@ OPTIONS
        --no-default-checkers
            Deactivates: Default checkers: --biabduction,
            --fragment-retains-view, --inefficient-keyset-iterator, --linters,
-           --liveness, --racerd, --dotnet-resource-leak, --siof,
-           --self-in-block, --starvation (Conversely: --default-checkers)
+           --liveness, --parameter-not-null-checked, --racerd,
+           --dotnet-resource-leak, --siof, --self-in-block, --starvation
+           (Conversely: --default-checkers)
 
        --eradicate
            Activates: checker eradicate: The eradicate `@Nullable` checker
@@ -245,6 +237,16 @@ OPTIONS
        --memtrace-sampling-rate float
            Sampling rate for Memtrace allocation profiling. Default is 1e-6.
 
+       --no-parameter-not-null-checked
+           Deactivates: checker parameter-not-null-checked: An
+           Objective-C-specific analysis to detect when a block parameter is
+           used before being checked for null first. (Conversely:
+           --parameter-not-null-checked)
+
+       --parameter-not-null-checked-only
+           Activates: Enable parameter-not-null-checked and disable all other
+           checkers (Conversely: --no-parameter-not-null-checked-only)
+
        --print-active-checkers
            Activates: Print the active checkers before starting the analysis
            (Conversely: --no-print-active-checkers)
@@ -278,6 +280,9 @@ OPTIONS
            Regex of methods for which pulse will only explore one path. Can
            be used on pathologically large procedures to prevent too-big
            states from being produced.
+
+       --pulse-max-cfg-size int
+           Larger CFGs than the max size are skipped in Pulse.
 
        --pulse-model-abort +string
            Methods that should be modelled as abort in Pulse
@@ -314,12 +319,19 @@ OPTIONS
            Regex of methods that should be modelled as returning non-null in
            Pulse
 
+       --pulse-model-returns-copy-pattern string
+           Regex of methods that should be modelled as creating copies in
+           Pulse
+
        --pulse-model-skip-pattern string
            Regex of methods that should be modelled as "skip" in Pulse
 
        --pulse-model-transfer-ownership +string
            Methods that should be modelled as transfering memory ownership in
            Pulse. Accepted formats are method or namespace::method
+
+       --pulse-models-for-erlang json
+           Provide custom models for Erlang code using a DSL.
 
        --pulse-only
            Activates: Enable pulse and disable all other checkers
@@ -341,6 +353,9 @@ OPTIONS
            empty list is provided with
            --pulse-report-ignore-unknown-java-methods-patterns-reset, all
            issues will be reported regardless the presence of unknown code
+
+       --pulse-skip-procedures regex
+           Regex of procedures that should not be analyzed by Pulse.
 
        --purity
            Activates: checker purity: Detects pure (side-effect-free)
@@ -444,6 +459,10 @@ OPTIONS
            Activates: Enable starvation and disable all other checkers
            (Conversely: --no-starvation-only)
 
+       --top-longest-proc-duration-size int
+           Number of procedures for which we track longest analysis duration
+           info.
+
        --topl
            Activates: checker topl: Detect errors based on user-provided
            state machines describing temporal properties over multiple
@@ -486,6 +505,10 @@ BUFFER OVERRUN OPTIONS
        --bo-field-depth-limit int
            Limit of field depth of abstract location in buffer-overrun
            checker
+
+       --bo-max-cfg-size int
+           Larger CFGs than the max size are skipped in buffer overrun
+           analysis.
 CLANG OPTIONS
        --annotation-reachability-cxx json
            Specify annotation reachability analyses to be performed on
@@ -571,9 +594,8 @@ RACERD CHECKER OPTIONS
            Activates: Check @GuardedBy annotations with RacerD (Conversely:
            --no-racerd-guardedby)
 
-       --no-racerd-unknown-returns-owned
-           Deactivates: DEPRECATED, does nothing. (Conversely:
-           --racerd-unknown-returns-owned)
+       --racerd-ignore-classes +string
+           Any method in a class specified here will be ignored by RacerD.
 
        --threadsafe-aliases json
            Specify custom annotations that should be considered aliases of

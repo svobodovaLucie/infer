@@ -22,14 +22,24 @@ void iteratec_over_vec_linear(std::vector<std::string>& vec) {
   }
 }
 
+void iterate_rev_over_vec_linear(std::vector<std::string>& vec) {
+  for (auto it = vec.rbegin(); it != vec.rend(); ++it) {
+  }
+}
+
+void iteratec_rev_over_vec_linear(std::vector<std::string>& vec) {
+  for (auto it = vec.crbegin(); it != vec.crend(); ++it) {
+  }
+}
+
 void loop_over_vec_linear(std::vector<std::string>& vec) {
   for (auto i : vec) {
   }
 }
 
-void copy_iterative_method_linear_FN(std::vector<std::string>& vec1) {
+void copy_iterative_method_linear(std::vector<std::string>& vec1) {
   std::vector<std::string> vec2;
-  for (int i = 0; i < vec2.size(); i++)
+  for (int i = 0; i < vec1.size(); i++)
     vec2.push_back(vec1[i]);
 }
 
@@ -71,6 +81,10 @@ void copy_n_constant(std::vector<std::string>& vec1, int n) {
 void iterate_vector_linear(std::vector<std::string>& vec) {
   for (int i = 0; i < vec.size(); i++) {
   }
+}
+
+std::vector<int>::iterator find_in_vector(std::vector<int>& vec) {
+  return std::find(vec.begin(), vec.end(), 30);
 }
 
 void iterate_two_vectors_linear(std::vector<std::string>& vec1,
@@ -141,6 +155,8 @@ void insert_new_vector_loop_constant(std::vector<int>& vec) {
   }
 }
 
+// Expected: O(vec1 x vec1);
+// got O(vec1 x vec2) incorrectly
 std::vector<int> remove_duplicates_quadratic(std::vector<int>& vec1) {
   std::vector<int> vec2;
 

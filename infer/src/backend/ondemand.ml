@@ -25,8 +25,8 @@ module LocalCache = struct
 
   let get proc_name =
     let summ_opt_opt = Procname.LRUHash.find_opt (Lazy.force results) proc_name in
-    if Option.is_some summ_opt_opt then BackendStats.incr_ondemand_local_cache_hits ()
-    else BackendStats.incr_ondemand_local_cache_misses () ;
+    if Option.is_some summ_opt_opt then Stats.incr_ondemand_local_cache_hits ()
+    else Stats.incr_ondemand_local_cache_misses () ;
     summ_opt_opt
 
 
@@ -153,7 +153,7 @@ let update_taskbar callee_pdesc =
 
 let analyze exe_env callee_summary =
   let summary = Callbacks.iterate_procedure_callbacks exe_env callee_summary in
-  BackendStats.incr_ondemand_procs_analyzed () ;
+  Stats.incr_ondemand_procs_analyzed () ;
   summary
 
 
@@ -162,9 +162,11 @@ let run_proc_analysis exe_env ~caller_pdesc callee_pdesc =
   let log_elapsed_time =
     let start_time = Mtime_clock.counter () in
     fun () ->
+      let elapsed = Mtime_clock.count start_time in
+      let duration = Mtime.Span.to_ms elapsed |> Float.to_int in
+      Stats.add_proc_duration (Procname.to_string callee_pname) duration ;
       L.(debug Analysis Medium)
-        "Elapsed analysis time: %a: %a@\n" Procname.pp callee_pname Mtime.Span.pp
-        (Mtime_clock.count start_time)
+        "Elapsed analysis time: %a: %a@\n" Procname.pp callee_pname Mtime.Span.pp elapsed
   in
   if Config.trace_ondemand then
     L.progress "[%d] run_proc_analysis %a -> %a@." !nesting (Pp.option Procname.pp)

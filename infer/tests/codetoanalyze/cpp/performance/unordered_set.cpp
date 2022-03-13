@@ -38,7 +38,7 @@ void iteratec_over_uset_linear(std::unordered_set<std::string> uset) {
   }
 }
 
-void for_loop_over_uset_linear_FP(std::unordered_set<std::string> uset) {
+void for_loop_over_uset_linear(std::unordered_set<std::string> uset) {
   for (int i = 0; i < uset.size(); i++) {
   }
 }
@@ -63,34 +63,10 @@ void loop_over_buckets_count_FP(std::unordered_set<std::string> uset) {
   }
 }
 
-// count is linear
-// https://www.cplusplus.com/reference/unordered_set/unordered_set/count/
-// Expected: O(uset); got constant
-bool find_str_in_uset_linear_FN(std::unordered_set<std::string> uset,
-                                std::string str) {
-  return uset.count(str) > 0;
-}
-
-// emplace is linear
-// https://www.cplusplus.com/reference/unordered_set/unordered_set/emplace/
-// Expected: O(uset); got constant
-void emplace_str_in_uset_linear_FN(std::unordered_set<std::string> uset,
-                                   std::string str) {
-  uset.emplace(str);
-}
-
 // erase is linear
 // https://www.cplusplus.com/reference/unordered_set/unordered_set/erase/
 // Expected: O(uset); got constant
 void erase_from_uset_linear_FN(std::unordered_set<std::string> uset,
                                std::string str) {
   uset.erase(str);
-}
-
-// find is linear
-// https://www.cplusplus.com/reference/unordered_set/unordered_set/find/
-// Expected: O(uset); got constant
-void find_in_uset_linear_FN(std::unordered_set<std::string> uset,
-                            std::string str) {
-  uset.find(str);
 }

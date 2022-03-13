@@ -11,7 +11,11 @@ val is_in_strict_mode_paths : SourceFile.t -> bool
 
 val strict_mode : bool
 
-module Fields : AbstractDomain.FiniteSetS
+module LatentConfig : sig
+  type t
+end
+
+module LatentConfigs : AbstractDomain.FiniteSetS with type elt = LatentConfig.t
 
 module UncheckedCallee : sig
   type t
@@ -33,16 +37,39 @@ module UncheckedCallees : sig
   val pp_without_location : Format.formatter -> t -> unit
 end
 
+module ClassGateConditions : sig
+  include AbstractDomain.S
+
+  val is_gated : LatentConfigs.t -> t -> bool
+end
+
+module GatedClasses :
+  AbstractDomain.MapS with type key = Typ.Name.t and type value = ClassGateConditions.t
+
+module LatentConfigAlias : sig
+  include AbstractDomain.WithBottom
+
+  val empty : t
+
+  val union : t -> t -> t
+
+  val get_all : LatentConfig.t -> t -> LatentConfig.t list
+end
+
 module Summary : sig
   type t
 
   val pp : Format.formatter -> t -> unit
 
-  val get_config_fields : t -> Fields.t
+  val get_configs : t -> LatentConfigs.t
+
+  val get_gated_classes : t -> GatedClasses.t
 
   val get_unchecked_callees : t -> UncheckedCallees.t
 
-  val instantiate_unchecked_callees_cond : all_config_fields:Fields.t -> t -> t
+  val get_latent_config_alias : t -> LatentConfigAlias.t
+
+  val instantiate_unchecked_callees_cond : all_configs:LatentConfigs.t -> t -> t
 end
 
 val checker :

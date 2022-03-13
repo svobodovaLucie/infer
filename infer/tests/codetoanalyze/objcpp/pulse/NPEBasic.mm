@@ -10,6 +10,8 @@
 
 @interface AnotherObject : NSObject
 - (int)someMethod:(int)param1;
+
+- (NSObject*)unknown_function;
 @end
 
 @implementation AnotherObject
@@ -215,4 +217,35 @@ int testAnotherObjectUseSelfOk() {
 void testCallNullptrBad() {
   void (*f)() = nullptr;
   f();
+}
+
+typedef void (^MutatorBlock)();
+
+@interface Mutator : NSObject
+
+- (NSObject*)setCallback:(MutatorBlock)block;
+
+@end
+
+@implementation Mutator {
+  NSObject* _internalField;
+}
+
+- (NSObject*)setCallback:(MutatorBlock)block {
+  return _internalField;
+}
+
+@end
+
+void nilMessagingToFunctionWithBlockParamOk() {
+  Mutator* const mutator = nil;
+  NSObject* const initial = [mutator setCallback:^(){
+  }];
+}
+
+void unrelated_invalidation(SomeObject* obj) {
+  AnotherObject* ao = obj.anotherObject;
+  int y = 0; /* unrelated invalidation */
+  NSArray<NSObject*>* const constraints = @[ [ao unknown_function] ];
+  return 0;
 }

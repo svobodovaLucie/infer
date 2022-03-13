@@ -7,7 +7,7 @@ digraph cfg {
 "npe_property_nullable.ba4461b16b55481ab8de5124734d2bf3_2" [label="2: Exit npe_property_nullable \n  " color=yellow style=filled]
 	
 
-"npe_property_nullable.ba4461b16b55481ab8de5124734d2bf3_3" [label="3:  Return Stmt \n   n$2=_fun_NSString.stringWithUTF8String:(\"key\":char* const ) [line 56, column 12]\n  n$3=*&child:Person* [line 56, column 21]\n  _=_fun__objc_insertValue(n$3:objc_object*) [line 56, column 10]\n  _=*n$3:objc_object* [line 56, column 10]\n  *&0$?%__sil_tmpSIL_dictionaryWithObjects_forKeys_count1___n$0[0]:objc_object*=n$3 [line 56, column 10]\n  _=_fun__objc_insertKey(n$2:objc_object<NSCopying>*) [line 56, column 10]\n  _=*n$2:objc_object<NSCopying>* [line 56, column 10]\n  *&0$?%__sil_tmpSIL_dictionaryWithObjects_forKeys_count2___n$1[0]:objc_object<NSCopying>*=n$2 [line 56, column 10]\n  n$6=_fun_NSDictionary.dictionaryWithObjects:forKeys:count:(&0$?%__sil_tmpSIL_dictionaryWithObjects_forKeys_count1___n$0:objc_object* const [2*8],&0$?%__sil_tmpSIL_dictionaryWithObjects_forKeys_count2___n$1:objc_object* const [2*8],1:int) [line 56, column 10]\n " shape="box"]
+"npe_property_nullable.ba4461b16b55481ab8de5124734d2bf3_3" [label="3:  Return Stmt \n   n$2=_fun_NSString.stringWithUTF8String:(\"key\":char* const ) [line 56, column 12]\n  n$3=*&child:Person* [line 56, column 21]\n  _=_fun__objc_insertValue(n$3:objc_object*) [line 56, column 10]\n  _=*n$3:objc_object* [line 56, column 10]\n  *&0$?%__sil_tmpSIL_dictionaryWithObjects_forKeys_count1___n$0[0]:objc_object*=n$3 [line 56, column 10]\n  _=_fun__objc_insertKey(n$2:objc_object*) [line 56, column 10]\n  _=*n$2:objc_object* [line 56, column 10]\n  *&0$?%__sil_tmpSIL_dictionaryWithObjects_forKeys_count2___n$1[0]:objc_object*=n$2 [line 56, column 10]\n  n$6=_fun_NSDictionary.dictionaryWithObjects:forKeys:count:(&0$?%__sil_tmpSIL_dictionaryWithObjects_forKeys_count1___n$0:objc_object* const [2*8],&0$?%__sil_tmpSIL_dictionaryWithObjects_forKeys_count2___n$1:objc_object* const [2*8],1:int) [line 56, column 10]\n " shape="box"]
 	
 
 	 "npe_property_nullable.ba4461b16b55481ab8de5124734d2bf3_3" -> "npe_property_nullable.ba4461b16b55481ab8de5124734d2bf3_4" ;
@@ -26,7 +26,7 @@ digraph cfg {
 "dealloc#User#instance.845406211d2df26e556b3165fd367f01_1" [label="1: Start User.dealloc\nFormals:  self:User*\nLocals:  \n  " color=yellow style=filled]
 	
 
-	 "dealloc#User#instance.845406211d2df26e556b3165fd367f01_1" -> "dealloc#User#instance.845406211d2df26e556b3165fd367f01_3" ;
+	 "dealloc#User#instance.845406211d2df26e556b3165fd367f01_1" -> "dealloc#User#instance.845406211d2df26e556b3165fd367f01_4" ;
 "dealloc#User#instance.845406211d2df26e556b3165fd367f01_2" [label="2: Exit User.dealloc \n  " color=yellow style=filled]
 	
 
@@ -34,7 +34,20 @@ digraph cfg {
 	
 
 	 "dealloc#User#instance.845406211d2df26e556b3165fd367f01_3" -> "dealloc#User#instance.845406211d2df26e556b3165fd367f01_2" ;
-"initWithName:#User(class NSString)#instance.1755f5e97d3aa5318dd071b864db9bb7_1" [label="1: Start User.initWithName:\nFormals:  self:User* name:NSString*\nLocals: \nAnnotation: <_Nullable> User.initWithName:(<> <_Nullable>) \n  " color=yellow style=filled]
+"dealloc#User#instance.845406211d2df26e556b3165fd367f01_4" [label="4:  Call dealloc \n   n$3=*&self:User* [line 27, column 1]\n  n$4=_fun___objc_get_ref_count(n$3:User*) [line 27, column 1]\n  n$5=_fun___objc_set_ref_count(n$3:User*,(n$4 - 1):unsigned int) [line 27, column 1]\n  n$6=_fun___objc_get_ref_count(n$3:User*) [line 27, column 1]\n " shape="box"]
+	
+
+	 "dealloc#User#instance.845406211d2df26e556b3165fd367f01_4" -> "dealloc#User#instance.845406211d2df26e556b3165fd367f01_5" ;
+	 "dealloc#User#instance.845406211d2df26e556b3165fd367f01_4" -> "dealloc#User#instance.845406211d2df26e556b3165fd367f01_6" ;
+"dealloc#User#instance.845406211d2df26e556b3165fd367f01_5" [label="5: Prune (true branch, if (terminated)) \n   PRUNE((n$6 == 0), true); [line 27, column 1]\n " shape="invhouse"]
+	
+
+	 "dealloc#User#instance.845406211d2df26e556b3165fd367f01_5" -> "dealloc#User#instance.845406211d2df26e556b3165fd367f01_3" ;
+"dealloc#User#instance.845406211d2df26e556b3165fd367f01_6" [label="6: Prune (false branch, if (terminated)) \n   PRUNE((n$6 != 0), false); [line 27, column 1]\n " shape="invhouse"]
+	
+
+	 "dealloc#User#instance.845406211d2df26e556b3165fd367f01_6" -> "dealloc#User#instance.845406211d2df26e556b3165fd367f01_2" ;
+"initWithName:#User(class NSString)#instance.1755f5e97d3aa5318dd071b864db9bb7_1" [label="1: Start User.initWithName:\nFormals:  self:User* <_Nullable> name:NSString*\nLocals: \nReturn annotations: <_Nullable> \n  " color=yellow style=filled]
 	
 
 	 "initWithName:#User(class NSString)#instance.1755f5e97d3aa5318dd071b864db9bb7_1" -> "initWithName:#User(class NSString)#instance.1755f5e97d3aa5318dd071b864db9bb7_3" ;
@@ -90,7 +103,7 @@ digraph cfg {
 	
 
 	 "setName:#User(class NSString)#instance.feaa984173830aa4a9d325a5924f264f_3" -> "setName:#User(class NSString)#instance.feaa984173830aa4a9d325a5924f264f_2" ;
-"tellMeSomething#User#instance.5ed632cdc46e048613dbc2d7030419cf_1" [label="1: Start User.tellMeSomething\nFormals:  self:User*\nLocals: \nAnnotation: <_Nullable> User.tellMeSomething(<>) \n  " color=yellow style=filled]
+"tellMeSomething#User#instance.5ed632cdc46e048613dbc2d7030419cf_1" [label="1: Start User.tellMeSomething\nFormals:  self:User*\nLocals: \nReturn annotations: <_Nullable> \n  " color=yellow style=filled]
 	
 
 	 "tellMeSomething#User#instance.5ed632cdc46e048613dbc2d7030419cf_1" -> "tellMeSomething#User#instance.5ed632cdc46e048613dbc2d7030419cf_3" ;
@@ -105,7 +118,7 @@ digraph cfg {
 	
 
 	 "tellMeSomething#User#instance.5ed632cdc46e048613dbc2d7030419cf_4" -> "tellMeSomething#User#instance.5ed632cdc46e048613dbc2d7030419cf_2" ;
-"tellMeSomething:and:and:and:#User(class NSString,class NSString,class NSString,class NSString)#insta.486c16409126581cc0a8d6141cb33574_1" [label="1: Start User.tellMeSomething:and:and:and:\nFormals:  self:User* s1:NSString* s2:NSString* s3:NSString* s4:NSString*\nLocals: \nAnnotation: <> User.tellMeSomething:and:and:and:(<> <> <> <_Nullable> <>) \n  " color=yellow style=filled]
+"tellMeSomething:and:and:and:#User(class NSString,class NSString,class NSString,class NSString)#insta.486c16409126581cc0a8d6141cb33574_1" [label="1: Start User.tellMeSomething:and:and:and:\nFormals:  self:User* s1:NSString* s2:NSString* <_Nullable> s3:NSString* s4:NSString*\nLocals:  \n  " color=yellow style=filled]
 	
 
 	 "tellMeSomething:and:and:and:#User(class NSString,class NSString,class NSString,class NSString)#insta.486c16409126581cc0a8d6141cb33574_1" -> "tellMeSomething:and:and:and:#User(class NSString,class NSString,class NSString,class NSString)#insta.486c16409126581cc0a8d6141cb33574_3" ;

@@ -120,7 +120,7 @@ let add_to_modified pname ~pvar ~access ~addr pre_heap post modified_vars =
 
 
 let get_modified_params pname post_stack pre_heap post formals =
-  List.fold_left formals ~init:ImpurityDomain.ModifiedVarMap.bottom ~f:(fun acc (name, typ) ->
+  List.fold_left formals ~init:ImpurityDomain.ModifiedVarMap.bottom ~f:(fun acc (name, typ, _) ->
       let pvar = Pvar.mk name pname in
       match BaseStack.find_opt (Var.of_pvar pvar) post_stack with
       | Some (addr, _) when Typ.is_pointer typ -> (
@@ -160,7 +160,7 @@ let extract_impurity tenv pname formals (exec_state : ExecutionDomain.t) : Impur
     match exec_state with
     | ExitProgram astate ->
         ((astate :> AbductiveDomain.t), true)
-    | ContinueProgram astate ->
+    | ContinueProgram astate | ExceptionRaised astate ->
         (astate, false)
     | AbortProgram astate
     | LatentAbortProgram {astate}
@@ -242,9 +242,9 @@ let checker {IntraproceduralAnalysis.proc_desc; tenv; err_log}
   match pulse_summary_opt with
   | None ->
       report_impure_pulse proc_desc err_log ~desc:"no"
-  | Some ([], _) ->
+  | Some [] ->
       report_impure_pulse proc_desc err_log ~desc:"empty"
-  | Some (pre_posts, _) ->
+  | Some pre_posts ->
       let formals = Procdesc.get_formals proc_desc in
       let proc_name = Procdesc.get_proc_name proc_desc in
       let impurity_astate =

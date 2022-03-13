@@ -100,6 +100,8 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
         {astate with attribute_map; threads= ThreadsDomain.update_for_lock_use astate.threads}
     | GuardConstruct {acquire_now= false} ->
         astate
+    | NoEffect when RacerDModels.proc_is_ignored_by_racerd callee_pname ->
+        astate
     | NoEffect ->
         process_call_summary analyze_dependency tenv formals ret_access_exp callee_pname actuals loc
           astate
@@ -294,8 +296,12 @@ let analyze ({InterproceduralAnalysis.proc_desc; tenv} as interproc) =
       (* [@InjectProp] allocates a fresh object to bind to the parameter *)
       String.is_suffix ~suffix:Annotations.inject_prop class_name
     in
-    let method_annotation = (Procdesc.get_attributes proc_desc).method_annotation in
-    let is_inject_prop = Annotations.ma_has_annotation_with method_annotation is_owned_formal in
+    let ret_annots = (Procdesc.get_attributes proc_desc).ret_annots in
+    let is_inject_prop =
+      Annotations.method_has_annotation_with ret_annots
+        (List.map (Procdesc.get_formals proc_desc) ~f:trd3)
+        is_owned_formal
+    in
     fun acc formal formal_index ->
       let ownership_value =
         if is_inject_prop then OwnershipAbstractValue.owned
@@ -325,7 +331,7 @@ let analyze ({InterproceduralAnalysis.proc_desc; tenv} as interproc) =
         is_initializer && Annotations.pdesc_has_return_annot proc_desc Annotations.ia_is_inject
       in
       Procdesc.get_formals proc_desc
-      |> List.foldi ~init:OwnershipDomain.empty ~f:(fun index acc (name, typ) ->
+      |> List.foldi ~init:OwnershipDomain.empty ~f:(fun index acc (name, typ, _) ->
              let base =
                AccessPath.base_of_pvar (Pvar.mk name proc_name) typ |> AccessExpression.base
              in

@@ -27,7 +27,7 @@ type var_data =
 
 type specialized_with_blocks_info =
   { orig_proc: Procname.t
-  ; formals_to_procs_and_new_formals: (Procname.t * (Mangled.t * Typ.t) list) Mangled.Map.t }
+  ; formals_to_procs_and_new_formals: (Procname.t * CapturedVar.t list) Mangled.Map.t }
 [@@deriving compare]
 
 type t =
@@ -35,7 +35,8 @@ type t =
   ; captured: CapturedVar.t list
         (** name, type, and mode of variables captured in blocks and lambdas *)
   ; exceptions: string list  (** exceptions thrown by the procedure *)
-  ; formals: (Mangled.t * Typ.t) list  (** name and type of formal parameters *)
+  ; formals: (Mangled.t * Typ.t * Annot.Item.t) list
+        (** name, type, and annotation of formal parameters *)
   ; const_formals: int list  (** list of indices of formals that are const-qualified *)
   ; is_abstract: bool  (** the procedure is abstract *)
   ; is_biabduction_model: bool  (** the procedure is a model for the biabduction analysis *)
@@ -60,10 +61,10 @@ type t =
   ; loc: Location.t  (** location of this procedure in the source code *)
   ; translation_unit: SourceFile.t  (** source file where the procedure was captured *)
   ; mutable locals: var_data list  (** name, type and attributes of local variables *)
-  ; method_annotation: Annot.Method.t  (** annotations for all methods *)
   ; objc_accessor: objc_accessor_type option  (** type of ObjC accessor, if any *)
   ; proc_name: Procname.t  (** name of the procedure *)
   ; ret_type: Typ.t  (** return type *)
+  ; ret_annots: Annot.Item.t  (** annotations of return type *)
   ; has_added_return_param: bool  (** whether or not a return param was added *)
   ; is_ret_type_pod: bool  (** whether or not the return type is POD *)
   ; is_ret_constexpr: bool  (** whether the (C++) function or method is declared as [constexpr] *)
@@ -77,14 +78,15 @@ val pp : Format.formatter -> t -> unit
 val get_access : t -> access
 (** Return the visibility attribute *)
 
-val get_formals : t -> (Mangled.t * Typ.t) list
-(** Return name and type of formal parameters *)
-
-val get_annotated_formals : t -> ((Mangled.t * Typ.t) * Annot.Item.t) list
+val get_formals : t -> (Mangled.t * Typ.t * Annot.Item.t) list
+(** Return name, type, and annotation of formal parameters *)
 
 val get_loc : t -> Location.t
 (** Return loc information for the procedure *)
 
 val get_proc_name : t -> Procname.t
+
+val get_pvar_formals : t -> (Pvar.t * Typ.t) list
+(** Return pvar and type of formal parameters *)
 
 module SQLite : SqliteUtils.Data with type t = t

@@ -129,7 +129,9 @@ let all_checkers =
              file DeadlockIssues Payloads.Fields.deadlock Deadlock.reporting
            in
            [ (deadlock, Clang)
-           ; (deadlock_file_reporting, Clang) ] ) }
+           ; (deadlock_file_reporting, Clang)
+           ; (deadlock, Java)
+           ; (deadlock_file_reporting, Java) ] ) }
   ; {checker= Uninit; callbacks= [(interprocedural Payloads.Fields.uninit Uninit.checker, Clang)]}
   ; {checker= SIOF; callbacks= [(interprocedural Payloads.Fields.siof Siof.checker, Clang)]}
   ; { checker= LithoRequiredProps

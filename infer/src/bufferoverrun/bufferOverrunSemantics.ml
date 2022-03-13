@@ -160,7 +160,7 @@ let rec eval : Typ.IntegerWidths.t -> Exp.t -> Mem.t -> Val.t =
         match bop with
         | Binop.(PlusA _ | MinusA _ | MinusPP) ->
             Val.set_itv_updated_by_addition v
-        | Binop.(Mult _ | Div | Mod | Shiftlt | Shiftrt) ->
+        | Binop.(Mult _ | DivI | DivF | Mod | Shiftlt | Shiftrt) ->
             Val.set_itv_updated_by_multiplication v
         | Binop.(PlusPI | MinusPI | Lt | Gt | Le | Ge | Eq | Ne | LAnd | LOr | BAnd | BXor | BOr) ->
             Val.set_itv_updated_by_unknown v )
@@ -227,46 +227,46 @@ and eval_binop : Typ.IntegerWidths.t -> Binop.t -> Exp.t -> Exp.t -> Mem.t -> Va
  fun integer_type_widths binop e1 e2 mem ->
   let v1 = eval integer_type_widths e1 mem in
   let v2 = eval integer_type_widths e2 mem in
-  match binop with
-  | Binop.PlusA _ ->
+  match (binop : Binop.t) with
+  | PlusA _ ->
       Val.plus_a v1 v2
-  | Binop.PlusPI ->
+  | PlusPI ->
       Val.plus_pi v1 v2
-  | Binop.MinusA _ ->
+  | MinusA _ ->
       Val.minus_a v1 v2
-  | Binop.MinusPI ->
+  | MinusPI ->
       Val.minus_pi v1 v2
-  | Binop.MinusPP ->
+  | MinusPP ->
       Val.minus_pp v1 v2
-  | Binop.Mult _ ->
+  | Mult _ ->
       Val.mult v1 v2
-  | Binop.Div ->
+  | DivI | DivF ->
       Val.div v1 v2
-  | Binop.Mod ->
+  | Mod ->
       Val.mod_sem v1 v2
-  | Binop.Shiftlt ->
+  | Shiftlt ->
       Val.shiftlt v1 v2
-  | Binop.Shiftrt ->
+  | Shiftrt ->
       Val.shiftrt v1 v2
-  | Binop.Lt ->
+  | Lt ->
       Val.lt_sem v1 v2
-  | Binop.Gt ->
+  | Gt ->
       Val.gt_sem v1 v2
-  | Binop.Le ->
+  | Le ->
       Val.le_sem v1 v2
-  | Binop.Ge ->
+  | Ge ->
       Val.ge_sem v1 v2
-  | Binop.Eq ->
+  | Eq ->
       Val.eq_sem v1 v2
-  | Binop.Ne ->
+  | Ne ->
       Val.ne_sem v1 v2
-  | Binop.BAnd ->
+  | BAnd ->
       Val.band_sem v1 v2
-  | Binop.BXor | Binop.BOr ->
+  | BXor | BOr ->
       Val.unknown_bit v1
-  | Binop.LAnd ->
+  | LAnd ->
       Val.land_sem v1 v2
-  | Binop.LOr ->
+  | LOr ->
       Val.lor_sem v1 v2
 
 
@@ -340,17 +340,13 @@ let rec is_stack_exp : Exp.t -> Mem.t -> bool =
 
 
 module ParamBindings = struct
-  include PrettyPrintable.MakePPMap (struct
-    include Pvar
-
-    let pp = pp Pp.text
-  end)
+  include PrettyPrintable.MakePPMap (Mangled)
 
   let make formals actuals =
     let rec add_binding formals actuals acc =
       match (formals, actuals) with
       | (formal, _) :: formals', actual :: actuals' ->
-          add_binding formals' actuals' (add formal actual acc)
+          add_binding formals' actuals' (add (Pvar.get_name formal) actual acc)
       | _, _ ->
           acc
     in
@@ -390,7 +386,7 @@ let eval_sympath_modeled_partial ~mode p =
 let rec eval_sympath_partial ~mode params p mem =
   match p with
   | BoField.Prim (Symb.SymbolPath.Pvar x) -> (
-    try ParamBindings.find x params
+    try ParamBindings.find (Pvar.get_name x) params
     with Caml.Not_found ->
       L.d_printfln_escaped "Symbol %a is not found in parameters." (Pvar.pp Pp.text) x ;
       Val.Itv.top )
@@ -456,43 +452,48 @@ let eval_sympath ~mode params sympath mem =
 
 
 let mk_eval_sym_trace ?(is_args_ref = false) integer_type_widths
-    (callee_formals : (Pvar.t * Typ.t) list) (actual_exps : (Exp.t * Typ.t) list) caller_mem =
-  let args =
-    let actuals =
-      if is_args_ref then
-        match actual_exps with
-        | [] ->
-            []
-        | (this, _) :: actual_exps ->
-            let this_actual = eval integer_type_widths this caller_mem in
-            let actuals =
-              List.map actual_exps ~f:(fun (a, _) ->
-                  Mem.find_set (eval_locs a caller_mem) caller_mem )
-            in
-            this_actual :: actuals
-      else
-        List.map actual_exps ~f:(fun (a, _) ->
-            match (a : Exp.t) with
-            | Closure closure ->
-                FuncPtr.Set.of_closure closure |> Val.of_func_ptrs
-            | _ ->
-                eval integer_type_widths a caller_mem )
-    in
+    (callee_formals : (Pvar.t * Typ.t) list) (actual_exps : (Exp.t * Typ.t) list)
+    (captured_vars : (Exp.t * Pvar.t * Typ.t * CapturedVar.capture_mode) list) caller_mem =
+  let actuals =
+    if is_args_ref then
+      match actual_exps with
+      | [] ->
+          []
+      | (this, _) :: actual_exps ->
+          let this_actual = eval integer_type_widths this caller_mem in
+          let actuals =
+            List.map actual_exps ~f:(fun (a, _) ->
+                Mem.find_set (eval_locs a caller_mem) caller_mem )
+          in
+          this_actual :: actuals
+    else
+      List.map actual_exps ~f:(fun (a, _) ->
+          match (a : Exp.t) with
+          | Closure closure ->
+              FuncPtr.Set.of_closure closure |> Val.of_func_ptrs
+          | _ ->
+              eval integer_type_widths a caller_mem )
+  in
+  let params =
     ParamBindings.make callee_formals actuals
+    |> fun init ->
+    List.fold captured_vars ~init ~f:(fun acc (_, pvar, _, _) ->
+        let v = Mem.find (Loc.of_pvar pvar) caller_mem in
+        ParamBindings.add (Pvar.get_name pvar) v acc )
   in
   let eval_sym ~mode s bound_end =
     let sympath = Symb.Symbol.path s in
-    let itv, _ = eval_sympath ~mode args sympath caller_mem in
+    let itv, _ = eval_sympath ~mode params sympath caller_mem in
     Symb.Symbol.check_bound_end s bound_end ;
     Itv.get_bound itv bound_end
   in
-  let eval_locpath ~mode partial = eval_locpath ~mode args partial caller_mem in
+  let eval_locpath ~mode partial = eval_locpath ~mode params partial caller_mem in
   let eval_func_ptrs ~mode partial =
-    eval_sympath_partial ~mode args partial caller_mem |> Val.get_func_ptrs
+    eval_sympath_partial ~mode params partial caller_mem |> Val.get_func_ptrs
   in
   let trace_of_sym s =
     let sympath = Symb.Symbol.path s in
-    let itv, traces = eval_sympath ~mode:EvalNormal args sympath caller_mem in
+    let itv, traces = eval_sympath ~mode:EvalNormal params sympath caller_mem in
     if Itv.eq itv Itv.bot then TraceSet.bottom else traces
   in
   fun ~mode ->
@@ -502,8 +503,9 @@ let mk_eval_sym_trace ?(is_args_ref = false) integer_type_widths
     ; trace_of_sym }
 
 
-let mk_eval_sym_cost integer_type_widths callee_formals actual_exps caller_mem =
-  mk_eval_sym_trace integer_type_widths callee_formals actual_exps caller_mem ~mode:EvalCost
+let mk_eval_sym_cost integer_type_widths callee_formals actual_exps captured_vars caller_mem =
+  mk_eval_sym_trace integer_type_widths callee_formals actual_exps captured_vars caller_mem
+    ~mode:EvalCost
 
 
 (* This function evaluates the array length conservatively, which is useful when there are multiple
@@ -867,13 +869,13 @@ module Prune = struct
       match Mem.find_cpp_iterator_alias ident astate.mem with
       | None ->
           astate
-      | Some (iter, iter_end) ->
-          let iter_loc = Loc.of_pvar iter in
-          let iter_end_loc = Loc.of_pvar iter_end in
-          let iter_v = Mem.find iter_loc astate.mem in
-          let size_v = Mem.find iter_end_loc astate.mem in
-          let iter_v' = Val.prune_binop Lt iter_v size_v in
-          update_mem_in_prune iter_loc iter_v' astate )
+      | Some (iter_lhs, iter_rhs, binop) ->
+          let iter_lhs_loc = Loc.of_pvar iter_lhs in
+          let iter_lhs_v = Mem.find iter_lhs_loc astate.mem in
+          let iter_rhs_loc = Loc.of_pvar iter_rhs in
+          let iter_rhs_v = Mem.find iter_rhs_loc astate.mem in
+          let iter_v = Val.prune_binop binop iter_lhs_v iter_rhs_v in
+          update_mem_in_prune iter_lhs_loc iter_v astate )
     | _ ->
         astate
 

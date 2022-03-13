@@ -8,6 +8,7 @@
 
 open! IStd
 module F = Format
+module BStats = Stats
 
 module Stats = struct
   type t =
@@ -95,7 +96,7 @@ let pp_errlog fmt err_log =
 
 
 let pp_signature fmt summary =
-  let pp_formal fmt (p, typ) = F.fprintf fmt "%a %a" (Typ.pp_full Pp.text) typ Mangled.pp p in
+  let pp_formal fmt (p, typ, _) = F.fprintf fmt "%a %a" (Typ.pp_full Pp.text) typ Mangled.pp p in
   F.fprintf fmt "%a %a(%a)" (Typ.pp_full Pp.text) (get_ret_type summary) Procname.pp
     (get_proc_name summary) (Pp.seq ~sep:", " pp_formal) (get_formals summary)
 
@@ -222,9 +223,9 @@ module OnDisk = struct
           "SELECT analysis_summary, report_summary FROM specs WHERE proc_uid = :k"
       in
       fun proc_name ->
-        BackendStats.incr_summary_file_try_load () ;
+        BStats.incr_summary_file_try_load () ;
         let opt = load_spec ~load_statement proc_name in
-        if Option.is_some opt then BackendStats.incr_summary_read_from_disk () ;
+        if Option.is_some opt then BStats.incr_summary_read_from_disk () ;
         opt
     in
     let spec_of_model =
@@ -253,10 +254,10 @@ module OnDisk = struct
   let get proc_name =
     match Procname.Hash.find cache proc_name with
     | summary ->
-        BackendStats.incr_summary_cache_hits () ;
+        BStats.incr_summary_cache_hits () ;
         Some summary
     | exception Caml.Not_found ->
-        BackendStats.incr_summary_cache_misses () ;
+        BStats.incr_summary_cache_misses () ;
         load_summary_to_spec_table proc_name
 
 

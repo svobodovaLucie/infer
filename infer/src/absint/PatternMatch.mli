@@ -29,6 +29,9 @@ module Java : sig
   val implements : string -> Tenv.t -> string -> bool
   (** Check whether class implements a given Java class *)
 
+  val implements_one_of : string list -> Tenv.t -> string -> bool
+  (** Check whether class implements at least one of the given Java classes *)
+
   val implements_android : string -> Tenv.t -> string -> bool
   (** Check whether class implements a class of Android *)
 
@@ -76,6 +79,9 @@ module Java : sig
 
   val implements_jackson : string -> Tenv.t -> string -> bool
   (** Check whether class implements a class from Jackson *)
+
+  val implements_kotlin_intrinsics : Tenv.t -> string -> bool
+  (** Check whether class implements [kotlin.jvm.internal.Intrinsics] *)
 
   val implements_lang : string -> Tenv.t -> string -> bool
   (** Check whether class implements a Java's lang *)

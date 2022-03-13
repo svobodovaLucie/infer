@@ -7,7 +7,6 @@
 open! IStd
 module F = Format
 module CallEvent = PulseCallEvent
-module Invalidation = PulseInvalidation
 module ValueHistory = PulseValueHistory
 
 type t =
@@ -20,7 +19,7 @@ let get_outer_location = function Immediate {location; _} | ViaCall {location; _
 let get_outer_history = function Immediate {history; _} | ViaCall {history; _} -> history
 
 let get_start_location trace =
-  match ValueHistory.get_first_event (get_outer_history trace) with
+  match ValueHistory.get_first_main_event (get_outer_history trace) with
   | Some event ->
       ValueHistory.location_of_event event
   | None ->
@@ -31,10 +30,11 @@ let rec pp ~pp_immediate fmt trace =
   if Config.debug_level_analysis < 3 then pp_immediate fmt
   else
     match trace with
-    | Immediate {location= _; history} ->
-        F.fprintf fmt "%a::%t" ValueHistory.pp history pp_immediate
-    | ViaCall {f; location= _; history; in_call} ->
-        F.fprintf fmt "%a::%a[%a]" ValueHistory.pp history CallEvent.pp f (pp ~pp_immediate) in_call
+    | Immediate {location; history} ->
+        F.fprintf fmt "%a::(%a)%t" ValueHistory.pp history Location.pp location pp_immediate
+    | ViaCall {f; location; history; in_call} ->
+        F.fprintf fmt "%a::(%a)%a[%a]" ValueHistory.pp history CallEvent.pp f Location.pp location
+          (pp ~pp_immediate) in_call
 
 
 let rec add_to_errlog ?(include_value_history = true) ~nesting ~pp_immediate trace errlog =
@@ -61,23 +61,15 @@ let rec iter trace ~f =
   let f_event = function ValueHistory.Event event -> f event | _ -> () in
   match trace with
   | Immediate {history} ->
-      ValueHistory.iter history ~f:f_event
+      ValueHistory.iter_main history ~f:f_event
   | ViaCall {history; in_call} ->
-      ValueHistory.iter history ~f:f_event ;
+      ValueHistory.iter_main history ~f:f_event ;
       iter in_call ~f
 
 
 let find_map trace ~f = Container.find_map ~iter trace ~f
 
 let exists trace ~f = Container.exists ~iter trace ~f
-
-let get_invalidation trace =
-  find_map trace ~f:(function
-    | ValueHistory.Invalidated (invalidation, _, _) ->
-        Some invalidation
-    | _ ->
-        None )
-
 
 let has_invalidation trace =
   exists trace ~f:(function ValueHistory.Invalidated _ -> true | _ -> false)

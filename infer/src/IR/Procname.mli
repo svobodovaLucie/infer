@@ -142,11 +142,10 @@ end
 module ObjC_Cpp : sig
   type kind =
     | CPPMethod of {mangled: string option}
-    | CPPConstructor of {mangled: string option}
+    | CPPConstructor of {mangled: string option; is_copy_ctor: bool}
     | CPPDestructor of {mangled: string option}
     | ObjCClassMethod
     | ObjCInstanceMethod
-    | ObjCInternalMethod
   [@@deriving compare]
 
   (** Type of Objective C and C++ procedure names: method signatures. *)
@@ -204,11 +203,13 @@ module Block : sig
   type block_type =
     | InOuterScope of {outer_scope: block_type; block_index: int}
         (** a block nested in the scope of an outer one *)
-    | SurroundingProc of {name: string}  (** tracks the name of the surrounding proc *)
+    | SurroundingProc of {class_name: Typ.name option; name: string}
+        (** tracks the name of the surrounding proc and an optional class name where the procedure
+            is defined *)
 
   type t = {block_type: block_type; parameters: Parameter.clang_parameter list} [@@deriving compare]
 
-  val make_surrounding : string -> Parameter.clang_parameter list -> t
+  val make_surrounding : Typ.name option -> string -> Parameter.clang_parameter list -> t
 
   val make_in_outer_scope : block_type -> int -> Parameter.clang_parameter list -> t
 end
@@ -250,6 +251,10 @@ val replace_parameters : Parameter.t list -> t -> t
 
 val parameter_of_name : t -> Typ.Name.t -> Parameter.t
 
+val is_copy_ctor : t -> bool
+
+val is_java_static_method : t -> bool
+
 val is_java_access_method : t -> bool
 
 val is_java_class_initializer : t -> bool
@@ -259,6 +264,10 @@ val is_java_anonymous_inner_class_method : t -> bool
 val is_java_autogen_method : t -> bool
 
 val is_objc_method : t -> bool
+(** Includes specialized objective-c methods*)
+
+val is_objc_instance_method : t -> bool
+(** Includes specialized objective-c instance methods*)
 
 (** Hash tables with proc names as keys. *)
 module Hash : Caml.Hashtbl.S with type key = t
@@ -330,6 +339,9 @@ val get_method : t -> string
 val is_objc_block : t -> bool
 (** Return whether the procname is a block procname. *)
 
+val is_specialized : t -> bool
+(** Return whether the procname is a specialized with blocks procname. *)
+
 val is_cpp_lambda : t -> bool
 (** Return whether the procname is a cpp lambda procname. *)
 
@@ -362,6 +374,10 @@ val objc_cpp_replace_method_name : t -> string -> t
 
 val is_infer_undefined : t -> bool
 (** Check if this is a special Infer undefined procedure. *)
+
+val is_static : t -> bool option
+(** Check if a procedure is a static class method or not. If the procedure is not a class method or
+    is unknown to be static, it returns [None]. For now, this checking does not work on C++ methods. *)
 
 val get_global_name_of_initializer : t -> string option
 (** Return the name of the global for which this procedure is the initializer if this is an
@@ -411,5 +427,17 @@ val to_filename : t -> string
 
 val get_qualifiers : t -> QualifiedCppName.t
 (** get qualifiers of C/objc/C++ method/function *)
+
+val pp_name_only : F.formatter -> t -> unit
+(** Print name of procedure with at most one-level path. For example,
+
+    - In C++: "<ClassName>::<ProcName>"
+    - In Java, ObjC, C#: "<ClassName>.<ProcName>"
+    - In C/Erlang: "<ProcName>" *)
+
+val patterns_match : Re.Str.regexp list -> t -> bool
+(** Test whether a proc name matches to one of the regular expressions. *)
+
+val is_erlang_unsupported : t -> bool
 
 module Normalizer : HashNormalizer.S with type t = t

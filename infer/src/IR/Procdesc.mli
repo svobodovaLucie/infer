@@ -72,6 +72,8 @@ module Node : sig
     | InitializeDynamicArrayLength
     | InitListExp
     | LoopBody
+    | LoopIterIncr
+    | LoopIterInit
     | MessageCall of string
     | MethodBody
     | MonitorEnter
@@ -247,8 +249,8 @@ val get_captured : t -> CapturedVar.t list
 
 val get_exit_node : t -> Node.t
 
-val get_formals : t -> (Mangled.t * Typ.t) list
-(** Return name and type of formal parameters *)
+val get_formals : t -> (Mangled.t * Typ.t * Annot.Item.t) list
+(** Return name, type, and annotation of formal parameters *)
 
 val get_pvar_formals : t -> (Pvar.t * Typ.t) list
 (** Return pvar and type of formal parameters *)
@@ -363,11 +365,15 @@ val is_captured_var : t -> Var.t -> bool
 
 val has_modify_in_block_attr : t -> Pvar.t -> bool
 
-val shallow_copy_code_from_pdesc : orig_pdesc:t -> dest_pdesc:t -> unit
+val deep_copy_code_from_pdesc : orig_pdesc:t -> dest_pdesc:t -> unit
 
 val size : t -> int
 (** Return number of nodes, plus number of instructions (in nodes), plus number of edges (between
     nodes). *)
+
+val is_too_big : Checker.t -> max_cfg_size:int -> t -> bool
+(** Check if the CFG of the procedure is too big to analyze. If it is too big, it logs an internal
+    error and returns true. *)
 
 (** per-procedure CFGs are stored in the SQLite "procedures" table as NULL if the procedure has no
     CFG *)

@@ -19,6 +19,31 @@ let compare_name = compare_t_ Typ.Name.compare_name
 
 let make class_name field_name = {class_name; field_name}
 
+let fake_capture_field_prefix = "__capture_"
+
+let fake_capture_field_weak_prefix = fake_capture_field_prefix ^ "weak_"
+
+let string_of_capture_mode = function
+  | CapturedVar.ByReference ->
+      "by_ref_"
+  | CapturedVar.ByValue ->
+      "by_value_"
+
+
+let prefix_of_typ typ =
+  match typ.Typ.desc with
+  | Tptr (_, (Pk_objc_weak | Pk_objc_unsafe_unretained)) ->
+      fake_capture_field_weak_prefix
+  | _ ->
+      fake_capture_field_prefix
+
+
+let mk_fake_capture_field ~id typ mode =
+  make
+    (Typ.CStruct (QualifiedCppName.of_list ["std"; "function"]))
+    (Printf.sprintf "%s%s%d" (prefix_of_typ typ) (string_of_capture_mode mode) id)
+
+
 let get_class_name {class_name} = class_name
 
 let get_field_name {field_name} = field_name
@@ -50,16 +75,36 @@ let to_string fld =
   if is_java fld then dot_join (Typ.Name.name fld.class_name) fld.field_name else fld.field_name
 
 
-let to_simplified_string fld =
-  if is_java fld then
-    Typ.Name.name fld.class_name |> String.rsplit2 ~on:'.'
-    |> Option.value_map ~default:fld.field_name ~f:(fun (_, class_only) ->
-           String.concat ~sep:"." [class_only; fld.field_name] )
-  else fld.field_name
+(** Convert a fieldname to a simplified string with at most one-level path. For example,
+
+    - In C++: "<ClassName>::<FieldName>"
+    - In Java, ObjC, C#: "<ClassName>.<FieldName>"
+    - In C: "<StructName>.<FieldName>" or "<UnionName>.<FieldName>"
+    - In Erlang: "<FieldName>" *)
+let to_simplified_string ({class_name; field_name} : t) =
+  let last_class_name =
+    match class_name with
+    | CStruct name | CUnion name | CppClass {name} | ObjcClass name | ObjcProtocol name ->
+        QualifiedCppName.extract_last name |> Option.map ~f:fst
+    | CSharpClass name ->
+        Some (CSharpClassName.classname name)
+    | ErlangType _ ->
+        None
+    | JavaClass name ->
+        Some (JavaClassName.classname name)
+  in
+  Option.value_map last_class_name ~default:field_name ~f:(fun last_class_name ->
+      let sep = match class_name with CppClass _ -> "::" | _ -> "." in
+      String.concat ~sep [last_class_name; field_name] )
 
 
 let to_full_string fld =
   (if is_java fld then dot_join else cc_join) (Typ.Name.name fld.class_name) fld.field_name
+
+
+let patterns_match patterns fld =
+  let s = to_simplified_string fld in
+  List.exists patterns ~f:(fun pattern -> Re.Str.string_match pattern s 0)
 
 
 let pp f fld = F.pp_print_string f fld.field_name

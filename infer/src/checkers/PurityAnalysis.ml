@@ -183,7 +183,7 @@ let compute_summary {InterproceduralAnalysis.proc_desc; tenv; analyze_dependency
   let proc_name = Procdesc.get_proc_name proc_desc in
   let formals =
     Procdesc.get_formals proc_desc
-    |> List.map ~f:(fun (mname, _) -> Var.of_pvar (Pvar.mk mname proc_name))
+    |> List.map ~f:(fun (mname, _, _) -> Var.of_pvar (Pvar.mk mname proc_name))
   in
   let get_callee_summary callee_pname =
     analyze_dependency callee_pname |> Option.bind ~f:(fun (_, (purity_opt, _)) -> purity_opt)
@@ -193,10 +193,11 @@ let compute_summary {InterproceduralAnalysis.proc_desc; tenv; analyze_dependency
 
 
 let checker analysis_data =
-  let inferbo_invariant_map =
+  let open IOption.Let_syntax in
+  let* inferbo_invariant_map =
     BufferOverrunAnalysis.cached_compute_invariant_map
       (InterproceduralAnalysis.bind_payload ~f:snd analysis_data)
   in
-  let astate_opt = compute_summary analysis_data inferbo_invariant_map in
-  Option.iter astate_opt ~f:(fun astate -> debug "Purity summary :%a \n" PurityDomain.pp astate) ;
-  astate_opt
+  let+ astate = compute_summary analysis_data inferbo_invariant_map in
+  debug "Purity summary :%a \n" PurityDomain.pp astate ;
+  astate

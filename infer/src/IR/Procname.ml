@@ -11,7 +11,7 @@ module F = Format
 module L = Logging
 
 (** Level of verbosity of some to_string functions. *)
-type detail_level = Verbose | Non_verbose | Simple
+type detail_level = Verbose | Non_verbose | Simple | NameOnly
 
 let is_verbose v = match v with Verbose -> true | _ -> false
 
@@ -82,7 +82,7 @@ module CSharp = struct
         pp_package_method_and_params fmt cs ;
         F.fprintf fmt "%s%a" separator (pp_return_type ~verbose) cs
     | Non_verbose ->
-        (* [rtype package.class.method(params)], for creating reports *)
+        (* [rtype class.method(params)], for creating reports *)
         let separator = if Option.is_none cs.return_type then "" else " " in
         F.fprintf fmt "%a%s" (pp_return_type ~verbose) cs separator ;
         pp_package_method_and_params fmt cs
@@ -97,6 +97,9 @@ module CSharp = struct
             F.pp_print_string fmt cs.method_name )
         in
         F.fprintf fmt "%a(%s)" pp_method_name cs params
+    | NameOnly ->
+        (* [class.method], for simple name matching *)
+        F.fprintf fmt "%a%s" pp_class_name_dot cs cs.method_name
 end
 
 module Java = struct
@@ -175,7 +178,7 @@ module Java = struct
         pp_package_method_and_params fmt j ;
         F.fprintf fmt "%s%a" separator (pp_return_type ~verbose) j
     | Non_verbose ->
-        (* [rtype package.class.method(params)], for creating reports *)
+        (* [rtype class.method(params)], for creating reports *)
         let separator = if Option.is_none j.return_type then "" else " " in
         F.fprintf fmt "%a%s" (pp_return_type ~verbose) j separator ;
         pp_package_method_and_params fmt j
@@ -190,6 +193,9 @@ module Java = struct
             F.pp_print_string fmt j.method_name )
         in
         F.fprintf fmt "%a(%s)" pp_method_name j params
+    | NameOnly ->
+        (* [class.method], for simple name matching *)
+        F.fprintf fmt "%a%s" pp_class_name_dot j j.method_name
 
 
   let to_simplified_string ?(withclass = false) = Pp.string_of_pp (pp ~withclass Simple)
@@ -324,11 +330,10 @@ end
 module ObjC_Cpp = struct
   type kind =
     | CPPMethod of {mangled: string option}
-    | CPPConstructor of {mangled: string option}
+    | CPPConstructor of {mangled: string option; is_copy_ctor: bool}
     | CPPDestructor of {mangled: string option}
     | ObjCClassMethod
     | ObjCInstanceMethod
-    | ObjCInternalMethod
   [@@deriving compare, yojson_of]
 
   type t =
@@ -361,16 +366,15 @@ module ObjC_Cpp = struct
     if is_instance then ObjCInstanceMethod else ObjCClassMethod
 
 
+  let is_copy_ctor {kind} =
+    match kind with CPPConstructor {is_copy_ctor} -> is_copy_ctor | _ -> false
+
+
   let is_prefix_init s = String.is_prefix ~prefix:"init" s
 
   let is_objc_constructor method_name = String.equal method_name "new" || is_prefix_init method_name
 
-  let is_objc_kind = function
-    | ObjCClassMethod | ObjCInstanceMethod | ObjCInternalMethod ->
-        true
-    | _ ->
-        false
-
+  let is_objc_kind = function ObjCClassMethod | ObjCInstanceMethod -> true | _ -> false
 
   let is_objc_method {kind} = is_objc_kind kind
 
@@ -392,14 +396,14 @@ module ObjC_Cpp = struct
   let pp_verbose_kind fmt = function
     | CPPMethod {mangled} | CPPDestructor {mangled} ->
         F.fprintf fmt "(%s)" (Option.value ~default:"" mangled)
-    | CPPConstructor {mangled} ->
-        F.fprintf fmt "{%s}" (Option.value ~default:"" mangled)
+    | CPPConstructor {mangled; is_copy_ctor} ->
+        F.fprintf fmt "{%s}%s"
+          (if is_copy_ctor then "[copy_ctor]" else "")
+          (Option.value ~default:"" mangled)
     | ObjCClassMethod ->
         F.pp_print_string fmt "class"
     | ObjCInstanceMethod ->
         F.pp_print_string fmt "instance"
-    | ObjCInternalMethod ->
-        F.pp_print_string fmt "internal"
 
 
   let pp verbosity fmt osig =
@@ -407,7 +411,7 @@ module ObjC_Cpp = struct
     match verbosity with
     | Simple ->
         F.pp_print_string fmt osig.method_name
-    | Non_verbose ->
+    | Non_verbose | NameOnly ->
         F.fprintf fmt "%s%s%s" (Typ.Name.name osig.class_name) sep osig.method_name
     | Verbose ->
         F.fprintf fmt "%s%s%s%a%a" (Typ.Name.name osig.class_name) sep osig.method_name
@@ -458,7 +462,7 @@ module C = struct
     match verbosity with
     | Simple ->
         F.fprintf fmt "%s()" plain
-    | Non_verbose ->
+    | Non_verbose | NameOnly ->
         F.pp_print_string fmt plain
     | Verbose ->
         let pp_mangled fmt = function None -> () | Some s -> F.fprintf fmt "{%s}" s in
@@ -487,6 +491,8 @@ module Erlang = struct
         F.fprintf fmt "%s%c%d" function_name arity_sep arity
     | Verbose ->
         F.fprintf fmt "%s:%s%c%d" module_name function_name arity_sep arity
+    | NameOnly ->
+        F.fprintf fmt "%s:%s" module_name function_name
 
 
   let pp verbosity fmt pname = pp_general '/' verbosity fmt pname
@@ -500,13 +506,15 @@ module Block = struct
   (** Type of Objective C block names. *)
   type block_type =
     | InOuterScope of {outer_scope: block_type; block_index: int}
-    | SurroundingProc of {name: string}
+    | SurroundingProc of {class_name: Typ.name option; name: string}
   [@@deriving compare, yojson_of]
 
   type t = {block_type: block_type; parameters: Parameter.clang_parameter list}
   [@@deriving compare, yojson_of]
 
-  let make_surrounding name parameters = {block_type= SurroundingProc {name}; parameters}
+  let make_surrounding class_name name parameters =
+    {block_type= SurroundingProc {class_name; name}; parameters}
+
 
   let make_in_outer_scope outer_scope block_index parameters =
     {block_type= InOuterScope {outer_scope; block_index}; parameters}
@@ -530,7 +538,7 @@ module Block = struct
   let pp verbosity fmt bsig =
     let pp_block = pp_block_type ~with_prefix_and_index:true in
     match verbosity with
-    | Simple ->
+    | Simple | NameOnly ->
         F.pp_print_string fmt "block"
     | Non_verbose ->
         pp_block fmt bsig.block_type
@@ -541,6 +549,18 @@ module Block = struct
   let get_parameters block = block.parameters
 
   let replace_parameters new_parameters block = {block with parameters= new_parameters}
+
+  let get_class_type_name {block_type} =
+    let rec get_class_type_name_aux = function
+      | InOuterScope {outer_scope} ->
+          get_class_type_name_aux outer_scope
+      | SurroundingProc {class_name} ->
+          class_name
+    in
+    get_class_type_name_aux block_type
+
+
+  let get_class_name block = get_class_type_name block |> Option.map ~f:Typ.Name.name
 end
 
 (** Type of procedure names. *)
@@ -554,6 +574,14 @@ type t =
   | ObjC_Cpp of ObjC_Cpp.t
   | WithBlockParameters of t * Block.t list
 [@@deriving compare, yojson_of]
+
+let is_erlang_unsupported name =
+  match name with
+  | Erlang {module_name; _} ->
+      String.equal module_name ErlangTypeName.unsupported
+  | _ ->
+      false
+
 
 let equal = [%compare.equal: t]
 
@@ -613,9 +641,16 @@ let hash = Hashtbl.hash
 
 let with_block_parameters base blocks = WithBlockParameters (base, blocks)
 
-let is_java = function Java _ -> true | _ -> false
+let is_copy_ctor = function
+  | ObjC_Cpp objc_cpp_pname ->
+      ObjC_Cpp.is_copy_ctor objc_cpp_pname
+  | _ ->
+      false
+
 
 let is_csharp = function CSharp _ -> true | _ -> false
+
+let is_java = function Java _ -> true | _ -> false
 
 let as_java_exn ~explanation t =
   match t with
@@ -630,6 +665,8 @@ let is_c_method = function ObjC_Cpp _ -> true | _ -> false
 
 let is_java_lift f = function Java java_pname -> f java_pname | _ -> false
 
+let is_java_static_method = is_java_lift Java.is_static
+
 let is_java_access_method = is_java_lift Java.is_access_method
 
 let is_java_class_initializer = is_java_lift Java.is_class_initializer
@@ -638,20 +675,29 @@ let is_java_anonymous_inner_class_method = is_java_lift Java.is_anonymous_inner_
 
 let is_java_autogen_method = is_java_lift Java.is_autogen_method
 
-let is_objc_method procname =
-  match procname with ObjC_Cpp name -> ObjC_Cpp.is_objc_method name | _ -> false
+let rec is_objc_helper ~f = function
+  | ObjC_Cpp objc_cpp_pname ->
+      f objc_cpp_pname
+  | WithBlockParameters (base, _) ->
+      is_objc_helper ~f base
+  | Block _ | C _ | CSharp _ | Erlang _ | Java _ | Linters_dummy_method ->
+      false
 
 
-let is_objc_dealloc procname =
-  is_objc_method procname
-  &&
-  match procname with ObjC_Cpp {method_name} -> ObjC_Cpp.is_objc_dealloc method_name | _ -> false
+let is_objc_method = is_objc_helper ~f:ObjC_Cpp.is_objc_method
+
+let is_objc_dealloc =
+  is_objc_helper ~f:(fun objc_cpp_pname ->
+      ObjC_Cpp.is_objc_method objc_cpp_pname && ObjC_Cpp.is_objc_dealloc objc_cpp_pname.method_name )
 
 
-let is_objc_init procname =
-  is_objc_method procname
-  &&
-  match procname with ObjC_Cpp {method_name} -> ObjC_Cpp.is_prefix_init method_name | _ -> false
+let is_objc_init =
+  is_objc_helper ~f:(fun objc_cpp_pname ->
+      ObjC_Cpp.is_objc_method objc_cpp_pname && ObjC_Cpp.is_prefix_init objc_cpp_pname.method_name )
+
+
+let is_objc_instance_method =
+  is_objc_helper ~f:(function {kind= ObjCInstanceMethod} -> true | _ -> false)
 
 
 let block_of_procname procname =
@@ -662,7 +708,7 @@ let block_of_procname procname =
       Logging.die InternalError "Only to be called with Objective-C block names"
 
 
-let empty_block = Block (Block.make_surrounding "" [])
+let empty_block = Block (Block.make_surrounding None "" [])
 
 (** Replace the class name component of a procedure name. In case of Java, replace package and class
     name. *)
@@ -687,6 +733,8 @@ let get_class_type_name = function
       Some (CSharp.get_class_type_name cs_pname)
   | ObjC_Cpp objc_pname ->
       Some (ObjC_Cpp.get_class_type_name objc_pname)
+  | Block block ->
+      Block.get_class_type_name block
   | _ ->
       None
 
@@ -698,6 +746,8 @@ let get_class_name = function
       Some (CSharp.get_class_name cs_pname)
   | ObjC_Cpp objc_pname ->
       Some (ObjC_Cpp.get_class_name objc_pname)
+  | Block block ->
+      Block.get_class_name block
   | _ ->
       None
 
@@ -739,6 +789,9 @@ let rec get_method = function
 
 (** Return whether the procname is a block procname. *)
 let is_objc_block = function Block _ -> true | _ -> false
+
+(** Return whether the procname is a specialized with blocks procname. *)
+let is_specialized = function WithBlockParameters _ -> true | _ -> false
 
 (** Return whether the procname is a cpp lambda procname. *)
 let is_cpp_lambda = function
@@ -793,6 +846,21 @@ let is_infer_undefined pn =
       false
 
 
+let rec is_static = function
+  | CSharp {kind= Static} | Java {kind= Static} | ObjC_Cpp {kind= ObjCClassMethod} ->
+      Some true
+  | CSharp {kind= Non_Static} | Java {kind= Non_Static} | ObjC_Cpp {kind= ObjCInstanceMethod} ->
+      Some false
+  | C _
+  | Block _
+  | Erlang _
+  | Linters_dummy_method
+  | ObjC_Cpp {kind= CPPMethod _ | CPPConstructor _ | CPPDestructor _} ->
+      None
+  | WithBlockParameters (pname, _) ->
+      is_static pname
+
+
 let get_global_name_of_initializer = function
   | C {name}
     when String.is_prefix ~prefix:Config.clang_initializer_prefix
@@ -808,7 +876,7 @@ let pp_with_block_parameters verbose pp fmt base blocks =
   pp fmt base ;
   F.pp_print_string fmt "[" ;
   ( match verbose with
-  | Non_verbose | Simple ->
+  | Non_verbose | Simple | NameOnly ->
       F.pp_print_string fmt "specialized with blocks"
   | Verbose ->
       Pp.seq ~sep:"^" (Block.pp verbose) fmt blocks ) ;
@@ -876,7 +944,31 @@ let get_block_type proc =
   | Block {block_type} ->
       block_type
   | _ ->
-      Block.SurroundingProc {name= to_string proc}
+      Block.SurroundingProc {class_name= get_class_type_name proc; name= to_string proc}
+
+
+let rec pp_name_only fmt = function
+  | Java j ->
+      Java.pp NameOnly fmt j
+  | CSharp cs ->
+      CSharp.pp NameOnly fmt cs
+  | C osig ->
+      C.pp NameOnly fmt osig
+  | Erlang e ->
+      Erlang.pp NameOnly fmt e
+  | ObjC_Cpp osig ->
+      ObjC_Cpp.pp NameOnly fmt osig
+  | Block bsig ->
+      Block.pp NameOnly fmt bsig
+  | WithBlockParameters (base, _) ->
+      pp_name_only fmt base
+  | Linters_dummy_method ->
+      pp_unique_id fmt Linters_dummy_method
+
+
+let patterns_match patterns proc_name =
+  let s = F.asprintf "%a" pp_name_only proc_name in
+  List.exists patterns ~f:(fun pattern -> Re.Str.string_match pattern s 0)
 
 
 (** Convenient representation of a procname for external tools (e.g. eclipse plugin) *)
@@ -1164,22 +1256,16 @@ module UnitCache = struct
     (cache_get, cache_set)
 end
 
-module Normalizer = struct
-  include HashNormalizer.Make (struct
-    type nonrec t = t [@@deriving equal]
+module Normalizer = HashNormalizer.Make (struct
+  type nonrec t = t [@@deriving equal]
 
-    let hash = hash
+  let hash = hash
 
-    let normalize t =
-      match t with
-      | Java java_pname ->
-          let java_pname' = Java.Normalizer.normalize java_pname in
-          if phys_equal java_pname java_pname' then t else Java java_pname'
-      | _ ->
-          t
-  end)
-
-  let reset () =
-    reset () ;
-    Java.Normalizer.reset ()
-end
+  let normalize t =
+    match t with
+    | Java java_pname ->
+        let java_pname' = Java.Normalizer.normalize java_pname in
+        if phys_equal java_pname java_pname' then t else Java java_pname'
+    | _ ->
+        t
+end)

@@ -18,9 +18,7 @@ void iteratec_over_map_linear(std::unordered_map<std::string, std::string> m) {
   }
 }
 
-// Expected: O(m); got top
-void for_loop_over_map_linear_FP(
-    std::unordered_map<std::string, std::string> m) {
+void for_loop_over_map_linear(std::unordered_map<std::string, std::string> m) {
   for (int i = 0; i < m.size(); i++) {
   }
 }
@@ -63,19 +61,6 @@ void add_element_to_map_insert_linear_FN(std::unordered_map<std::string, int> m,
   m.insert(el);
 }
 
-// emplace is linear
-// https://www.cplusplus.com/reference/unordered_map/unordered_map/emplace/
-// Expected: O(m); got constant
-void emplace_str_in_map_linear_FN(
-    std::unordered_map<std::string, std::string> m,
-    std::string str1,
-    std::string str2) {
-  m.emplace(str1, str2);
-}
-
-// erase is linear
-// https://www.cplusplus.com/reference/unordered_map/unordered_map/erase/
-// Expected: O(m); got constant
 void erase_find_from_map_linear_FN(
     std::unordered_map<std::string, std::string> m, std::string str) {
   m.erase(m.find(str), m.end());

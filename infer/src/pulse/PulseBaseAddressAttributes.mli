@@ -27,11 +27,15 @@ val add : AbstractValue.t -> Attributes.t -> t -> t
 
 val allocate : Attribute.allocator -> AbstractValue.t -> Location.t -> t -> t
 
+val java_resource_release : AbstractValue.t -> t -> t
+
 val fold : (AbstractValue.t -> Attributes.t -> 'a -> 'a) -> t -> 'a -> 'a
 
 val check_valid : AbstractValue.t -> t -> (unit, Invalidation.t * Trace.t) result
 
 val check_initialized : AbstractValue.t -> t -> (unit, unit) result
+
+val check_not_tainted : AbstractValue.t -> t -> (unit, Taint.source * ValueHistory.t) result
 
 val invalidate : AbstractValue.t * ValueHistory.t -> Invalidation.t -> Location.t -> t -> t
 
@@ -39,10 +43,16 @@ val get_allocation : AbstractValue.t -> t -> (Attribute.allocator * Trace.t) opt
 
 val get_closure_proc_name : AbstractValue.t -> t -> Procname.t option
 
+val get_copied_var : AbstractValue.t -> t -> Var.t option
+
+val get_source_origin_of_copy : AbstractValue.t -> t -> AbstractValue.t option
+
 val get_invalid : AbstractValue.t -> t -> (Invalidation.t * Trace.t) option
 
 val get_must_be_valid :
   AbstractValue.t -> t -> (Timestamp.t * Trace.t * Invalidation.must_be_valid_reason option) option
+
+val get_must_not_be_tainted : AbstractValue.t -> t -> (Timestamp.t * Taint.sink * Trace.t) option
 
 val is_must_be_valid_or_allocated_isl : AbstractValue.t -> t -> bool
 
@@ -52,9 +62,15 @@ val add_dynamic_type : Typ.t -> AbstractValue.t -> t -> t
 
 val get_dynamic_type : t -> AbstractValue.t -> Typ.t option
 
+val add_ref_counted : AbstractValue.t -> t -> t
+
+val is_ref_counted : AbstractValue.t -> t -> bool
+
 val get_written_to : AbstractValue.t -> t -> Trace.t option
 
 val std_vector_reserve : AbstractValue.t -> t -> t
+
+val is_java_resource_released : AbstractValue.t -> t -> bool
 
 val is_std_vector_reserved : AbstractValue.t -> t -> bool
 
@@ -71,6 +87,8 @@ val remove_allocation_attr : AbstractValue.t -> t -> t
 val remove_must_be_valid_attr : AbstractValue.t -> t -> t
 
 val remove_isl_abduced_attr : AbstractValue.t -> t -> t
+
+val remove_unsuitable_for_summary : t -> t
 
 val initialize : AbstractValue.t -> t -> t
 

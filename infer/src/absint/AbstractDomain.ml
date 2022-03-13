@@ -28,6 +28,12 @@ module type Disjunct = sig
   include Comparable
 
   val equal_fast : t -> t -> bool
+
+  val is_normal : t -> bool
+
+  val is_exceptional : t -> bool
+
+  val exceptional_to_normal : t -> t
 end
 
 module type S = sig
@@ -198,6 +204,13 @@ module PairDisjunct (Domain1 : Disjunct) (Domain2 : Disjunct) = struct
   include PairBase (Domain1) (Domain2)
 
   let equal_fast (x1, x2) (y1, y2) = Domain1.equal_fast x1 y1 && Domain2.equal_fast x2 y2
+
+  let is_normal (x1, x2) = Domain1.is_normal x1 && Domain2.is_normal x2
+
+  let is_exceptional (x1, x2) = Domain1.is_exceptional x1 && Domain2.is_exceptional x2
+
+  let exceptional_to_normal (x1, x2) =
+    (Domain1.exceptional_to_normal x1, Domain2.exceptional_to_normal x2)
 end
 
 module Pair (Domain1 : S) (Domain2 : S) = struct
@@ -219,6 +232,14 @@ module Pair (Domain1 : S) (Domain2 : S) = struct
           ( Domain1.widen ~prev:(fst prev) ~next:(fst next) ~num_iters
           , Domain2.widen ~prev:(snd prev) ~next:(snd next) ~num_iters )
         prev next
+end
+
+module PairWithBottom (Domain1 : WithBottom) (Domain2 : WithBottom) = struct
+  include Pair (Domain1) (Domain2)
+
+  let bottom = (Domain1.bottom, Domain2.bottom)
+
+  let is_bottom (x1, x2) = Domain1.is_bottom x1 && Domain2.is_bottom x2
 end
 
 module Flat (V : PrettyPrintable.PrintableEquatableType) = struct

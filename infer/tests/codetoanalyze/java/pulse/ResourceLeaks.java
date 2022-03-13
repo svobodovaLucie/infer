@@ -54,11 +54,18 @@ public class ResourceLeaks {
 
   // FileOutputStream tests
 
-  public void fileOutputStreamNotClosed() throws IOException {
+  public void fileOutputStreamNotClosedBad() throws IOException {
     FileOutputStream fis = new FileOutputStream("file.txt");
   }
 
-  public void fileOutputStreamNotClosedAfterWrite() {
+  public void fileOutputStreamNotClosedAfterWriteNoTryBad() throws IOException {
+    byte[] arr = {1, 2, 3};
+    FileOutputStream fis = new FileOutputStream("file.txt");
+    fis.write(arr);
+    fis.close();
+  }
+
+  public void fileOutputStreamNotClosedAfterWriteBad() {
     byte[] arr = {1, 2, 3};
     FileOutputStream fis = null;
     try {
@@ -69,19 +76,44 @@ public class ResourceLeaks {
     }
   }
 
-  public void fileOutputStreamClosed() throws IOException {
+  public void fileOutputStreamClosedAfterWriteAlmostOk() throws IOException {
+    byte[] arr = {1, 2, 3};
+    FileOutputStream fis = null;
+    try {
+      fis = new FileOutputStream("file.txt");
+      fis.write(arr);
+      fis.close();
+    } catch (IOException e) {
+      if (fis != null) fis.close();
+      // there is stil a possible leakage if close() raises an exception but we
+      // ignore this case and mark this method as Ok.
+    }
+  }
+
+  public void fileOutputStreamClosedAfterWriteOk() throws IOException {
+    byte[] arr = {1, 2, 3};
+    FileOutputStream fis = null;
+    try {
+      fis = new FileOutputStream("file.txt");
+      fis.write(arr);
+    } finally {
+      if (fis != null) fis.close();
+    }
+  }
+
+  public void fileOutputStreamClosedOk() throws IOException {
     FileOutputStream fis = new FileOutputStream("file.txt");
     fis.close();
   }
 
-  public void fileOutputStreamOneLeak() throws IOException {
+  public void fileOutputStreamOneLeakBad() throws IOException {
     FileOutputStream fis = new FileOutputStream("file.txt");
     if (fis != null) {
     } else {
     }
   }
 
-  public int fileOutputStreamTwoLeaks1(boolean ok) throws IOException {
+  public int fileOutputStreamTwoLeaksBad1(boolean ok) throws IOException {
     FileOutputStream fis = new FileOutputStream("file.txt");
     if (ok) {
       fis.write(1);
@@ -92,7 +124,7 @@ public class ResourceLeaks {
     }
   }
 
-  public void fileOutputStreamTwoLeaks2() throws IOException {
+  public void fileOutputStreamTwoLeaksBad2() throws IOException {
     FileOutputStream fis = new FileOutputStream("file.txt");
     if (fis != null) {
     } else {
@@ -102,7 +134,7 @@ public class ResourceLeaks {
 
   // TwoResources tests
 
-  public static void twoResources() throws IOException {
+  public static void FN_twoResourcesBad() throws IOException {
     FileInputStream fis = null;
     FileOutputStream fos = null;
     try {
@@ -115,7 +147,7 @@ public class ResourceLeaks {
     }
   }
 
-  public static void twoResourcesHeliosFix() throws IOException {
+  public static void twoResourcesHeliosFixOk() throws IOException {
     FileInputStream fis = null;
     FileOutputStream fos = null;
     try {
@@ -131,7 +163,7 @@ public class ResourceLeaks {
     }
   }
 
-  public static void twoResourcesCommonFix() throws IOException {
+  public static void twoResourcesCommonFixOk() throws IOException {
     FileInputStream fis = null;
     FileOutputStream fos = null;
     try {
@@ -150,7 +182,7 @@ public class ResourceLeaks {
     }
   }
 
-  public static void twoResourcesServerSocket() throws IOException {
+  public static void FN_twoResourcesServerSocketBad() throws IOException {
     ServerSocket a = null;
     ServerSocket b = null;
     try {
@@ -162,7 +194,7 @@ public class ResourceLeaks {
     }
   }
 
-  public static void twoResourcesRandomAccessFile() throws IOException {
+  public static void FN_twoResourcesRandomAccessFileBad() throws IOException {
     RandomAccessFile a = null;
     RandomAccessFile b = null;
     try {
@@ -174,7 +206,7 @@ public class ResourceLeaks {
     }
   }
 
-  public static void twoResourcesRandomAccessFileCommonFix() throws IOException {
+  public static void twoResourcesRandomAccessFileCommonFixOk() throws IOException {
     RandomAccessFile a = null;
     RandomAccessFile b = null;
     try {
@@ -196,7 +228,7 @@ public class ResourceLeaks {
 
   // BufferedInputStream does not throw exception, and its close
   // closes the FileInputStream as well
-  public void nestedGood() throws IOException {
+  public void nestedOk() throws IOException {
     BufferedInputStream b = new BufferedInputStream(new FileInputStream("file.txt"));
     b.close();
   }
@@ -239,7 +271,7 @@ public class ResourceLeaks {
 
   // ZipFile tests      (Jarfile Tests also test Zipfiles)
 
-  public static void zipFileLeakExceptionalBranch() throws IOException {
+  public static void FN_zipFileLeakExceptionalBranchBad() throws IOException {
     ZipFile j = null;
     try {
       j = new ZipFile("");
@@ -251,7 +283,7 @@ public class ResourceLeaks {
     }
   }
 
-  public static void zipFileNoLeak() throws IOException {
+  public static void zipFileNoLeakOk() throws IOException {
     ZipFile j = null;
     try {
       j = new ZipFile("");
@@ -262,7 +294,7 @@ public class ResourceLeaks {
 
   // JarFile tests
 
-  public boolean jarFileClosed() {
+  public boolean jarFileClosedOk() {
     JarFile jarFile = null;
     try {
       jarFile = new JarFile("");
@@ -278,7 +310,7 @@ public class ResourceLeaks {
     return false;
   }
 
-  public boolean jarFileNotClosed() {
+  public boolean FN_jarFileNotClosedBad() {
     JarFile jarFile = null;
     try {
       jarFile = new JarFile("");
@@ -289,7 +321,7 @@ public class ResourceLeaks {
 
   // FileInputStream tests
 
-  public void fileInputStreamNotClosedAfterRead() {
+  public void fileInputStreamNotClosedAfterReadBad() {
     FileInputStream fis;
     try {
       fis = new FileInputStream("file.txt");
@@ -299,7 +331,7 @@ public class ResourceLeaks {
     }
   }
 
-  public void fileInputStreamClosed() throws IOException {
+  public void fileInputStreamClosedOk() throws IOException {
     FileInputStream fis = null;
     try {
       fis = new FileInputStream("file.txt");
@@ -312,7 +344,7 @@ public class ResourceLeaks {
 
   // PipedInputStream tests
 
-  public void pipedInputStreamNotClosedAfterRead(PipedOutputStream pout) {
+  public void FN_pipedInputStreamNotClosedAfterReadBad(PipedOutputStream pout) {
     PipedInputStream pin;
     try {
       pin = new PipedInputStream(pout);
@@ -322,7 +354,7 @@ public class ResourceLeaks {
     }
   }
 
-  public void pipedInputStreamClosed(PipedOutputStream pout) throws IOException {
+  public void pipedInputStreamClosedOk(PipedOutputStream pout) throws IOException {
     PipedInputStream pin = null;
     try {
       pin = new PipedInputStream(pout);
@@ -335,7 +367,7 @@ public class ResourceLeaks {
 
   // PipedOutputStream tests
 
-  public void pipedOutputStreamNotClosedAfterWrite() {
+  public void FN_pipedOutputStreamNotClosedAfterWriteBad() {
     byte[] arr = {1, 2, 3, 4, 5};
     PipedOutputStream pout;
     try {
@@ -346,7 +378,7 @@ public class ResourceLeaks {
     }
   }
 
-  public void pipedOutputStreamClosed(PipedInputStream pin) throws IOException {
+  public void pipedOutputStreamClosedOk(PipedInputStream pin) throws IOException {
     PipedOutputStream pout = null;
     try {
       pout = new PipedOutputStream(pin);
@@ -359,7 +391,7 @@ public class ResourceLeaks {
 
   // ObjectOutputStream tests
 
-  public void objectOutputStreamNotClosedAfterWrite() {
+  public void objectOutputStreamNotClosedAfterWriteBad() {
     byte[] arr = {1, 2, 3, 4, 5};
     ObjectOutputStream oout;
     try {
@@ -370,7 +402,7 @@ public class ResourceLeaks {
     }
   }
 
-  public void objectOutputStreamClosed() throws IOException {
+  public void objectOutputStreamClosedOk() throws IOException {
     ObjectOutputStream oout = null;
     FileOutputStream fis = new FileOutputStream("file.txt");
     try {
@@ -378,13 +410,17 @@ public class ResourceLeaks {
       oout.flush();
     } catch (IOException e) {
     } finally {
-      fis.close();
+      if (oout != null) {
+        oout.close();
+      } else {
+        fis.close();
+      }
     }
   }
 
   // ObjectInputStream tests
 
-  public void objectInputStreamNotClosedAfterRead() {
+  public void objectInputStreamNotClosedAfterReadBad() {
     ObjectInputStream oin;
     try {
       oin = new ObjectInputStream(new FileInputStream("file.txt"));
@@ -394,7 +430,7 @@ public class ResourceLeaks {
     }
   }
 
-  public void objectInputStreamClosed() throws IOException {
+  public void objectInputStreamClosedOk() throws IOException {
     ObjectInputStream oin = null;
     FileInputStream fis = new FileInputStream("file.txt");
     try {
@@ -410,7 +446,7 @@ public class ResourceLeaks {
     }
   }
 
-  public void objectInputStreamClosed2() throws IOException {
+  public void objectInputStreamNotClosedBad() throws IOException {
     ObjectInputStream oin = null;
     FileInputStream fis = new FileInputStream("file.txt");
     try {
@@ -424,7 +460,7 @@ public class ResourceLeaks {
 
   // JarInputStream tests
 
-  public static void jarInputStreamNoLeak() throws IOException {
+  public static void jarInputStreamNoLeakOk() throws IOException {
     FileInputStream fos = new FileInputStream("");
     try {
       JarInputStream g = new JarInputStream(fos);
@@ -434,7 +470,7 @@ public class ResourceLeaks {
     }
   }
 
-  public static void jarInputStreamLeak() throws IOException {
+  public static void jarInputStreamLeakBad() throws IOException {
     FileInputStream fos = new FileInputStream("");
     try {
       JarInputStream g = new JarInputStream(fos); //  Testing exceptional condition in constructor
@@ -444,14 +480,14 @@ public class ResourceLeaks {
     }
   }
 
-  public static void nestedBadJarInputStream(File file) throws IOException {
+  public static void nestedJarInputStreamBad(File file) throws IOException {
     JarInputStream g = new JarInputStream(new FileInputStream(file));
     g.close();
   }
 
   // JarOutputStream tests
 
-  public static void jarOutputStreamNoLeak() throws IOException {
+  public static void jarOutputStreamNoLeakOk() throws IOException {
     FileOutputStream fos = new FileOutputStream("");
     try {
       JarOutputStream g = new JarOutputStream(fos);
@@ -461,7 +497,7 @@ public class ResourceLeaks {
     }
   }
 
-  public static void jarOutputStreamLeak() throws IOException {
+  public static void jarOutputStreamLeakBad() throws IOException {
     FileOutputStream fos = new FileOutputStream("");
     try {
       JarOutputStream g = new JarOutputStream(fos); //  Testing exceptional condition in constructor
@@ -471,30 +507,30 @@ public class ResourceLeaks {
     }
   }
 
-  public static void nestedBadJarOutputStream() throws IOException {
+  public static void nestedJarOutputStreamBad() throws IOException {
     JarOutputStream g = new JarOutputStream(new FileOutputStream("file.txt"));
     g.close();
   }
 
   // Socket tests
 
-  public void socketNotClosed() {
+  public void FN_socketNotClosedBad() {
     Socket socket = new Socket();
   }
 
-  public void socketClosed() throws IOException {
+  public void socketClosedOk() throws IOException {
     Socket socket = new Socket();
     socket.close();
   }
 
   // Socket InputStream tests
 
-  public int socketInputStreamNotClosed(Socket socket) throws IOException {
+  public int FN_socketInputStreamNotClosedBad(Socket socket) throws IOException {
     InputStream stream = socket.getInputStream();
     return stream.read();
   }
 
-  public void socketInputStreamClosed() throws IOException {
+  public void socketInputStreamClosedOk() throws IOException {
     Socket socket = new Socket();
     InputStream stream = socket.getInputStream();
     try {
@@ -506,12 +542,12 @@ public class ResourceLeaks {
 
   // Socket OutputStream tests
 
-  public void socketOutputStreamNotClosed(Socket socket) throws IOException {
+  public void FN_socketOutputStreamNotClosedBad(Socket socket) throws IOException {
     OutputStream stream = socket.getOutputStream();
     stream.write(10);
   }
 
-  public void socketOutputStreamClosed() throws IOException {
+  public void socketOutputStreamClosedOk() throws IOException {
     Socket socket = new Socket();
     OutputStream stream = socket.getOutputStream();
     try {
@@ -523,7 +559,7 @@ public class ResourceLeaks {
 
   // ServerSocket tests
 
-  public void serverSocketNotClosed() throws IOException {
+  public void FN_serverSocketNotClosedBad() throws IOException {
     ServerSocket listener = new ServerSocket(9090);
     while (true) {
       Socket socket = listener.accept();
@@ -537,12 +573,12 @@ public class ResourceLeaks {
     }
   }
 
-  public void serverSocketClosed() throws IOException {
+  public void serverSocketClosedOk() throws IOException {
     ServerSocket socket = new ServerSocket();
     socket.close();
   }
 
-  public void serverSocketWithSocketClosed() throws IOException {
+  public void serverSocketWithSocketClosedOk() throws IOException {
     ServerSocket listener = new ServerSocket(9090);
     try {
       while (true) {
@@ -561,7 +597,7 @@ public class ResourceLeaks {
 
   // HttpURLConnection
 
-  public void openHttpURLConnectionDisconnected() throws IOException {
+  public void FP_openHttpURLConnectionDisconnectedOk() throws IOException {
     String content = "TEXT";
     DataOutputStream outputStream = null;
     HttpURLConnection connection = null;
@@ -577,7 +613,7 @@ public class ResourceLeaks {
     }
   }
 
-  public void openHttpURLConnectionNotDisconnected() throws IOException {
+  public void openHttpURLConnectionNotDisconnectedBad() throws IOException {
     String content = "TEXT";
     DataOutputStream outputStream = null;
     HttpURLConnection connection = null;
@@ -588,20 +624,20 @@ public class ResourceLeaks {
     outputStream.writeBytes(content);
   }
 
-  public void openHttpsURLConnectionNotDisconnected() throws IOException {
+  public void FN_openHttpsURLConnectionNotDisconnectedBad() throws IOException {
     HttpsURLConnection connection = null;
     URL address = new URL("https://www.facebook.com");
     connection = (HttpsURLConnection) address.openConnection();
   }
 
-  public void openHttpsURLConnectionDisconnected() throws IOException {
+  public void openHttpsURLConnectionDisconnectedOk() throws IOException {
     HttpsURLConnection connection = null;
     URL address = new URL("https://www.facebook.com");
     connection = (HttpsURLConnection) address.openConnection();
     connection.disconnect();
   }
 
-  public void closedWithCloseables() throws IOException {
+  public void closedWithCloseablesOk() throws IOException {
     FileInputStream fs = new FileInputStream("file.txt");
     try {
       fs.read();
@@ -610,7 +646,7 @@ public class ResourceLeaks {
     }
   }
 
-  public void closedQuietlyWithCloseables() throws IOException {
+  public void closedQuietlyWithCloseablesOk() throws IOException {
     FileInputStream fs = new FileInputStream("file.txt");
     try {
       fs.read();
@@ -619,7 +655,7 @@ public class ResourceLeaks {
     }
   }
 
-  public void closeNullWithCloseables() throws IOException {
+  public void closeNullWithCloseablesOk() throws IOException {
     FileInputStream fs = null;
     try {
       fs = new FileInputStream("file.txt");
@@ -628,7 +664,7 @@ public class ResourceLeaks {
     }
   }
 
-  public void closeNullQuietlyWithCloseables() throws IOException {
+  public void closeNullQuietlyWithCloseablesOk() throws IOException {
     FileInputStream fs = null;
     try {
       fs = new FileInputStream("file.txt");
@@ -650,7 +686,7 @@ public class ResourceLeaks {
     }
   }
 
-  public void closeWithCloseablesNestedAlloc() throws IOException {
+  public void closeWithCloseablesNestedAllocOk() throws IOException {
     BufferedInputStream b = null;
     try {
       b = new BufferedInputStream(new FileInputStream("file.txt"));
@@ -661,7 +697,7 @@ public class ResourceLeaks {
 
   // JsonParser tests
 
-  public void parseFromStringAndNotClose(JsonFactory factory) throws IOException {
+  public void FN_parseFromStringAndNotCloseBad(JsonFactory factory) throws IOException {
     UTF8StreamJsonParser parser = null;
     try {
       parser = (UTF8StreamJsonParser) factory.createParser(new File("[]"));
@@ -672,7 +708,7 @@ public class ResourceLeaks {
     }
   }
 
-  public void parseFromInputStreamAndClose(JsonFactory factory) throws IOException {
+  public void parseFromInputStreamAndCloseOk(JsonFactory factory) throws IOException {
     JsonParser parser = null;
     FileInputStream in = null;
     try {
@@ -687,7 +723,7 @@ public class ResourceLeaks {
     // parser does not own a resources which is closed externally
   }
 
-  public void parseFromInputStreamAndLeak(JsonFactory factory) throws IOException {
+  public void FN_parseFromInputStreamAndLeakBad(JsonFactory factory) throws IOException {
     JsonParser parser = null;
     FileInputStream in = null;
     try {
@@ -708,7 +744,7 @@ public class ResourceLeaks {
   // for several reasons, so this test is just to make sure it remains
   // banished forever
 
-  private String readInstallationFileGood(File installation) throws IOException {
+  private String readInstallationFileOk(File installation) throws IOException {
     RandomAccessFile f = new RandomAccessFile(installation, "r");
     try {
       byte[] bytes = new byte[(int) f.length()];
@@ -719,7 +755,7 @@ public class ResourceLeaks {
     }
   }
 
-  private String readInstallationFileBad(File installation) throws IOException {
+  private String FN_readInstallationFileBad(File installation) throws IOException {
     RandomAccessFile f = new RandomAccessFile(installation, "r");
     byte[] bytes = new byte[(int) f.length()];
     f.readFully(bytes);
@@ -727,7 +763,7 @@ public class ResourceLeaks {
     return new String(bytes);
   }
 
-  private int readConfigCloseStream(String mTurnConfigUrl) {
+  private int readConfigCloseStreamOk(String mTurnConfigUrl) {
     try {
       URL url = new URL(mTurnConfigUrl);
       URLConnection connection = url.openConnection();
@@ -742,7 +778,7 @@ public class ResourceLeaks {
     return 0;
   }
 
-  private int readConfigNotCloseStream(String mTurnConfigUrl) {
+  private int FN_readConfigNotCloseStreamBad(String mTurnConfigUrl) {
     try {
       URL url = new URL(mTurnConfigUrl);
       URLConnection connection = url.openConnection();
@@ -753,7 +789,7 @@ public class ResourceLeaks {
     return 0;
   }
 
-  private void readConfigNotClosedOK(String mTurnConfigUrl) {
+  private void FN_readConfigNotClosedBad(String mTurnConfigUrl) {
     try {
       URL url = new URL(mTurnConfigUrl);
       URLConnection connection = url.openConnection();
@@ -764,42 +800,42 @@ public class ResourceLeaks {
 
   // TypedArray
 
-  public void themeObtainTypedArrayAndRecycle(Resources.Theme theme) {
+  public void themeObtainTypedArrayAndRecycleOk(Resources.Theme theme) {
     TypedArray array = theme.obtainStyledAttributes(new int[] {});
     ignore(array);
     array.recycle();
   }
 
-  public void themeObtainTypedArrayAndLeak(Resources.Theme theme) {
+  public void FN_themeObtainTypedArrayAndLeakBad(Resources.Theme theme) {
     TypedArray array = theme.obtainStyledAttributes(new int[] {});
     ignore(array);
   }
 
-  public void activityObtainTypedArrayAndRecycle(Activity activity) {
+  public void activityObtainTypedArrayAndRecycleOk(Activity activity) {
     TypedArray array = activity.obtainStyledAttributes(new int[] {});
     ignore(array);
     array.recycle();
   }
 
-  public void activityObtainTypedArrayAndLeak(Activity activity) {
+  public void FN_activityObtainTypedArrayAndLeakBad(Activity activity) {
     TypedArray array = activity.obtainStyledAttributes(new int[] {});
     ignore(array);
   }
 
-  public void contextObtainTypedArrayAndRecycle(Context context) {
+  public void contextObtainTypedArrayAndRecycleOk(Context context) {
     TypedArray array = context.obtainStyledAttributes(new int[] {});
     ignore(array);
     array.recycle();
   }
 
-  public void contextObtainTypedArrayAndLeak(Context context) {
+  public void FN_contextObtainTypedArrayAndLeakBad(Context context) {
     TypedArray array = context.obtainStyledAttributes(new int[] {});
     ignore(array);
   }
 
   // FileChannel
 
-  void copyFileLeak(File src, File dst) throws IOException {
+  void copyFileLeakBad(File src, File dst) throws IOException {
     FileChannel inChannel = new FileInputStream(src).getChannel();
     FileChannel outChannel = new FileOutputStream(dst).getChannel();
     try {
@@ -810,7 +846,7 @@ public class ResourceLeaks {
     }
   }
 
-  void copyFileClose(File src, File dst) throws IOException {
+  void FP_copyFileCloseOk(File src, File dst) throws IOException {
     FileChannel inChannel = new FileInputStream(src).getChannel();
     try {
       ignore(inChannel);
@@ -819,7 +855,7 @@ public class ResourceLeaks {
     }
   }
 
-  protected long checkNotNullCauseNoLeak(URL mUrl) throws IOException {
+  protected long checkNotNullCauseNoLeakOk(URL mUrl) throws IOException {
     URL url = new URL("http://www.facebook.com");
     HttpURLConnection serverConnection =
         (HttpURLConnection) Preconditions.checkNotNull(url.openConnection());
@@ -832,26 +868,26 @@ public class ResourceLeaks {
     return 0;
   }
 
-  void scannerNotClosed() throws IOException {
+  void scannerNotClosedBad() throws IOException {
     Scanner scanner = new Scanner(new FileInputStream("file.txt"));
   }
 
-  void scannerClosed() throws IOException {
+  void scannerClosedOk() throws IOException {
     Scanner scanner = new Scanner(new FileInputStream("file.txt"));
     scanner.close();
   }
 
-  void processDestroyed() {
+  void processDestroyedOk() {
     Process process = null;
     try {
       process = Runtime.getRuntime().exec("");
     } catch (IOException e) {
     } finally {
-      process.destroy();
+      process.destroy(); // NPE ?
     }
   }
 
-  void processForciblyDestroyed() throws IOException {
+  void processForciblyDestroyedOk() throws IOException {
     Process process = null;
     try {
       process = Runtime.getRuntime().exec("");
@@ -866,7 +902,7 @@ public class ResourceLeaks {
 
   native Container load(FileInputStream inputStream);
 
-  public Container resourceReturnedIndirectly() {
+  public Container resourceReturnedIndirectlyOk() {
     FileInputStream inputStream;
     Container container = null;
     try {
@@ -880,7 +916,7 @@ public class ResourceLeaks {
 
   native void unknownClose(Closeable c);
 
-  public void resourceClosedBySkippedMethod() {
+  public void resourceClosedBySkippedMethodOk() {
     FileInputStream inputStream = null;
     try {
       inputStream = new FileInputStream("pif.txt");
@@ -891,7 +927,7 @@ public class ResourceLeaks {
     }
   }
 
-  public int tryWithResource() {
+  public int tryWithResourceOk() {
     try (FileInputStream inputStream = new FileInputStream("paf.txt")) {
       return inputStream.read();
     } catch (IOException e) {
@@ -899,7 +935,7 @@ public class ResourceLeaks {
     }
   }
 
-  public InputStreamReader withCharset(URLConnection urlConnection) {
+  public InputStreamReader withCharsetOk(URLConnection urlConnection) {
     InputStreamReader reader = null;
     try {
       reader = new InputStreamReader(urlConnection.getInputStream(), "iso-8859-1");
@@ -917,32 +953,32 @@ public class ResourceLeaks {
     return reader;
   }
 
-  public void withZipFile() throws IOException {
+  public void FN_withZipFileBad() throws IOException {
     ZipFile f = new ZipFile("hi");
     InputStream s = f.getInputStream(f.getEntry("there"));
     if (s != null) s.toString();
     f.close();
   }
 
-  public void deflaterLeak() {
+  public void FN_deflaterLeakBad() {
     Deflater comp = new Deflater();
   }
 
-  public void deflaternoLeak() {
+  public void deflaternoLeakOk() {
     Deflater comp = new Deflater();
     comp.end();
   }
 
-  public void inflaterLeak() {
+  public void FN_inflaterLeakBad() {
     Inflater decomp = new Inflater();
   }
 
-  public void inflaterNoLeak() {
+  public void inflaterNoLeakOk() {
     Inflater decomp = new Inflater();
     decomp.end();
   }
 
-  void NoResourceLeakWarningAfterCheckState(File f, int x) throws IOException {
+  void NoResourceLeakWarningAfterCheckStateOk(File f, int x) throws IOException {
     InputStream stream = new FileInputStream(f);
     Preconditions.checkState(x > 0);
     stream.close();

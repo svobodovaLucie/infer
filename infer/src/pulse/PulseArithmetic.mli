@@ -19,9 +19,12 @@ val and_positive : AbstractValue.t -> AbductiveDomain.t -> AbductiveDomain.t Acc
 val and_eq_int :
   AbstractValue.t -> IntLit.t -> AbductiveDomain.t -> AbductiveDomain.t AccessResult.t
 
+val and_eq_const :
+  AbstractValue.t -> Const.t -> AbductiveDomain.t -> AbductiveDomain.t AccessResult.t
+
 type operand = PathCondition.operand =
-  | LiteralOperand of IntLit.t
   | AbstractValueOperand of AbstractValue.t
+  | ConstOperand of Const.t
   | FunctionApplicationOperand of {f: PulseFormula.function_symbol; actuals: AbstractValue.t list}
 
 val and_equal : operand -> operand -> AbductiveDomain.t -> AbductiveDomain.t AccessResult.t
@@ -60,6 +63,8 @@ val is_known_zero : AbductiveDomain.t -> AbstractValue.t -> bool
 val is_unsat_cheap : AbductiveDomain.t -> bool
 
 val has_no_assumptions : AbductiveDomain.t -> bool
+
+val and_is_int : AbstractValue.t -> AbductiveDomain.t -> AbductiveDomain.t AccessResult.t
 
 val and_equal_instanceof :
      AbstractValue.t

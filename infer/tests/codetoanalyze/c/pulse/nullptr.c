@@ -5,6 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  */
 
+#include <assert.h>
 #include <stdlib.h>
 #include <stdnoreturn.h>
 
@@ -12,6 +13,13 @@ int* malloc_no_check_bad() {
   int* p = (int*)malloc(sizeof(int));
   *p = 42;
   return p;
+}
+
+void malloc_assert_ok() {
+  int* p = (int*)malloc(sizeof(int));
+  assert(p);
+  *p = 42;
+  free(p);
 }
 
 void create_null_path_ok(int* p) {
@@ -25,7 +33,7 @@ void call_create_null_path_then_deref_unconditionally_ok(int* p) {
   *p = 52;
 }
 
-void create_null_path2_latent(int* p) {
+void create_null_path2_latent_FN(int* p) {
   int* q = NULL;
   if (p) {
     *p = 32;
@@ -37,7 +45,7 @@ void create_null_path2_latent(int* p) {
 }
 
 // combine several of the difficulties above
-void malloc_then_call_create_null_path_then_deref_unconditionally_latent(
+void malloc_then_call_create_null_path_then_deref_unconditionally_latent_FN(
     int* p) {
   int* x = (int*)malloc(sizeof(int));
   if (p) {
@@ -182,11 +190,26 @@ void FNlatent_random_modelled_bad(int y) {
   }
 }
 
-void FP_arithmetic_weakness_ok() {
+void arithmetic_weakness_ok() {
   int x = random();
   int y = random();
   if (x < y && x > y) {
     int* p = NULL;
     *p = 42;
   }
+}
+
+int* unknown_int_pointer();
+
+/* This report is currently suppressed because there is no evidence
+that p can be NULL, but since it is compared to NULL *in the same
+function* it may be worth reporting this. */
+void FNsuppressed_no_invalidation_compare_to_NULL_bad() {
+  int* p = unknown_int_pointer();
+  int x;
+  int* q = &x;
+  if (p == NULL) {
+    q = p;
+  }
+  *q = 42;
 }

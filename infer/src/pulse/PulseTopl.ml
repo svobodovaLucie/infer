@@ -43,7 +43,7 @@ let sub_value (sub, value) =
       (sub, v)
   | None ->
       let v = AbstractValue.mk_fresh () in
-      let sub = AbstractValue.Map.add value (v, ValueHistory.Epoch) sub in
+      let sub = AbstractValue.Map.add value (v, ValueHistory.epoch) sub in
       (sub, v)
 
 
@@ -179,10 +179,10 @@ end = struct
   let eliminate_exists ~keep constr =
     (* TODO(rgrigore): replace the current weak approximation *)
     let is_live_operand : PulseFormula.operand -> bool = function
-      | LiteralOperand _ ->
-          true
       | AbstractValueOperand v ->
           AbstractValue.Set.mem v keep
+      | ConstOperand _ ->
+          true
       | FunctionApplicationOperand _ ->
           true
     in
@@ -225,7 +225,10 @@ let pp_simple_state f {pre; post; pruned} =
     pp_configuration post Constraint.pp pruned
 
 
-let pp_state f = Format.fprintf f "@[<2>[ %a ]@]" (pp_comma_seq pp_simple_state)
+let pp_state f state =
+  Format.fprintf f "@[<v2>{len=%d;content=@;@[<2>[ %a ]@]}@]" (List.length state)
+    (pp_comma_seq pp_simple_state) state
+
 
 let start () =
   let mk_simple_states () =
@@ -274,7 +277,7 @@ let eval_guard memory tcontext guard : Constraint.t =
   let operand_of_value (value : ToplAst.value) : PathCondition.operand =
     match value with
     | Constant (LiteralInt x) ->
-        LiteralOperand (IntLit.of_int x)
+        ConstOperand (Cint (IntLit.of_int x))
     | Register reg ->
         AbstractValueOperand (get memory reg)
     | Binding v ->
@@ -289,7 +292,7 @@ let eval_guard memory tcontext guard : Constraint.t =
         Constraint.and_predicate (Constraint.make binop l r) pruned
     | Value v ->
         let v = operand_of_value v in
-        let one = PathCondition.LiteralOperand IntLit.one in
+        let one = PathCondition.ConstOperand (Cint IntLit.one) in
         Constraint.and_predicate (Constraint.make Binop.Ne v one) pruned
   in
   List.fold ~init:Constraint.true_ ~f:conjoin_predicate guard
@@ -354,11 +357,40 @@ let static_match_call return arguments procname label : tcontext option =
   if match_name () then match_args () else None
 
 
+module Debug = struct
+  let rec matched_transitions =
+    lazy
+      ( Epilogues.register ~f:log_unseen
+          ~description:"log which transitions never match because of their static pattern" ;
+        let automaton = Topl.automaton () in
+        let tcount = ToplAutomaton.tcount automaton in
+        Array.create ~len:tcount false )
+
+
+  and set_seen tindex = (Lazy.force matched_transitions).(tindex) <- true
+
+  and get_unseen () =
+    let f index seen = if seen then None else Some index in
+    Array.filter_mapi ~f (Lazy.force matched_transitions)
+
+
+  (** The transitions reported here *probably* have patterns that were miswrote by the user. *)
+  and log_unseen () =
+    let unseen = Array.to_list (get_unseen ()) in
+    let pp f i = ToplAutomaton.pp_tindex (Topl.automaton ()) f i in
+    if Config.trace_topl && not (List.is_empty unseen) then
+      L.user_warning "@[<v>@[<v2>The following Topl transitions never match:@;%a@]@;@]"
+        (Format.pp_print_list pp) unseen
+
+
+  let dropped_disjuncts_count = ref 0
+end
+
 (** Returns a list of transitions whose pattern matches (e.g., event type matches). Each match
     produces a tcontext (transition context), which matches transition-local variables to abstract
     values. *)
 let static_match event : (ToplAutomaton.transition * tcontext) list =
-  let match_one transition =
+  let match_one index transition =
     let f label =
       match event with
       | ArrayWrite {aw_array; aw_index} ->
@@ -368,10 +400,15 @@ let static_match event : (ToplAutomaton.transition * tcontext) list =
     in
     let tcontext_opt = Option.value_map ~default:(Some []) ~f transition.ToplAutomaton.label in
     L.d_printfln "@[<2>PulseTopl.static_match:@;transition %a@;event %a@;result %a@]"
-      ToplAutomaton.pp_transition transition pp_event event (Pp.option pp_tcontext) tcontext_opt ;
-    Option.map ~f:(fun tcontext -> (transition, tcontext)) tcontext_opt
+      (ToplAutomaton.pp_transition (Topl.automaton ()))
+      transition pp_event event (Pp.option pp_tcontext) tcontext_opt ;
+    Option.map
+      ~f:(fun tcontext ->
+        Debug.set_seen index ;
+        (transition, tcontext) )
+      tcontext_opt
   in
-  ToplAutomaton.tfilter_map (Topl.automaton ()) ~f:match_one
+  ToplAutomaton.tfilter_mapi (Topl.automaton ()) ~f:match_one
 
 
 let is_unsat_cheap path_condition pruned =
@@ -415,9 +452,12 @@ let apply_conjuncts_limit state =
 
 
 let apply_disjuncts_limit state =
-  if List.length state <= Config.topl_max_disjuncts then state
+  let old_len = List.length state in
+  if old_len <= Config.topl_max_disjuncts then state
   else
     let new_len = (Config.topl_max_disjuncts / 2) + 1 in
+    if Config.trace_topl then
+      Debug.dropped_disjuncts_count := !Debug.dropped_disjuncts_count + old_len - new_len ;
     let add_score simple_state = (Constraint.size simple_state.pruned, simple_state) in
     let compare_score (score1, _simple_state1) (score2, _simple_state2) =
       Int.compare score1 score2
@@ -430,7 +470,6 @@ let apply_disjuncts_limit state =
 let apply_limits state = state |> apply_conjuncts_limit |> apply_disjuncts_limit
 
 let small_step loc path_condition event simple_states =
-  let simple_states = apply_limits simple_states in
   let tmatches = static_match event in
   let evolve_transition (old : simple_state) (transition, tcontext) : state =
     let mk ?(memory = old.post.memory) ?(pruned = Constraint.true_) significant =
@@ -474,7 +513,7 @@ let small_step loc path_condition event simple_states =
   in
   let result = List.concat_map ~f:evolve_simple_state simple_states in
   L.d_printfln "@[<2>PulseTopl.small_step:@;%a@ -> %a@]" pp_state simple_states pp_state result ;
-  result
+  result |> apply_limits
 
 
 let of_unequal (or_unequal : 'a List.Or_unequal_lengths.t) =
@@ -501,7 +540,6 @@ let sub_simple_state (sub, {pre; post; pruned; last_step}) =
 
 
 let large_step ~call_location ~callee_proc_name ~substitution ~condition ~callee_prepost state =
-  let state = apply_limits state in
   let seq ((p : simple_state), (q : simple_state)) =
     if not (Int.equal p.post.vertex q.pre.vertex) then None
     else
@@ -522,7 +560,7 @@ let large_step ~call_location ~callee_proc_name ~substitution ~condition ~callee
                 if AbstractValue.equal old_val1 val1 then (sub, eqs)
                 else (sub, Constraint.and_predicate (mk_eq old_val1 val1) eqs)
             | None ->
-                (AbstractValue.Map.add val2 (val1, ValueHistory.Epoch) sub, eqs)
+                (AbstractValue.Map.add val2 (val1, ValueHistory.epoch) sub, eqs)
         in
         of_unequal (List.fold2 p.post.memory q.pre.memory ~init:(substitution, Constraint.true_) ~f)
       in
@@ -543,7 +581,7 @@ let large_step ~call_location ~callee_proc_name ~substitution ~condition ~callee
   let result = drop_infeasible condition new_state in
   L.d_printfln "@[<2>PulseTopl.large_step:@;callee_prepost=%a@;%a@ -> %a@]" pp_state callee_prepost
     pp_state state pp_state result ;
-  result
+  result |> apply_limits
 
 
 let filter_for_summary path_condition state = drop_infeasible ~expensive:true path_condition state

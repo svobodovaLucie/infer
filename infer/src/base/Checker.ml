@@ -16,6 +16,7 @@ type t =
   | ConfigChecksBetweenMarkers
   | ConfigImpactAnalysis
   | Cost
+  | DarcChecker
   | DeadlockChecker
   | DisjunctiveDemo
   | Eradicate
@@ -201,6 +202,17 @@ let config_unsafe checker =
       ; cli_flags= Some {deprecated= []; show_in_help= true}
       ; enabled_by_default= false
       ; activates= [BufferOverrunAnalysis; PurityAnalysis] }
+  | DarcChecker ->
+      { id= "darc"
+      ; kind=
+          UserFacing
+            { title= "Darc - Data Race Checker"
+            ; markdown_body= "Data Race Checker"}
+      ; support= supports_clang
+      ; short_documentation= "Data Race Checker"
+      ; cli_flags= Some {deprecated= []; show_in_help= true}
+      ; enabled_by_default= true
+      ; activates= [] }
   | DeadlockChecker ->
       { id= "deadlock"
       ; kind=

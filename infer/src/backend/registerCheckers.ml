@@ -122,6 +122,9 @@ let all_checkers =
              Payloads.Fields.buffer_overrun_analysis Payloads.Fields.purity Cost.checker
          in
          [(checker, Clang); (checker, Java)] ) }
+  ; { checker= DarcChecker
+    ; callbacks=
+        [ (interprocedural Payloads.Fields.darc Darc.checker, Clang ) ] }
   ; { checker= DeadlockChecker
       ; callbacks=
           (let deadlock = interprocedural Payloads.Fields.deadlock Deadlock.checker in

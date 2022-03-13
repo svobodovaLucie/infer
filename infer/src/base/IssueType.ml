@@ -741,8 +741,8 @@ let interface_not_thread_safe =
 
 let internal_error = register_hidden ~id:"Internal_error" Error Biabduction
 
-let interval_issue =
-  register ~id:"INTERVAL_CHECKER" ~enabled:true Error IntervalExperimentalChecker ~user_documentation:"Interval Checker issue."
+let darc_error =
+  register ~id:"DARC_CHECKER" ~enabled:true Error DarcChecker ~user_documentation:"Darc Checker issue."
 
 let invariant_call =
   register ~enabled:false ~id:"INVARIANT_CALL" Error LoopHoisting

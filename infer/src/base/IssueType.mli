@@ -254,7 +254,7 @@ val interface_not_thread_safe : t
 
 val internal_error : t
 
-val interval_issue : t
+val darc_error : t
 
 val invariant_call : t
 

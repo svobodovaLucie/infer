@@ -20,6 +20,7 @@ include sig
     ; config_checks_between_markers: ConfigChecksBetweenMarkers.Summary.t option
     ; config_impact_analysis: ConfigImpactAnalysis.Summary.t option
     ; cost: CostDomain.summary option
+    ; darc: DarcDomain.summary option
     ; deadlock: DeadlockDomain.summary option
     ; disjunctive_demo: DisjunctiveDemo.domain option
     ; dotnet_resource_leaks: ResourceLeakCSDomain.summary option

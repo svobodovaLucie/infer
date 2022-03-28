@@ -12,33 +12,44 @@
   (* module L = Logging *)
   module Domain = DarcDomain
 
+  type analysis_data =
+    {interproc: DarcDomain.summary InterproceduralAnalysis.t; extras : int}
+
   module TransferFunctions (CFG : ProcCfg.S) = struct
       module CFG = CFG
       module Domain = Domain
+      (* module Lockset = DarcDomain.Lockset *)
 
-      type analysis_data = DarcDomain.t InterproceduralAnalysis.t
+      type nonrec analysis_data = analysis_data
 
       (** Take an abstract state and instruction, produce a new abstract state *)
-      let exec_instr (astate : DarcDomain.t)
-          {InterproceduralAnalysis.proc_desc= _; tenv=_; analyze_dependency; _} _ _ (instr : HilInstr.t)
+      let exec_instr astate {interproc={proc_desc=_; analyze_dependency=_}; extras=_} (_cfg_node : CFG.Node.t) _idx (instr: HilInstr.t)
+          (* {InterproceduralAnalysis.proc_desc= _; tenv=_; analyze_dependency; _} _ _ (instr : HilInstr.t) *)
           =
           match instr with
           | Call (_return_opt, Direct callee_procname, _actuals, _, loc) -> (
               if (phys_equal (String.compare (Procname.to_string callee_procname) "printf") 0) then
               (
-                  F.printf "PrintChecker: Print function call %s at line %a\n"
+                  F.printf "DarcChecker: Print function call %s at line %a\n"
                            (Procname.to_string callee_procname) Location.pp loc;
-                  Domain.inc astate
+                  astate
               )
+              (*
               else
                   match analyze_dependency callee_procname with
                   | Some (_callee_proc_desc, callee_summary) ->
                       Domain.apply_summary ~summary:callee_summary astate
                   | None ->
                       astate
-              )
+              *)
+              else (astate)
+            )
+
           | _ ->
-              astate
+                  F.printf "DarcChecker: Another something function than printf call\n";
+                  astate
+
+
 
           let pp_session_name _node fmt = F.pp_print_string fmt "darc" (* checker name in the debug html *)
   end
@@ -51,20 +62,16 @@
   module Analyzer = LowerHil.MakeAbstractInterpreter (TransferFunctions (CFG))
 
   let report_if_printf {InterproceduralAnalysis.proc_desc; err_log; _} post =
-      if Domain.has_printf post then
-          let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
-          let message = F.asprintf "Number of printf: %a in Data Race Checker\n" DarcDomain.pp post in
-          Reporting.log_issue proc_desc err_log ~loc:last_loc DarcChecker IssueType.darc_error message;;
+    let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
+    let message = F.asprintf "Number of printf: %a in Data Race Checker\n" DarcDomain.pp post in
+    Reporting.log_issue proc_desc err_log ~loc:last_loc DarcChecker IssueType.darc_error message;;
 
   (** Main function into the checker--registered in RegisterCheckers *)
-  let checker ({InterproceduralAnalysis.proc_desc; tenv=_} as analysis_data) =
+  let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc) =
+      let data = {interproc; extras = 0} in
       F.printf "Hello from Darc Checker.\n";
-      let _convert_to_summary (post : Domain.astate) : Domain.summary =
-          post
-      in
-      let _extras = FormalMap.make proc_desc in
       F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s START >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
-      let result = Analyzer.compute_post analysis_data ~initial:DarcDomain.initial proc_desc in
-          Option.iter result ~f:(fun post -> report_if_printf analysis_data post);
+      let result = Analyzer.compute_post data ~initial:DarcDomain.empty proc_desc in
+          Option.iter result ~f:(fun post -> report_if_printf interproc post);
       F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
       result

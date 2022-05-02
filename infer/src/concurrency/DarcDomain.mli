@@ -16,6 +16,10 @@ val empty : t
 
 val acquire : AccessPath.t -> t -> Location.t -> Procname.t -> t
 
+val release : AccessPath.t -> t -> Location.t -> Procname.t -> t
+
+val assign_expr : HilExp.AccessExpression.t -> t -> Location.t -> t
+
 val integrate_summary : t -> Procname.t -> Procname.t -> t
 (*
 val inc : t -> t

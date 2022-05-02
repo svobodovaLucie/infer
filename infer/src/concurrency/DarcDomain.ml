@@ -11,21 +11,60 @@ module F = Format
 module LockEvent = DeadlockDomain.LockEvent
 module Lockset = DeadlockDomain.Lockset
 
+(*
+module AccessType = struct
+  type t =
+    | Read of {exp: AccessExpression.t}
+    | Write of {exp: AccessExpression.t}
+    (* maybe add another later *)
+
+  let pp fmt = function
+    | Read {exp} ->
+        F.fprintf fmt "Read of %a" AccessExpression.pp exp
+    | Write {exp} ->
+        F.fprintf fmt "Write to %a" AccessExpression.pp exp
+    | _ -> F.printf "Another type of access\n"
+
+end
+*)
+
+module Accesses = AbstractDomain.FiniteSet(HilExp.AccessExpression)
+
+(*
+module AccessEvent = struct
+  (* type as n-tuple or set with names? *)
+  type t =
+  {
+    access_path: Accesses.t;
+    loc: Location.t
+     (* * type, locks, locks_un, threads_active, thread *)
+  }
+
+  let pp fmt ((((_,_), _) as access), loc) =
+    F.fprintf fmt "access %a on %a" AccessPath.pp access Location.pp loc;
+end
+
+module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
+*)
+(* module Accesses = AbstractDomain.FiniteSet(HilExp.AccessExpression) *)
+
 type t =
 {
+  access: Accesses.t;
   lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
   some_int: int  (* experiment *)
 }
 
 let empty =
 {
+  access = Accesses.empty; (*HilExp.AccessExpression.bottom; *)
   lockset = Lockset.empty;
   some_int = 0
 }
 
 (* let acquire lockid astate loc _extras pname = *)
 let acquire lockid astate loc pname =
-  F.printf "pname = %a in Darc\n" Procname.pp pname;
+  F.printf "acquire: pname = %a in Darc\n" Procname.pp pname;
   let lock : LockEvent.t = (lockid, loc) in
   let new_astate : t =
     let lockset =
@@ -33,7 +72,21 @@ let acquire lockid astate loc pname =
     in
     let some_int = astate.some_int + 1
     in
-    { lockset; some_int }
+    { astate with lockset; some_int }
+  in
+  new_astate
+
+let release _lockid astate _loc pname =
+  F.printf "release: pname = %a in Darc\n" Procname.pp pname;
+  (* let lock : LockEvent.t = (lockid, loc) in *)
+  let new_astate : t =
+    let lockset =
+      (* Lockset.remove lock astate.lockset *)
+      astate.lockset
+    in
+    let some_int = astate.some_int + 1
+    in
+    { astate with lockset; some_int }
   in
   new_astate
 (*
@@ -41,11 +94,18 @@ let inc astate =
   {astate.lockset; astate.some_int + 1}
 *)
 (* let integrate_summary astate _callee_pname _loc _callee_summary _callee_formals _actuals _caller_pname = *)
+
+let assign_expr expr astate _loc =
+  F.printf "Inside assign_expr in Domain\n";
+  let var = Accesses.add expr astate.access in
+  {astate with access = var;}
+
 let integrate_summary astate callee_pname caller_pname =
   F.printf "lockset=%a in Darc\n" Lockset.pp astate.lockset;
   F.printf "callee_pname=%a in Darc\n" Procname.pp callee_pname;
   F.printf "caller_pname=%a in Darc\n" Procname.pp caller_pname;
   astate
+
   (* replace formals with actuals...
   let formal_to_access_path : Mangled.t * Typ.t -> AccessPath.t = fun (name, typ) ->
     let pvar = Pvar.mk name callee_pname in
@@ -75,9 +135,10 @@ let leq ~lhs ~rhs = (<=) ~lhs ~rhs
 
 let join astate1 astate2 =
   let new_astate : t =
+    let access = Accesses.union astate1.access astate2.access in
     let lockset = Lockset.union astate1.lockset astate2.lockset in
     let some_int = astate1.some_int + astate2.some_int in
-    { lockset; some_int }
+    { access; lockset; some_int }
   in
   new_astate
 
@@ -86,6 +147,7 @@ let widen ~prev ~next ~num_iters:_ =
 
 let pp : F.formatter -> t -> unit =
   fun fmt astate ->
+    F.fprintf fmt "access=%a\n" Accesses.pp astate.access;
     F.fprintf fmt "lockset=%a\n" Lockset.pp astate.lockset;
     F.fprintf fmt "some_int=%d\n" astate.some_int;
 

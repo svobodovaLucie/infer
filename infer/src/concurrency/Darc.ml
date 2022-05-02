@@ -15,6 +15,22 @@
   type analysis_data =
     {interproc: DarcDomain.summary InterproceduralAnalysis.t; extras : int}
 
+  let assign_expr lhs_access_expr rhs_expr loc {interproc={tenv=_}; extras=_} (astate : Domain.t) =
+    F.printf "Access lhs: %a at line %a\n" HilExp.AccessExpression.pp lhs_access_expr Location.pp loc;
+    let new_astate = Domain.assign_expr lhs_access_expr astate loc in
+    let rhs_access_expr = HilExp.get_access_exprs rhs_expr in
+    let rhs_access_expr_first = List.hd rhs_access_expr in
+    match rhs_access_expr_first with
+    | Some rhs_access_expr_first ->
+        F.printf "Access rhs_first: %a\n" HilExp.AccessExpression.pp rhs_access_expr_first;
+        astate
+    | None -> F.printf "Access rhs_first: None on loc %a\n" Location.pp loc;
+    new_astate
+
+
+    (*    astate *)
+
+
   module TransferFunctions (CFG : ProcCfg.S) = struct
       module CFG = CFG
       module Domain = Domain
@@ -23,17 +39,73 @@
       type nonrec analysis_data = analysis_data
 
       (** Take an abstract state and instruction, produce a new abstract state *)
-      let exec_instr astate {interproc={proc_desc=_; analyze_dependency=_}; extras=_} (_cfg_node : CFG.Node.t) _idx (instr: HilInstr.t)
+      let exec_instr astate ({interproc={proc_desc; analyze_dependency=_}; extras=_} as analysis_data) (_cfg_node : CFG.Node.t) _idx (instr: HilInstr.t)
           (* {InterproceduralAnalysis.proc_desc= _; tenv=_; analyze_dependency; _} _ _ (instr : HilInstr.t) *)
           =
+          let pname = Procdesc.get_proc_name proc_desc
+              in
+              (* l1 + l2 / l3 -> [l1] *)
+              let get_path actuals =
+                List.hd actuals |> Option.value_map ~default:[] ~f:HilExp.get_access_exprs |> List.hd
+                |> Option.map ~f:HilExp.AccessExpression.to_access_path
+              in
           match instr with
-          | Call (_return_opt, Direct callee_procname, _actuals, _, loc) -> (
-              if (phys_equal (String.compare (Procname.to_string callee_procname) "printf") 0) then
+          | Call (_return_opt, Direct callee_pname, actuals, _, loc) -> (
+              if (phys_equal (String.compare (Procname.to_string callee_pname) "printf") 0) then
               (
                   F.printf "DarcChecker: Print function call %s at line %a\n"
-                           (Procname.to_string callee_procname) Location.pp loc;
+                           (Procname.to_string callee_pname) Location.pp loc;
                   astate
-              )
+              ) else (
+              (* LOCKS *)
+              match ConcurrencyModels.get_lock_effect callee_pname actuals with
+                    | Lock _ ->
+                      (
+                      (* lock(l1) *)
+
+                      F.printf "Function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
+                      F.printf "lock at line %a\n" Location.pp loc;
+
+                      get_path actuals
+                      |> Option.value_map ~default:astate ~f:(fun path -> Domain.acquire path astate loc (* extras *) pname)
+                      )
+                    | Unlock _ ->
+                      (
+                      F.printf "Function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
+                      F.printf "unlock at line %a\n" Location.pp loc;
+
+                      get_path actuals
+                      |> Option.value_map ~default:astate ~f:(fun path -> Domain.release path astate loc (* extras *) pname)
+                    (* TODO try_lock *)
+                      )
+                      (*
+                    | LockedIfTrue _ ->
+                        astate
+                    (* User function call *)
+                    | NoEffect ->
+                      F.printf "User defined function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
+                      astate
+                      (*
+                      |> Option.value_map ~default:(astate) ~f:(fun (_, summary) ->
+                        let callee_formals =
+                          match AnalysisCallbacks.proc_resolve_attributes callee_pname with
+                          | Some callee_attr -> callee_attr.ProcAttributes.formals
+                          | None -> []
+                        in
+                        Domain.integrate_summary astate callee_pname loc summary callee_formals actuals pname
+                      )
+                      *)
+                      *)
+                   | NoEffect ->
+                       F.printf "User defined function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
+                       astate
+                   | _ ->
+                       F.printf "Function that probably should not be here %a at line %a\n" Procname.pp callee_pname Location.pp loc;
+                       astate
+                       (* assert(false) *)
+                  )
+                  )
+              (* END LOCKS *)
               (*
               else
                   match analyze_dependency callee_procname with
@@ -42,14 +114,16 @@
                   | None ->
                       astate
               *)
-              else (astate)
-            )
+              (* else (astate) *)
+            (* ) *)
 
+          | Assign (lhs_access_expr, rhs_exp, loc) ->
+              assign_expr lhs_access_expr rhs_exp loc analysis_data astate
           | _ ->
+            (
                   F.printf "DarcChecker: Another something function than printf call\n";
                   astate
-
-
+            )
 
           let pp_session_name _node fmt = F.pp_print_string fmt "darc" (* checker name in the debug html *)
   end

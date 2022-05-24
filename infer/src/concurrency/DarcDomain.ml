@@ -28,36 +28,50 @@ module AccessType = struct
 end
 *)
 
-module Accesses = AbstractDomain.FiniteSet(HilExp.AccessExpression)
+(* module Accesses = AbstractDomain.FiniteSet(HilExp.AccessExpression) *)
 
-(*
+
 module AccessEvent = struct
   (* type as n-tuple or set with names? *)
   type t =
-  {
-    access_path: Accesses.t;
-    loc: Location.t
+    AccessPath.t * Location.t
+    (* Accesses.t * Location.t *)
      (* * type, locks, locks_un, threads_active, thread *)
-  }
+  (* locks etc. make as lists *)
+      (* AccessPath.t = base * access list *)
+  let compare (((base, aclist) as lock), _) ((((base'), aclist') as lock' ), _) =
+    if phys_equal lock lock' then 0
+    else begin
+      let res = AccessPath.compare_base base base' in
+      if not (Int.equal res 0) then res
+      else
+        List.compare AccessPath.compare_access aclist aclist'
+    end
+
+  let _equal lock lock' = Int.equal 0 (compare lock lock')
+
+  let _hash (lock, _) = Hashtbl.hash lock
 
   let pp fmt ((((_,_), _) as access), loc) =
     F.fprintf fmt "access %a on %a" AccessPath.pp access Location.pp loc;
 end
 
 module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
-*)
+
 (* module Accesses = AbstractDomain.FiniteSet(HilExp.AccessExpression) *)
 
 type t =
 {
-  access: Accesses.t;
+  sth: AccessSet.t;
+  (* access: Accesses.t; *)
   lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
   some_int: int  (* experiment *)
 }
 
 let empty =
 {
-  access = Accesses.empty; (*HilExp.AccessExpression.bottom; *)
+  sth = AccessSet.empty;
+  (* access = Accesses.empty; (*HilExp.AccessExpression.bottom; *) *)
   lockset = Lockset.empty;
   some_int = 0
 }
@@ -95,16 +109,80 @@ let inc astate =
 *)
 (* let integrate_summary astate _callee_pname _loc _callee_summary _callee_formals _actuals _caller_pname = *)
 
-let assign_expr expr astate _loc =
+let assign_expr expr astate loc =
   F.printf "Inside assign_expr in Domain\n";
-  let var = Accesses.add expr astate.access in
-  {astate with access = var;}
+  (* )let var = Accesses.add expr astate.access in *)
+  let blah = AccessSet.add (expr, loc) astate.sth in
+  {astate with sth = blah;}
 
-let integrate_summary astate callee_pname caller_pname =
+let join astate1 astate2 =
+  let new_astate : t =
+    let sth = AccessSet.union astate1.sth astate2.sth in
+    (* let access = Accesses.union astate1.access astate2.access in *)
+    let lockset = Lockset.union astate1.lockset astate2.lockset in
+    let some_int = astate1.some_int + astate2.some_int in
+    { sth; (* access; *) lockset; some_int }
+  in
+  new_astate
+
+let integrate_summary astate callee_pname loc callee_summary callee_formals actuals caller_pname =
+  F.printf "===================\n";
+  F.printf "access=%a in Darc\n" AccessSet.pp astate.sth;
+  F.printf "loc=%a in Darc\n" Location.pp loc;
   F.printf "lockset=%a in Darc\n" Lockset.pp astate.lockset;
   F.printf "callee_pname=%a in Darc\n" Procname.pp callee_pname;
   F.printf "caller_pname=%a in Darc\n" Procname.pp caller_pname;
-  astate
+  (*
+  let first_actual = List.hd actuals in
+  F.printf "first_actual=%a in Darc\n" AccessPath.pp first_actual;
+  let first_formal = List.hd callee_formals in
+  F.printf "first_formal=%a in Darc\n" AccessPath.pp first_formal;
+  *)
+  F.printf "===================\n";
+
+
+  let formal_to_access_path : Mangled.t * Typ.t -> AccessPath.t = fun (name, typ) ->
+        let pvar = Pvar.mk name callee_pname in
+        AccessPath.base_of_pvar pvar typ, []
+      in
+  let get_corresponding_actual formal =
+        let rec find x lst =
+          match lst with
+          | [] -> -1
+          | h :: t -> if AccessPath.equal x (formal_to_access_path h) then 0 else 1 + find x t
+        in
+        List.nth actuals (find formal callee_formals)
+        |> Option.value_map ~default:[] ~f:HilExp.get_access_exprs
+        |> List.hd |> Option.map ~f:HilExp.AccessExpression.to_access_path
+      in
+
+      let replace_formals_with_actuals summary_set formal =
+        let replace_basis ((summary_element, loc) as le) =
+            if AccessPath.is_prefix (formal_to_access_path formal) summary_element then begin
+              let actual = get_corresponding_actual (formal_to_access_path formal) in
+              (* create an element with base of acutal and acl of summ_element*)
+              match actual with
+              | Some a ->
+                  let new_element = (AccessPath.append a (snd summary_element), loc) in
+                  new_element
+              | None ->
+                  le
+            end
+            else le
+        in
+        Lockset.map replace_basis summary_set
+      in
+    let summary_lockset =
+      List.fold callee_formals ~init:callee_summary.lockset ~f:replace_formals_with_actuals in
+    (*
+    let acc =
+      List.fold callee_formals ~init:callee_summary.unlockset ~f:replace_formals_with_actuals in
+    *)
+  let new_lockset =
+    Lockset.fold (fun elem acc -> Lockset.add elem acc) summary_lockset astate.lockset
+  in
+  let _joinos = join astate callee_summary in
+  { astate with lockset=new_lockset}
 
   (* replace formals with actuals...
   let formal_to_access_path : Mangled.t * Typ.t -> AccessPath.t = fun (name, typ) ->
@@ -135,10 +213,11 @@ let leq ~lhs ~rhs = (<=) ~lhs ~rhs
 
 let join astate1 astate2 =
   let new_astate : t =
-    let access = Accesses.union astate1.access astate2.access in
+    let sth = AccessSet.union astate1.sth astate2.sth in
+    (* let access = Accesses.union astate1.access astate2.access in *)
     let lockset = Lockset.union astate1.lockset astate2.lockset in
     let some_int = astate1.some_int + astate2.some_int in
-    { access; lockset; some_int }
+    { sth; (* access; *) lockset; some_int }
   in
   new_astate
 
@@ -147,7 +226,8 @@ let widen ~prev ~next ~num_iters:_ =
 
 let pp : F.formatter -> t -> unit =
   fun fmt astate ->
-    F.fprintf fmt "access=%a\n" Accesses.pp astate.access;
+    F.fprintf fmt "sth=%a\n" AccessSet.pp astate.sth;
+    (* F.fprintf fmt "access=%a\n" Accesses.pp astate.access; *)
     F.fprintf fmt "lockset=%a\n" Lockset.pp astate.lockset;
     F.fprintf fmt "some_int=%d\n" astate.some_int;
 

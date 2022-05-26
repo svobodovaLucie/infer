@@ -12,13 +12,11 @@ module LockEvent = DeadlockDomain.LockEvent
 module Lockset = DeadlockDomain.Lockset
 
 module AccessEvent = struct
-  (* type t =
-    AccessPath.t * Location.t *)
   type t =
   {
     var: AccessPath.t;
     loc: Location.t;
-    (* access_wr: Boolean.t; *)
+    access_type: String.t;
     locked: Lockset.t;
     unlocked: Lockset.t
   }
@@ -33,19 +31,15 @@ module AccessEvent = struct
         List.compare AccessPath.compare_access aclist aclist'
     end
   *)
-  let compare _t1 _t2 = 0
-
-  let _equal lock lock' = Int.equal 0 (compare lock lock')
-
-  (* let _hash (lock, _) = Hashtbl.hash lock *)
+  (* TODO how to compare accesses? is it necessary? *)
+  let compare _t1 _t2 = 1
+  let _equal t1 t2 = Int.equal 0 (compare t1 t2)
   let _hash t1 = Hashtbl.hash t1.loc
 
-  (*
-  let pp fmt ((((_,_), _) as access), loc) =
-    F.fprintf fmt "access %a on %a" AccessPath.pp access Location.pp loc;
-  *)
   let pp fmt t1 =
-    F.fprintf fmt "var %a on %a" AccessPath.pp t1.var Location.pp t1.loc;
+    F.fprintf fmt "{%a, %a, %s,\n            locked=%a,\n            unlocked=%a"
+      AccessPath.pp t1.var Location.pp t1.loc t1.access_type Lockset.pp t1.locked
+      Lockset.pp t1.unlocked;
 end
 
 module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
@@ -85,13 +79,16 @@ let release _lockid astate _loc pname =
   in
   new_astate
 
-(* FIXME var is any expreasion now (n$7 etc.) *)
+(* TODO function for read_expression -> initial access_type is rd *)
+
+(* FIXME var is any expression now (n$7 etc.) *)
 let assign_expr var astate loc =
   F.printf "Inside assign_expr in Domain\n";
   let new_access : AccessEvent.t =
+    let access_type = "wr" in
     let locked = Lockset.empty in
     let unlocked = Lockset.empty in
-    { var; loc; locked; unlocked; }
+    { var; loc; access_type; locked; unlocked; }
   in
   let accesses = AccessSet.add new_access astate.accesses in
   {astate with accesses;}
@@ -176,8 +173,8 @@ let widen ~prev ~next ~num_iters:_ =
 
 let pp : F.formatter -> t -> unit =
   fun fmt astate ->
-    F.fprintf fmt "accesses=%a\n" AccessSet.pp astate.accesses;
-    F.fprintf fmt "lockset=%a\n" Lockset.pp astate.lockset;
-    F.fprintf fmt "unlockset=%a\n" Lockset.pp astate.unlockset;
+    F.fprintf fmt "\naccesses=%a" AccessSet.pp astate.accesses;
+    F.fprintf fmt "\nlockset=%a" Lockset.pp astate.lockset;
+    F.fprintf fmt "\nunlockset=%a" Lockset.pp astate.unlockset;
 
 type summary = t

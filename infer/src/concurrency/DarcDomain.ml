@@ -12,9 +12,18 @@ module LockEvent = DeadlockDomain.LockEvent
 module Lockset = DeadlockDomain.Lockset
 
 module AccessEvent = struct
+  (* type t =
+    AccessPath.t * Location.t *)
   type t =
-    AccessPath.t * Location.t
+  {
+    var: AccessPath.t;
+    loc: Location.t;
+    (* access_wr: Boolean.t; *)
+    locked: Lockset.t;
+    unlocked: Lockset.t
+  }
 
+  (*
   let compare (((base, aclist) as lock), _) ((((base'), aclist') as lock' ), _) =
     if phys_equal lock lock' then 0
     else begin
@@ -23,13 +32,20 @@ module AccessEvent = struct
       else
         List.compare AccessPath.compare_access aclist aclist'
     end
+  *)
+  let compare _t1 _t2 = 0
 
   let _equal lock lock' = Int.equal 0 (compare lock lock')
 
-  let _hash (lock, _) = Hashtbl.hash lock
+  (* let _hash (lock, _) = Hashtbl.hash lock *)
+  let _hash t1 = Hashtbl.hash t1.loc
 
+  (*
   let pp fmt ((((_,_), _) as access), loc) =
     F.fprintf fmt "access %a on %a" AccessPath.pp access Location.pp loc;
+  *)
+  let pp fmt t1 =
+    F.fprintf fmt "var %a on %a" AccessPath.pp t1.var Location.pp t1.loc;
 end
 
 module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
@@ -69,10 +85,16 @@ let release _lockid astate _loc pname =
   in
   new_astate
 
-let assign_expr expr astate loc =
+(* FIXME var is any expreasion now (n$7 etc.) *)
+let assign_expr var astate loc =
   F.printf "Inside assign_expr in Domain\n";
-  let new_accesses = AccessSet.add (expr, loc) astate.accesses in
-  {astate with accesses = new_accesses;}
+  let new_access : AccessEvent.t =
+    let locked = Lockset.empty in
+    let unlocked = Lockset.empty in
+    { var; loc; locked; unlocked; }
+  in
+  let accesses = AccessSet.add new_access astate.accesses in
+  {astate with accesses;}
 
 let _join astate1 astate2 =
   let new_astate : t =

@@ -18,22 +18,8 @@ val acquire : AccessPath.t -> t -> Location.t -> Procname.t -> t
 
 val release : AccessPath.t -> t -> Location.t -> Procname.t -> t
 
-(* val assign_expr : HilExp.AccessExpression.t -> t -> Location.t -> t *)
-(* val assign_expr : HilExp.access_expression -> t -> Location.t -> t *)
 val assign_expr : AccessPath.t -> t -> Location.t -> t
 
 val integrate_summary : t -> Procname.t -> Location.t -> t -> (Mangled.t * IR.Typ.t) list -> HilExp.t list -> Procname.t -> t
-(*
-val inc : t -> t
-*)
-type summary = t
-
-
-(* type astate = t
-
-val has_printf : t -> bool
-
-val apply_summary : summary : t -> t -> t
 
 type summary = t
-*)

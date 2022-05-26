@@ -31,13 +31,11 @@
   module TransferFunctions (CFG : ProcCfg.S) = struct
       module CFG = CFG
       module Domain = Domain
-      (* module Lockset = DarcDomain.Lockset *)
 
       type nonrec analysis_data = analysis_data
 
       (** Take an abstract state and instruction, produce a new abstract state *)
       let exec_instr astate ({interproc={proc_desc; analyze_dependency}; extras=_} as analysis_data) (_cfg_node : CFG.Node.t) _idx (instr: HilInstr.t)
-          (* {InterproceduralAnalysis.proc_desc= _; tenv=_; analyze_dependency; _} _ _ (instr : HilInstr.t) *)
           =
           let pname = Procdesc.get_proc_name proc_desc
               in
@@ -135,24 +133,6 @@
                       |> Option.value_map ~default:astate ~f:(fun path -> Domain.release path astate loc (* extras *) pname)
                     (* TODO try_lock *)
                       )
-                      (*
-                    | LockedIfTrue _ ->
-                        astate
-                    (* User function call *)
-                    | NoEffect ->
-                      F.printf "User defined function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
-                      astate
-                      (*
-                      |> Option.value_map ~default:(astate) ~f:(fun (_, summary) ->
-                        let callee_formals =
-                          match AnalysisCallbacks.proc_resolve_attributes callee_pname with
-                          | Some callee_attr -> callee_attr.ProcAttributes.formals
-                          | None -> []
-                        in
-                        Domain.integrate_summary astate callee_pname loc summary callee_formals actuals pname
-                      )
-                      *)
-                      *)
                    | NoEffect ->
                        F.printf "User defined function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
                        analyze_dependency callee_pname
@@ -163,7 +143,6 @@
                            | None -> []
                          in
                          Domain.integrate_summary astate callee_pname loc summary callee_formals actuals pname
-                         (* Domain.integrate_summary astate callee_pname loc summary pname *)
                        )
                    | _ ->
                        F.printf "Function that probably should not be here %a at line %a\n" Procname.pp callee_pname Location.pp loc;
@@ -172,17 +151,6 @@
                   )
                   )
               (* END LOCKS *)
-              (*
-              else
-                  match analyze_dependency callee_procname with
-                  | Some (_callee_proc_desc, callee_summary) ->
-                      Domain.apply_summary ~summary:callee_summary astate
-                  | None ->
-                      astate
-              *)
-              (* else (astate) *)
-            (* ) *)
-
           | Assign (lhs_access_expr, rhs_exp, loc) ->
               assign_expr lhs_access_expr rhs_exp loc analysis_data astate
           | _ ->

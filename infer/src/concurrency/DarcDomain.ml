@@ -11,6 +11,30 @@ module F = Format
 module LockEvent = DeadlockDomain.LockEvent
 module Lockset = DeadlockDomain.Lockset
 
+module Thread = struct
+  type t = (AccessPath.t * Location.t)
+
+  (* FIXME how to compare threads *)
+  let compare ((base, aclist) as th, loc) ((base', aclist') as th', loc') =
+    let result_th =
+      if phys_equal th th' then 0
+      else begin
+        let res = AccessPath.compare_base base base' in
+        if not (Int.equal res 0) then res
+        else
+          List.compare AccessPath.compare_access aclist aclist'
+      end
+    in
+    let result_loc = Location.compare loc loc'
+    in
+    if (result_th + result_loc > 0) then 1 else 0
+
+  let pp fmt (th, loc) =
+    F.fprintf fmt "%a on %a" AccessPath.pp th Location.pp loc;
+end
+
+module ThreadSet = AbstractDomain.FiniteSet(Thread)
+
 module AccessEvent = struct
   type t =
   {
@@ -18,7 +42,9 @@ module AccessEvent = struct
     loc: Location.t;
     access_type: String.t;
     locked: Lockset.t;
-    unlocked: Lockset.t
+    unlocked: Lockset.t;
+    threads_active: ThreadSet.t;
+    thread: ThreadSet.t;
   }
 
   (*
@@ -37,9 +63,10 @@ module AccessEvent = struct
   let _hash t1 = Hashtbl.hash t1.loc
 
   let pp fmt t1 =
-    F.fprintf fmt "{%a, %a, %s,\n            locked=%a,\n            unlocked=%a"
+    F.fprintf fmt "{%a, %a, %s,\n            locked=%a,\n            unlocked=%a,\n
+                threads_active=%a\n on thread %a"
       AccessPath.pp t1.var Location.pp t1.loc t1.access_type Lockset.pp t1.locked
-      Lockset.pp t1.unlocked;
+      Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active ThreadSet.pp t1.thread;
 end
 
 module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
@@ -88,10 +115,16 @@ let assign_expr var astate loc =
     let access_type = "wr" in
     let locked = Lockset.empty in
     let unlocked = Lockset.empty in
-    { var; loc; access_type; locked; unlocked; }
+    let threads_active = ThreadSet.empty in
+    let thread = ThreadSet.empty in
+    { var; loc; access_type; locked; unlocked; threads_active; thread }
   in
   let accesses = AccessSet.add new_access astate.accesses in
   {astate with accesses;}
+
+(* TODO *)
+let add_thread _thread astate =
+  astate
 
 let _join astate1 astate2 =
   let new_astate : t =

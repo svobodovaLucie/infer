@@ -71,6 +71,44 @@
                   print_raw 1;
                   print_raw 2;
                   print_raw 3;
+                  (* TODO add thread to the astate.thread and to threads_active *)
+                  (* returns new thread *)
+                  let _new_thread : (AccessPath.t * Location.t) = (
+                    match List.nth actuals 0 with
+                    | Some th ->
+                    (
+                      match th with
+                      | AccessExpression ae ->
+                          F.printf "YEAH %a ---------------------\n" HilExp.AccessExpression.pp ae;
+                          (* )F.printf "YEAH %a ---------------------\n" AccessPath.pp th_access_path; *)
+
+                          let th_access_path = HilExp.AccessExpression.to_access_path ae in
+                          (th_access_path, loc)
+
+                      | _ -> F.printf "NAAAH ----------------\n"; assert false
+                    )
+                    | None -> assert false
+                  )
+                  in
+                  (*
+                  let new_threadset
+                  let get_thread actuals =
+                    let thread = ThreadSet.empty in
+                    match List.nth actuals 0 with
+                      | Some th ->
+                      (
+                        (* add to threads_active *)
+                        let th_access_path = HilExp.to_access_path th in
+                        let new_thread = (th, loc) in
+                        ThreadSet.add new_thread thread
+                      )
+                      | None -> thread
+                  in
+                  *)
+                  (* add thread to active threads *)
+                  (* Domain.ThreadSet.add new_thread astate.threads_active;
+                  in *)
+                  (* )Domain.add_thread new_thread astate in )*)
                   (* analyze dependency - 3rd argument *)
                   match List.nth actuals 2 with
                       | Some pname_act ->
@@ -85,6 +123,7 @@
                                           (* analyze the dependency on demand *)
                                           analyze_dependency f
                                           (* converting actuals to formals - FIXME will be different in this case - argument is the 4th param of pthread_create() *)
+                                          (* TODO add new_thread to the thread in each record in callee_summary.accesses *)
                                           |> Option.value_map ~default:(astate) ~f:(fun (_, summary) ->
                                               let callee_formals =
                                                   match AnalysisCallbacks.proc_resolve_attributes f with

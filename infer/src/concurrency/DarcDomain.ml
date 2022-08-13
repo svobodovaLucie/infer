@@ -78,13 +78,16 @@ module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
 
 type t =
 {
+  threads_active: ThreadSet.t;
   accesses: AccessSet.t;
   lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
   unlockset: Lockset.t
+  (* vars_declared: Access Paths sth... *)
 }
 
 let empty =
 {
+  threads_active = ThreadSet.empty;
   accesses = AccessSet.empty;
   lockset = Lockset.empty;
   unlockset = Lockset.empty
@@ -137,15 +140,6 @@ let add_thread astate =
 let remove_thread astate = 
   F.printf "Removing the thread...\n";
   astate
-
-let _join astate1 astate2 =
-  let new_astate : t =
-    let accesses : AccessSet.t = AccessSet.union astate1.accesses astate2.accesses in
-    let lockset = Lockset.union astate1.lockset astate2.lockset in
-    let unlockset = Lockset.union astate1.unlockset astate2.unlockset in
-    { accesses; lockset; unlockset }
-  in
-  new_astate
 
 let integrate_summary astate callee_pname loc _callee_summary _callee_formals _actuals caller_pname =
   F.printf "========= integrating summary... ==========\n";
@@ -206,10 +200,11 @@ let leq ~lhs ~rhs = (<=) ~lhs ~rhs
 
 let join astate1 astate2 =
   let new_astate : t =
+    let threads_active = ThreadSet.union astate1.threads_active astate2.threads_active in
     let accesses = AccessSet.union astate1.accesses astate2.accesses in
     let lockset = Lockset.union astate1.lockset astate2.lockset in
     let unlockset = Lockset.union astate1.unlockset astate2.unlockset in
-    { accesses; lockset; unlockset }
+    { threads_active; accesses; lockset; unlockset }
   in
   new_astate
 
@@ -218,8 +213,10 @@ let widen ~prev ~next ~num_iters:_ =
 
 let pp : F.formatter -> t -> unit =
   fun fmt astate ->
+    F.fprintf fmt "\nthreads_active=%a" ThreadSet.pp astate.threads_active;
     F.fprintf fmt "\naccesses=%a" AccessSet.pp astate.accesses;
     F.fprintf fmt "\nlockset=%a" Lockset.pp astate.lockset;
     F.fprintf fmt "\nunlockset=%a" Lockset.pp astate.unlockset;
 
+(* TODO: summary: lockset, unlockset, accesses *)
 type summary = t

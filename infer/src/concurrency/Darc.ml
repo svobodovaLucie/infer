@@ -49,7 +49,7 @@
               (* pthread_create(thread, retval, start_routine, args) *)
               if (phys_equal (String.compare (Procname.to_string callee_pname) "pthread_create") 0) then
               (
-                  F.printf "DarcChecker: Pthread_create function call %s at line %a\n"
+                  F.printf "DarcChecker: Pthread_create function call %s at %a\n"
                            (Procname.to_string callee_pname) Location.pp loc;
                   (* print actuals function *)
                   let print_raw num : unit = (
@@ -119,9 +119,13 @@
                                   match c with
                                       | Cfun f ->
                                           F.printf "pname_act %a c=s f=%a matched\n" HilExp.pp pname_act Procname.pp f;
-                                          F.printf "-----> function call %a at line %a\n" Procname.pp f Location.pp loc;
+                                          let new_astate = Domain.add_thread astate 
+                                          in
+
+                                          F.printf "-----> function call %a at %a\n" Procname.pp f Location.pp loc;
                                           (* analyze the dependency on demand *)
                                           analyze_dependency f
+                                          (* TODO: add thread *)
                                           (* converting actuals to formals - FIXME will be different in this case - argument is the 4th param of pthread_create() *)
                                           (* TODO add new_thread to the thread in each record in callee_summary.accesses *)
                                           |> Option.value_map ~default:(astate) ~f:(fun (_, summary) ->
@@ -130,7 +134,8 @@
                                                       | Some callee_attr -> callee_attr.ProcAttributes.formals
                                                       | None -> []
                                                   in
-                                                  Domain.integrate_summary astate f loc summary callee_formals actuals pname
+                                                  Domain.integrate_summary new_astate f loc summary callee_formals actuals pname
+                                          
                                           )
                                       | _ -> astate
                               )
@@ -147,9 +152,15 @@
                     *)
               ) else if (phys_equal (String.compare (Procname.to_string callee_pname) "printf") 0) then
               (
-                 F.printf "DarcChecker: Print function call %s at line %a\n"
+                F.printf "DarcChecker: Print function call %s at %a\n"
                             (Procname.to_string callee_pname) Location.pp loc;
-                 astate
+                astate
+              (* pthread_join() -> remove thread *)
+              ) else if (phys_equal (String.compare (Procname.to_string callee_pname) "pthread_join") 0) then
+              (
+                F.printf "DarcChecker: pthread_join function call %s at %a\n"
+                                (Procname.to_string callee_pname) Location.pp loc;
+                Domain.remove_thread astate (* arg 2 -> the thread to be removed *)
               ) else (
               (* LOCKS *)
               match ConcurrencyModels.get_lock_effect callee_pname actuals with

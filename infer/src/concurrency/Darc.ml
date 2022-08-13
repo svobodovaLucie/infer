@@ -73,22 +73,26 @@
                   print_raw 3;
                   (* TODO add thread to the astate.thread and to threads_active *)
                   (* returns new thread *)
-                  let _new_thread : (AccessPath.t * Location.t) = (
+                  (* let lock : LockEvent.t = (lockid, loc) in *)
+                  let new_thread : Domain.ThreadEvent.t = (
                     match List.nth actuals 0 with
                     | Some th ->
                     (
                       match th with
                       | AccessExpression ae ->
-                          F.printf "YEAH %a ---------------------\n" HilExp.AccessExpression.pp ae;
+                          F.printf "YEAH ADD %a ---------------------\n" HilExp.AccessExpression.pp ae;
                           (* )F.printf "YEAH %a ---------------------\n" AccessPath.pp th_access_path; *)
 
-                          let th_access_path = HilExp.AccessExpression.to_access_path ae in
+                          let th_access_path : AccessPath.t = HilExp.AccessExpression.to_access_path ae in
                           (th_access_path, loc)
 
-                      | _ -> F.printf "NAAAH ----------------\n"; assert false
+                      | _ -> F.printf "NAAAH ADD ----------------\n"; assert false
                     )
                     | None -> assert false
                   )
+                  in
+                  (* TODO: add thread to threads_active *)
+                  let new_astate = Domain.add_thread new_thread astate 
                   in
                   (*
                   let new_threadset
@@ -119,13 +123,10 @@
                                   match c with
                                       | Cfun f ->
                                           F.printf "pname_act %a c=s f=%a matched\n" HilExp.pp pname_act Procname.pp f;
-                                          let new_astate = Domain.add_thread astate 
-                                          in
-
                                           F.printf "-----> function call %a at %a\n" Procname.pp f Location.pp loc;
                                           (* analyze the dependency on demand *)
                                           analyze_dependency f
-                                          (* TODO: add thread *)
+                                          
                                           (* converting actuals to formals - FIXME will be different in this case - argument is the 4th param of pthread_create() *)
                                           (* TODO add new_thread to the thread in each record in callee_summary.accesses *)
                                           |> Option.value_map ~default:(astate) ~f:(fun (_, summary) ->
@@ -150,17 +151,30 @@
                         F.printf "DarcChecker: arg4 %a at line %a\n"
                              HilExp.pp ftr Location.pp loc;
                     *)
-              ) else if (phys_equal (String.compare (Procname.to_string callee_pname) "printf") 0) then
-              (
-                F.printf "DarcChecker: Print function call %s at %a\n"
-                            (Procname.to_string callee_pname) Location.pp loc;
-                astate
+            
               (* pthread_join() -> remove thread *)
               ) else if (phys_equal (String.compare (Procname.to_string callee_pname) "pthread_join") 0) then
               (
+                let new_thread : Domain.ThreadEvent.t = (
+                    match List.nth actuals 0 with
+                    | Some th ->
+                    (
+                      match th with
+                      | AccessExpression ae ->
+                          F.printf "YEAH REMOVE %a ---------------------\n" HilExp.AccessExpression.pp ae;
+                          (* )F.printf "YEAH %a ---------------------\n" AccessPath.pp th_access_path; *)
+
+                          let th_access_path : AccessPath.t = HilExp.AccessExpression.to_access_path ae in
+                          (th_access_path, loc)
+
+                      | _ -> F.printf "NAAAH REMOVE ----------------\n"; assert false
+                    )
+                    | None -> assert false
+                  )
+                in
                 F.printf "DarcChecker: pthread_join function call %s at %a\n"
                                 (Procname.to_string callee_pname) Location.pp loc;
-                Domain.remove_thread astate (* arg 2 -> the thread to be removed *)
+                Domain.remove_thread new_thread astate (* arg 2 -> the thread to be removed *)
               ) else (
               (* LOCKS *)
               match ConcurrencyModels.get_lock_effect callee_pname actuals with
@@ -185,6 +199,7 @@
                       )
                    | NoEffect ->
                        F.printf "User defined function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
+                       Domain.print_astate astate loc pname;
                        analyze_dependency callee_pname
                        |> Option.value_map ~default:(astate) ~f:(fun (_, summary) ->
                          let callee_formals =
@@ -202,11 +217,14 @@
                   )
               (* END LOCKS *)
           | Assign (lhs_access_expr, rhs_exp, loc) ->
-              assign_expr lhs_access_expr rhs_exp loc analysis_data astate
+            F.printf "Assigning expression...\n";
+            Domain.print_astate astate loc pname;
+            assign_expr lhs_access_expr rhs_exp loc analysis_data astate
+            
           | _ ->
             (
-                  F.printf "DarcChecker: Another something function than printf call\n";
-                  astate
+                  F.printf "DarcChecker: Another something function than threads etc.call\n";
+                  astate (* integrate summary? *)
             )
 
           let pp_session_name _node fmt = F.pp_print_string fmt "darc" (* checker name in the debug html *)
@@ -229,7 +247,18 @@
       let data = {interproc; extras = 0} in
       F.printf "Hello from Darc Checker.\n";
       F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s START >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
-      let result = Analyzer.compute_post data ~initial:DarcDomain.empty proc_desc in
-          Option.iter result ~f:(fun post -> report_if_printf interproc post);
+
+      (* If the analysed function is main -> we need to do few changes -> add main thread to threads... *)
+      let init_astate : DarcDomain.t = 
+        if (phys_equal (String.compare (Procname.to_string (Procdesc.get_proc_name proc_desc)) "main") 0) then (
+          DarcDomain.main_initial) else (DarcDomain.empty)
+      in
+        (* main function *)
+      F.printf "\nMAIN FUNCTION -> main thread etc.\n\n";
+    
+      let result = Analyzer.compute_post data ~initial:init_astate proc_desc in
+      Option.iter result ~f:(fun post -> report_if_printf interproc post);
+    
       F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
+      
       result

@@ -11,10 +11,11 @@ module F = Format
 module LockEvent = DeadlockDomain.LockEvent
 module Lockset = DeadlockDomain.Lockset
 
-module Thread = struct
+module ThreadEvent = struct
   type t = (AccessPath.t * Location.t)
 
   (* FIXME how to compare threads *)
+  (* 
   let compare ((base, aclist) as th, loc) ((base', aclist') as th', loc') =
     let result_th =
       if phys_equal th th' then 0
@@ -28,13 +29,25 @@ module Thread = struct
     let result_loc = Location.compare loc loc'
     in
     if (result_th + result_loc > 0) then 1 else 0
+    *)
+
+  (* TODO FIXME is it necessary to also compare locations? *)
+  (* 0 -> the threads are the same, 1 -> false *)
+  let compare ((base, aclist) as th, _loc) ((base', aclist') as th', _sloc') =
+    if phys_equal th th' then 0
+    else begin
+      let res = AccessPath.compare_base base base' in
+      if not (Int.equal res 0) then res
+      else
+        List.compare AccessPath.compare_access aclist aclist'
+    end
 
   let pp fmt (th, loc) =
     F.fprintf fmt "%a on %a" AccessPath.pp th Location.pp loc;
 
 end
 
-module ThreadSet = AbstractDomain.FiniteSet(Thread)
+module ThreadSet = AbstractDomain.FiniteSet(ThreadEvent)
 
 module AccessEvent = struct
   type t =
@@ -45,7 +58,7 @@ module AccessEvent = struct
     locked: Lockset.t;
     unlocked: Lockset.t;
     threads_active: ThreadSet.t;
-    thread: Thread.t option;
+    thread: ThreadEvent.t option;
     (* 
     threads_active: ThreadSet.t;
     thread: ThreadSet.t;
@@ -69,9 +82,12 @@ module AccessEvent = struct
 
   let pp fmt t1 =
     F.fprintf fmt "{%a, %a, %s,\n            locked=%a,\n            unlocked=%a,\n
-                threads_active=%a\n on thread TODO..."
+                threads_active=%a\n"
       AccessPath.pp t1.var Location.pp t1.loc t1.access_type Lockset.pp t1.locked
-      Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active (* ThreadSet.pp t1.thread *);
+      Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active;
+    match t1.thread with
+    | Some t -> F.fprintf fmt "on thread %a" ThreadEvent.pp t;
+    | None -> F.fprintf fmt "on some thread";
 end
 
 module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
@@ -92,6 +108,36 @@ let empty =
   lockset = Lockset.empty;
   unlockset = Lockset.empty
 }
+
+(* TODO *)
+let add_thread th astate =
+  F.printf "Adding the thread...\n";
+  let threads_active = ThreadSet.add th astate.threads_active in
+  F.printf "====== threads_active=%a\n" ThreadSet.pp threads_active;
+  {astate with threads_active;}
+
+(* TODO add thread to be removed *)
+(* TODO can't do simply ThreadSet.remove, bcs now the thread is joining at different location
+   that it was added... these threads are not the same bcs of the different location-> 
+   it is necessary to just look at the AccessPath to know if it should be removed or not. *)
+let remove_thread th astate = 
+  F.printf "Removing the thread...\n";
+  let threads_active = ThreadSet.remove th astate.threads_active in
+  F.printf "====== threads_active=%a\n" ThreadSet.pp threads_active;
+  {astate with threads_active;}
+
+
+let main_initial =
+  (* create main thread *)
+  let pname = Procname.from_string_c_fun "main" in
+  let pvar_from_pname : Pvar.t = Pvar.mk_tmp "'main_thread'" pname in
+  let tvar_name = Typ.TVar "thread" in
+  let typ_main_thread = Typ.mk tvar_name in
+  let acc_path_from_pvar : AccessPath.t = AccessPath.of_pvar pvar_from_pname typ_main_thread in
+  let main_thread = (acc_path_from_pvar, Location.dummy) in
+  (* add the main thread to an empty astate *)
+  let initial_astate = empty in 
+  add_thread main_thread initial_astate
 
 let acquire lockid astate loc pname =
   F.printf "acquire: pname = %a in Darc\n" Procname.pp pname;
@@ -131,25 +177,20 @@ let assign_expr var astate loc =
   let accesses = AccessSet.add new_access astate.accesses in
   {astate with accesses;}
 
-(* TODO *)
-let add_thread astate =
-  F.printf "Adding the thread...\n";
-  astate
 
-(* TODO add thread to be removed *)
-let remove_thread astate = 
-  F.printf "Removing the thread...\n";
-  astate
-
-let integrate_summary astate callee_pname loc _callee_summary _callee_formals _actuals caller_pname =
-  F.printf "========= integrating summary... ==========\n";
+let print_astate astate loc caller_pname = 
+  F.printf "========= printing astate... ==========\n";
   F.printf "access=%a in Darc\n" AccessSet.pp astate.accesses;
   F.printf "loc=%a in Darc\n" Location.pp loc;
   F.printf "lockset=%a in Darc\n" Lockset.pp astate.lockset;
   F.printf "unlockset=%a in Darc\n" Lockset.pp astate.unlockset;
-  F.printf "callee_pname=%a in Darc\n" Procname.pp callee_pname;
+  F.printf "threads_active=%a in Darc\n" ThreadSet.pp astate.threads_active;
   F.printf "caller_pname=%a in Darc\n" Procname.pp caller_pname;
-  F.printf "===================\n";
+  F.printf "===================\n"
+
+let integrate_summary astate callee_pname loc _callee_summary _callee_formals _actuals caller_pname =
+  F.printf "callee_pname=%a in Darc\n" Procname.pp callee_pname;
+  print_astate astate loc caller_pname;
 
   (*
   let formal_to_access_path : Mangled.t * Typ.t -> AccessPath.t = fun (name, typ) ->

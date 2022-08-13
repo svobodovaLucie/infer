@@ -31,6 +31,7 @@ module Thread = struct
 
   let pp fmt (th, loc) =
     F.fprintf fmt "%a on %a" AccessPath.pp th Location.pp loc;
+
 end
 
 module ThreadSet = AbstractDomain.FiniteSet(Thread)
@@ -44,7 +45,11 @@ module AccessEvent = struct
     locked: Lockset.t;
     unlocked: Lockset.t;
     threads_active: ThreadSet.t;
+    thread: Thread.t option;
+    (* 
+    threads_active: ThreadSet.t;
     thread: ThreadSet.t;
+    *)
   }
 
   (*
@@ -64,9 +69,9 @@ module AccessEvent = struct
 
   let pp fmt t1 =
     F.fprintf fmt "{%a, %a, %s,\n            locked=%a,\n            unlocked=%a,\n
-                threads_active=%a\n on thread %a"
+                threads_active=%a\n on thread TODO..."
       AccessPath.pp t1.var Location.pp t1.loc t1.access_type Lockset.pp t1.locked
-      Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active ThreadSet.pp t1.thread;
+      Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active (* ThreadSet.pp t1.thread *);
 end
 
 module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
@@ -116,14 +121,21 @@ let assign_expr var astate loc =
     let locked = Lockset.empty in
     let unlocked = Lockset.empty in
     let threads_active = ThreadSet.empty in
-    let thread = ThreadSet.empty in
+    (* let thread = ThreadSet.empty in *)
+    let thread = None in
     { var; loc; access_type; locked; unlocked; threads_active; thread }
   in
   let accesses = AccessSet.add new_access astate.accesses in
   {astate with accesses;}
 
 (* TODO *)
-let add_thread _thread astate =
+let add_thread astate =
+  F.printf "Adding the thread...\n";
+  astate
+
+(* TODO add thread to be removed *)
+let remove_thread astate = 
+  F.printf "Removing the thread...\n";
   astate
 
 let _join astate1 astate2 =
@@ -136,7 +148,7 @@ let _join astate1 astate2 =
   new_astate
 
 let integrate_summary astate callee_pname loc _callee_summary _callee_formals _actuals caller_pname =
-  F.printf "===================\n";
+  F.printf "========= integrating summary... ==========\n";
   F.printf "access=%a in Darc\n" AccessSet.pp astate.accesses;
   F.printf "loc=%a in Darc\n" Location.pp loc;
   F.printf "lockset=%a in Darc\n" Lockset.pp astate.lockset;

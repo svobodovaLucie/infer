@@ -15,10 +15,10 @@
   type analysis_data =
     {interproc: DarcDomain.summary InterproceduralAnalysis.t; extras : int}
 
-  let assign_expr lhs_access_expr rhs_expr loc {interproc={tenv=_}; extras=_} (astate : Domain.t) =
+  let assign_expr lhs_access_expr rhs_expr loc {interproc={tenv=_}; extras=_} (astate : Domain.t) pname =
     F.printf "Access lhs: %a at line %a\n" HilExp.AccessExpression.pp lhs_access_expr Location.pp loc;
     let lhs_access_path = HilExp.AccessExpression.to_access_path lhs_access_expr in
-    let new_astate = Domain.assign_expr lhs_access_path astate loc in
+    let new_astate = Domain.assign_expr lhs_access_path astate loc pname in
     let rhs_access_expr = HilExp.get_access_exprs rhs_expr in
     let rhs_access_expr_first = List.hd rhs_access_expr in
     match rhs_access_expr_first with
@@ -80,13 +80,9 @@
                     (
                       match th with
                       | AccessExpression ae ->
-                          F.printf "YEAH ADD %a ---------------------\n" HilExp.AccessExpression.pp ae;
-                          (* )F.printf "YEAH %a ---------------------\n" AccessPath.pp th_access_path; *)
-
                           let th_access_path : AccessPath.t = HilExp.AccessExpression.to_access_path ae in
                           Some (th_access_path, loc)
-
-                      | _ -> F.printf "NAAAH ADD ----------------\n"; assert false
+                      | _ -> assert false
                     )
                     | None -> assert false
                   )
@@ -122,7 +118,6 @@
                               (
                                   match c with
                                       | Cfun f ->
-                                          F.printf "pname_act %a c=s f=%a matched\n" HilExp.pp pname_act Procname.pp f;
                                           F.printf "-----> function call %a at %a\n" Procname.pp f Location.pp loc;
                                           (* analyze the dependency on demand *)
                                           analyze_dependency f
@@ -156,21 +151,17 @@
               ) else if (phys_equal (String.compare (Procname.to_string callee_pname) "pthread_join") 0) then
               (
                 let new_thread : Domain.ThreadEvent.t option = (
-                    match List.nth actuals 0 with
-                    | Some th ->
-                    (
-                      match th with
-                      | AccessExpression ae ->
-                          F.printf "YEAH REMOVE %a ---------------------\n" HilExp.AccessExpression.pp ae;
-                          (* )F.printf "YEAH %a ---------------------\n" AccessPath.pp th_access_path; *)
-
-                          let th_access_path : AccessPath.t = HilExp.AccessExpression.to_access_path ae in
-                          Some (th_access_path, loc)
-
-                      | _ -> F.printf "NAAAH REMOVE ----------------\n"; assert false
-                    )
-                    | None -> assert false
+                  match List.nth actuals 0 with
+                  | Some th ->
+                  (
+                    match th with
+                    | AccessExpression ae ->
+                      let th_access_path : AccessPath.t = HilExp.AccessExpression.to_access_path ae in
+                      Some (th_access_path, loc)
+                    | _ -> assert false
                   )
+                  | None -> assert false
+                )
                 in
                 F.printf "DarcChecker: pthread_join function call %s at %a\n"
                                 (Procname.to_string callee_pname) Location.pp loc;
@@ -219,7 +210,7 @@
           | Assign (lhs_access_expr, rhs_exp, loc) ->
             F.printf "Assigning expression...\n";
             Domain.print_astate astate loc pname;
-            assign_expr lhs_access_expr rhs_exp loc analysis_data astate
+            assign_expr lhs_access_expr rhs_exp loc analysis_data astate pname
             
           | _ ->
             (
@@ -251,10 +242,8 @@
       (* If the analysed function is main -> we need to do few changes -> add main thread to threads... *)
       let init_astate : DarcDomain.t = 
         if (phys_equal (String.compare (Procname.to_string (Procdesc.get_proc_name proc_desc)) "main") 0) then (
-          DarcDomain.main_initial) else (DarcDomain.empty)
+          DarcDomain.initial_main) else (DarcDomain.empty)
       in
-        (* main function *)
-      F.printf "\nMAIN FUNCTION -> main thread etc.\n\n";
     
       let result = Analyzer.compute_post data ~initial:init_astate proc_desc in
       Option.iter result ~f:(fun post -> report_if_printf interproc post);

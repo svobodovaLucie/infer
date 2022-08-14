@@ -59,10 +59,6 @@ module AccessEvent = struct
     unlocked: Lockset.t;
     threads_active: ThreadSet.t;
     thread: ThreadEvent.t option;
-    (* 
-    threads_active: ThreadSet.t;
-    thread: ThreadSet.t;
-    *)
   }
 
   (*
@@ -80,12 +76,11 @@ module AccessEvent = struct
   let _equal t1 t2 = Int.equal 0 (compare t1 t2)
   let _hash t1 = Hashtbl.hash t1.loc
 
-  let change_access_type _t _l _u thread access = 
-    F.printf "change_access_type function -----------------------------------------------\n";
-    (* create new access and use informations from astate (sth like join access.lockset & astate.lockset etc.) *)
-    let locked = Lockset.empty in (* TODO join with l or sth *)
-    let unlocked = Lockset.empty in (* TODO join with u or sth *)
-    let threads_active = ThreadSet.empty in (* TODO join with t or sth *)
+  let edit_accesses threads_active lockset unlockset thread access = 
+    (* create new access and use informations from astate (sth like union access.lockset & astate.lockset etc.) *)
+    let locked = Lockset.diff (Lockset.union lockset access.locked) access.unlocked in
+    let unlocked = Lockset.union (Lockset.diff unlockset access.locked) access.unlocked in
+    let threads_active = ThreadSet.union threads_active access.threads_active in
     { var=access.var; loc=access.loc; access_type=access.access_type; locked; unlocked; threads_active; thread }
 
   let pp fmt t1 =
@@ -94,8 +89,8 @@ module AccessEvent = struct
       AccessPath.pp t1.var Location.pp t1.loc t1.access_type Lockset.pp t1.locked
       Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active;
     match t1.thread with
-    | Some t -> F.fprintf fmt "on thread %a" ThreadEvent.pp t;
-    | None -> F.fprintf fmt "on some thread";
+    | Some t -> F.fprintf fmt "on thread %a\n" ThreadEvent.pp t;
+    | None -> F.fprintf fmt "on None thread\n";
 
   
 
@@ -122,11 +117,11 @@ let empty =
 
 (* TODO *)
 let add_thread th astate =
-  F.printf "Adding the thread...\n";
+  (* F.printf "Adding the thread...\n"; *)
   match th with
   | Some th ->
     let threads_active = ThreadSet.add th astate.threads_active in
-    F.printf "====== threads_active=%a\n" ThreadSet.pp threads_active;
+    (* F.printf "====== threads_active=%a\n" ThreadSet.pp threads_active; *)
     {astate with threads_active;}
   | None -> assert false
 
@@ -137,21 +132,23 @@ let add_thread th astate =
 let remove_thread th astate = 
   match th with
   | Some th -> 
-    F.printf "Removing the thread...\n";
+    (* F.printf "Removing the thread...\n"; *)
     let threads_active = ThreadSet.remove th astate.threads_active in
-    F.printf "====== threads_active=%a\n" ThreadSet.pp threads_active;
+    (* F.printf "====== threads_active=%a\n" ThreadSet.pp threads_active; *)
     {astate with threads_active;}
   | None -> assert false
 
-
-let main_initial =
-  (* create main thread *)
+let create_main_thread = 
   let pname = Procname.from_string_c_fun "main" in
   let pvar_from_pname : Pvar.t = Pvar.mk_tmp "'main_thread'" pname in
   let tvar_name = Typ.TVar "thread" in
   let typ_main_thread = Typ.mk tvar_name in
   let acc_path_from_pvar : AccessPath.t = AccessPath.of_pvar pvar_from_pname typ_main_thread in
-  let main_thread = Some (acc_path_from_pvar, Location.dummy) in
+  Some (acc_path_from_pvar, Location.dummy)
+
+let initial_main =
+  (* create main thread *)
+  let main_thread = create_main_thread in
   (* add the main thread to an empty astate *)
   let initial_astate = empty in 
   add_thread main_thread initial_astate
@@ -160,38 +157,41 @@ let acquire lockid astate loc pname =
   F.printf "acquire: pname = %a in Darc\n" Procname.pp pname;
   let lock : LockEvent.t = (lockid, loc) in
   let new_astate : t =
-    let lockset =
-      Lockset.add lock astate.lockset
-    in
-    { astate with lockset }
+    let lockset = Lockset.add lock astate.lockset in
+    let unlockset = Lockset.remove lock astate.unlockset in
+    { astate with lockset; unlockset }
   in
   new_astate
 
-let release _lockid astate _loc pname =
+let release lockid astate loc pname =
   F.printf "release: pname = %a in Darc\n" Procname.pp pname;
+  let lock : LockEvent.t = (lockid, loc) in
   let new_astate : t =
-    let lockset =
-      astate.lockset
-    in
-    { astate with lockset }
+    let lockset = Lockset.remove lock astate.lockset in
+    let unlockset = Lockset.add lock astate.unlockset in
+    { astate with lockset; unlockset }
   in
   new_astate
 
 (* TODO function for read_expression -> initial access_type is rd *)
 
 (* FIXME var is any expression now (n$7 etc.) *)
-let assign_expr var astate loc =
+let assign_expr var astate loc pname =
   F.printf "Inside assign_expr in Domain\n";
   let new_access : AccessEvent.t =
-    let access_type = "wr" in
-    let locked = Lockset.empty in
-    let unlocked = Lockset.empty in
-    let threads_active = ThreadSet.empty in
-    let thread = None in
+    let access_type = "wr (or rd)" in (* TODO appropriate access_type*)
+    let locked = astate.lockset in
+    let unlocked = astate.unlockset in
+    let threads_active = astate.threads_active in
+    let thread = if (phys_equal (String.compare (Procname.to_string pname) "main") 0) then create_main_thread else 
+      (* if the astate.threads_active contains main thread -> the thread is main, alse None? *) 
+      (* or simply if the procedure is main -> main thread *)
+      
+        None in (* TODO in the case of main... *) (* TODO create_main_thread *)
     { var; loc; access_type; locked; unlocked; threads_active; thread }
   in
   let accesses = AccessSet.add new_access astate.accesses in
-  {astate with accesses;}
+  { astate with accesses }
 
 
 let print_astate astate loc caller_pname = 
@@ -210,15 +210,10 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary _cal
   F.printf "summary before --------";
   print_astate astate loc caller_pname;
   F.printf "summary before end ---------";
-  
-  (* change_access_type access_type _t _l _u thread access *)
-  let edited_accesses_from_callee = AccessSet.map (AccessEvent.change_access_type astate.threads_active astate.lockset astate.unlockset thread) callee_summary.accesses in
+  (* edit information about each access - thread, threads_aactive, lockset, unlockset *)
+  let edited_accesses_from_callee = AccessSet.map (AccessEvent.edit_accesses astate.threads_active astate.lockset astate.unlockset thread) callee_summary.accesses in
   let accesses_joined = AccessSet.join astate.accesses edited_accesses_from_callee in
-
-  (* TODO create new accesses from the callee summary with added thread and lockset, unlockset etc.*)
-  (* TODO change other things from callee summary*)
-  F.printf "integrate_pthread_summary end\n";
-  {astate with accesses=accesses_joined;}
+  { astate with accesses=accesses_joined }
 
 let integrate_summary astate callee_pname loc _callee_summary _callee_formals _actuals caller_pname =
   F.printf "integrate_summary: callee_pname=%a in Darc\n" Procname.pp callee_pname;

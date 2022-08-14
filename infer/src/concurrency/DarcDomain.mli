@@ -18,13 +18,13 @@ end
 
 val empty : t
 
-val main_initial : t
+val initial_main : t
 
 val acquire : AccessPath.t -> t -> Location.t -> Procname.t -> t
 
 val release : AccessPath.t -> t -> Location.t -> Procname.t -> t
 
-val assign_expr : AccessPath.t -> t -> Location.t -> t
+val assign_expr : AccessPath.t -> t -> Location.t -> Procname.t -> t
 
 val add_thread : ThreadEvent.t option -> t -> t
 

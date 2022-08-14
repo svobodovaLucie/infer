@@ -74,7 +74,7 @@
                   (* TODO add thread to the astate.thread and to threads_active *)
                   (* returns new thread *)
                   (* let lock : LockEvent.t = (lockid, loc) in *)
-                  let new_thread : Domain.ThreadEvent.t = (
+                  let new_thread : Domain.ThreadEvent.t option = (
                     match List.nth actuals 0 with
                     | Some th ->
                     (
@@ -84,7 +84,7 @@
                           (* )F.printf "YEAH %a ---------------------\n" AccessPath.pp th_access_path; *)
 
                           let th_access_path : AccessPath.t = HilExp.AccessExpression.to_access_path ae in
-                          (th_access_path, loc)
+                          Some (th_access_path, loc)
 
                       | _ -> F.printf "NAAAH ADD ----------------\n"; assert false
                     )
@@ -135,7 +135,7 @@
                                                       | Some callee_attr -> callee_attr.ProcAttributes.formals
                                                       | None -> []
                                                   in
-                                                  Domain.integrate_pthread_summary new_astate f loc summary callee_formals actuals pname
+                                                  Domain.integrate_pthread_summary new_astate new_thread f loc summary callee_formals actuals pname
                                           
                                           )
                                       | _ -> astate
@@ -155,7 +155,7 @@
               (* pthread_join() -> remove thread *)
               ) else if (phys_equal (String.compare (Procname.to_string callee_pname) "pthread_join") 0) then
               (
-                let new_thread : Domain.ThreadEvent.t = (
+                let new_thread : Domain.ThreadEvent.t option = (
                     match List.nth actuals 0 with
                     | Some th ->
                     (
@@ -165,7 +165,7 @@
                           (* )F.printf "YEAH %a ---------------------\n" AccessPath.pp th_access_path; *)
 
                           let th_access_path : AccessPath.t = HilExp.AccessExpression.to_access_path ae in
-                          (th_access_path, loc)
+                          Some (th_access_path, loc)
 
                       | _ -> F.printf "NAAAH REMOVE ----------------\n"; assert false
                     )

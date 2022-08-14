@@ -135,7 +135,7 @@
                                                       | Some callee_attr -> callee_attr.ProcAttributes.formals
                                                       | None -> []
                                                   in
-                                                  Domain.integrate_summary new_astate f loc summary callee_formals actuals pname
+                                                  Domain.integrate_pthread_summary new_astate f loc summary callee_formals actuals pname
                                           
                                           )
                                       | _ -> astate

@@ -32,6 +32,8 @@ val remove_thread : ThreadEvent.t -> t -> t
 
 val integrate_summary : t -> Procname.t -> Location.t -> t -> (Mangled.t * IR.Typ.t) list -> HilExp.t list -> Procname.t -> t
 
+val integrate_pthread_summary : t -> Procname.t -> Location.t -> t -> (Mangled.t * IR.Typ.t) list -> HilExp.t list -> Procname.t -> t
+
 val print_astate : t -> Location.t -> Procname.t -> unit
 
 type summary = t

@@ -80,6 +80,12 @@ module AccessEvent = struct
   let _equal t1 t2 = Int.equal 0 (compare t1 t2)
   let _hash t1 = Hashtbl.hash t1.loc
 
+  let print_access_type fmt t1 = 
+    F.fprintf fmt "----- ACCESS_TYPE = %s\n" t1.access_type
+
+  let change_access_type access_type access = 
+    {access with access_type}
+
   let pp fmt t1 =
     F.fprintf fmt "{%a, %a, %s,\n            locked=%a,\n            unlocked=%a,\n
                 threads_active=%a\n"
@@ -88,6 +94,9 @@ module AccessEvent = struct
     match t1.thread with
     | Some t -> F.fprintf fmt "on thread %a" ThreadEvent.pp t;
     | None -> F.fprintf fmt "on some thread";
+
+  
+
 end
 
 module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
@@ -170,7 +179,6 @@ let assign_expr var astate loc =
     let locked = Lockset.empty in
     let unlocked = Lockset.empty in
     let threads_active = ThreadSet.empty in
-    (* let thread = ThreadSet.empty in *)
     let thread = None in
     { var; loc; access_type; locked; unlocked; threads_active; thread }
   in
@@ -188,8 +196,39 @@ let print_astate astate loc caller_pname =
   F.printf "caller_pname=%a in Darc\n" Procname.pp caller_pname;
   F.printf "===================\n"
 
+
+
+let integrate_pthread_summary astate callee_pname loc _callee_summary _callee_formals _actuals caller_pname =
+  F.printf "integrate_pthread_summary: callee_pname=%a in Darc\n" Procname.pp callee_pname;
+  print_astate astate loc caller_pname;
+  
+  let f access = (
+    F.printf "access.access_type=%a\n" AccessEvent.print_access_type access) in
+
+  (* TODO print access_type of each element in accesses *)
+  AccessSet.iter f astate.accesses;
+
+  let new_accesses = AccessSet.map (AccessEvent.change_access_type "oh") astate.accesses in
+
+  (* AccessSet.map f astate.accesses; *)
+  (* let new_access : AccessEvent.t =
+    let access_type = "eo" in
+    let locked = Lockset.empty in
+    let unlocked = Lockset.empty in
+    let threads_active = ThreadSet.empty in
+    let thread = None in
+    { var; loc; access_type; locked; unlocked; threads_active; thread }
+  in
+  let accesses = AccessSet.add new_access astate.accesses in
+  {astate with accesses;}
+  *)
+  print_astate astate loc caller_pname;
+  (* TODO create new accesses from the callee summary with added thread and lockset, unlockset etc.*)
+  (* TODO change other things from callee summary*)
+  {astate with accesses=new_accesses;}
+
 let integrate_summary astate callee_pname loc _callee_summary _callee_formals _actuals caller_pname =
-  F.printf "callee_pname=%a in Darc\n" Procname.pp callee_pname;
+  F.printf "integrate_summary: callee_pname=%a in Darc\n" Procname.pp callee_pname;
   print_astate astate loc caller_pname;
 
   (*

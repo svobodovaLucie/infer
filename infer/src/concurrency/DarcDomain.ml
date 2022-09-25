@@ -92,22 +92,8 @@ module AccessEvent = struct
         List.compare AccessPath.compare_access aclist aclist'
     end
 
-  let print_access t1 =
-    F.printf "Printing access\n";
-    F.printf "{%a, %a, %s, locked=%a, unlocked=%a, threads_active=%a\n"
-      AccessPath.pp t1.var Location.pp t1.loc t1.access_type Lockset.pp t1.locked
-      Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active;
-    match t1.thread with
-    | Some t -> F.printf "on thread %a}\n" ThreadEvent.pp t
-    | None -> F.printf "on None thread}\n"
-
   let predicate_loc (a1, a2) = 
-    let cmp_result = Location.compare a1.loc a2.loc in
-    F.printf "\n /// COMPARE FUNCTION /// \n";
-    print_access a1;
-    print_access a2;
-    F.printf "\ncompare_result = %d\n\n" cmp_result;
-    if cmp_result <= 0 then true else false
+    if Location.compare a1.loc a2.loc <= 0 then true else false
   (*
   let print_access_pair (t1, t2) =
     F.printf "Printing access pair\n";
@@ -126,8 +112,7 @@ module AccessEvent = struct
     | None -> F.printf "on None thread)\n"
   *)
   let print_access_pair (t1, t2) =
-    F.printf "Printing access pair\n";
-    F.printf "(%a, %a,,,"
+    F.printf "(%a, %a |"
       AccessPath.pp t1.var Location.pp t1.loc;
     (*
     match t1.thread with
@@ -168,8 +153,42 @@ var != var2, thr == t2, a1 == rd and a2 == rd nebo acc == w
   length (intersection t1 t2 } < 2
   intersection lockset 1 lockset2 == {}
     *)
-  
 
+  let predicate_var (a1, a2) = (* var1 != var2 -> true *)
+    if phys_equal (AccessPath.compare a1.var a2.var) 0 then true else false
+
+  let predicate_thread (a1, a2) = (* t1 != t2 -> true *)
+    let t1 =
+      match a1.thread with
+      | Some t -> t
+      | None -> assert false
+    in
+    let t2 =
+      match a2.thread with
+      | Some t -> t
+      | None -> assert false
+    in
+    if phys_equal (ThreadEvent.compare t1 t2) 0 then false else true
+
+  let predicate_threads_active_length (a1, _) = (* length(t1) < 2 -> false *)
+    let len = ThreadSet.cardinal a1.threads_active in
+    if len < 2 then false else true
+
+  let predicate_read_write (a1, a2) = (* a1 == rd and a2 == rd -> false *)
+    if ((String.equal a1.access_type "rd") && (String.equal a2.access_type "rd"))
+      then false else true
+
+  let predicate_threads_intersection (a1, a2) = (* length(intersect ts1 ts2) < 2 -> false *)
+    let intersect = ThreadSet.inter a1.threads_active a2.threads_active in
+    let len = ThreadSet.cardinal intersect in
+    if len < 2 then false else true
+
+  let predicate_locksets (a1, a2) = (* intersect ls1 ls2 == {} -> false *)
+    let both_empty = 
+      if ((phys_equal a1.locked Lockset.empty) && (phys_equal a2.locked Lockset.empty)) 
+        then true else false in
+    let intersect = Lockset.inter a1.locked a2.locked in
+    if Lockset.equal intersect Lockset.empty || not both_empty then true else false
 end
 
 module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
@@ -365,12 +384,9 @@ let pp : F.formatter -> t -> unit =
 (* TODO: summary: lockset, unlockset, accesses *)
 type summary = t
 
-
-
 let compute_data_races post = 
-  F.printf "\n\nSUMMARY MAIN: %a\n\n" pp post;
-  (* dostat se do jadra postcondition
-     vypsat accesses jen, vypsat napr var v accessu atd. *)
+  (* F.printf "\n\nSUMMARY MAIN: %a\n\n" pp post; *)
+
   (* 
   type t =
   {
@@ -381,32 +397,20 @@ let compute_data_races post =
     (* vars_declared: Access Paths sth... *)
   }
   *)
-  (*
-  match post with
-  |
-  | _ -> F.printf "NIC\n"
-  *)
 
-  F.printf "ACCESSES: %a\n" AccessSet.pp post.accesses;
-  let _in_loop accesses = 
-    AccessSet.iter AccessEvent.print_access accesses in
-  (* let list_of_access_pairs = [] in *)
-  let rec _print_list lst =
-    match lst with
-    | [] -> F.printf ".\n"
-    | h::t -> AccessEvent.print_access h; _print_list t in
+  (* F.printf "ACCESSES: %a\n" AccessSet.pp post.accesses; *)
 
   let rec print_pairs_list lst =
     match lst with
-    | [] -> F.printf ".\n"
+    | [] -> F.printf "\n"
     | h::t -> AccessEvent.print_access_pair h; print_pairs_list t in
   
-  F.printf "PRINTIIIIING\n";
+  F.printf "DATA RACES COMPUTATION\n\n";
 
   (* TODO create a list of accesses - sth like [(ac1, ac1); (ac1, ac2)] *)
   (* val fold : (elt -> 'a -> 'a) -> t -> 'a -> 'a *)
   let fold_add_pairs access lst = lst @ [access] in
-  (* create list from set and then udelej cartesian product pomoci fold?*)
+  (* create list from set and then create a cartesian product *)
 
   let rec product l1 l2 = 
     match l1, l2 with
@@ -419,29 +423,32 @@ let compute_data_races post =
   let list_of_access_pairs = product lst1 lst2 in
   let optimised_list = (* function removes pairs where the first access has higher loc than the second one *)
     List.filter ~f:AccessEvent.predicate_loc list_of_access_pairs in
-
-  F.printf "TRYING THE PREDICATE\n";
-  let head = 
-    match List.hd list_of_access_pairs with
-    | Some h -> h
-    | None -> assert false
-  in
-  let _cmp_res = AccessEvent.predicate_loc head in
   
-
-  F.printf "------------- unoptimised list: ---------------\n";
+  (* the final computation*)
+  F.printf "cartesian product:\n";
   print_pairs_list list_of_access_pairs;
-  F.printf "-------------- optimised list: ----------------\n";
+  F.printf "different pairs:\n";
   print_pairs_list optimised_list;
-
-  (* print_list post.accesses; *)
-  (* AccessSet.iter in_loop post.accesses; *)
-  (* let res = AccessEvent.cmp *) 
-  (* TODO *)
-  (* prochazeni a postupne iterovani *)
-
-  (* pokusit se porovnat dva accesses spolecne - pomoci iter
-     a hlavne upravit funkci na porovnavani accessu - v ni 
-     by se mohly jednotlive podminky checkovat atd (lhs ~ rhs neco) *)
-  F.printf "\nEND OF THE compute_data_races FUNCTION\n\n"
-  
+  F.printf "threads_active_length_checked:\n";
+  let threads_active_length_checked = List.filter ~f:AccessEvent.predicate_threads_active_length optimised_list in
+  print_pairs_list threads_active_length_checked;
+  F.printf "vars_checked:\n";  
+  let vars_checked = List.filter ~f:AccessEvent.predicate_var threads_active_length_checked in
+  print_pairs_list vars_checked;
+  F.printf "read_write_checked:\n";
+  let read_write_checked = List.filter ~f:AccessEvent.predicate_read_write vars_checked in
+  print_pairs_list read_write_checked;
+  F.printf "threads_checked:\n";
+  let threads_checked = List.filter ~f:AccessEvent.predicate_thread read_write_checked in
+  print_pairs_list threads_checked;
+  F.printf "threads_intersection_checked:\n";
+  let threads_intersection_checked = List.filter ~f:AccessEvent.predicate_threads_intersection threads_checked in
+  print_pairs_list threads_intersection_checked;
+  F.printf "locksets_checked:\n";
+  let locksets_checked = List.filter ~f:AccessEvent.predicate_locksets threads_intersection_checked in
+  print_pairs_list locksets_checked;
+  let has_data_race = List.length locksets_checked in
+  if phys_equal has_data_race 0 then
+    F.printf "\nTHERE IS NO DATA RACE.\n"
+  else
+    F.printf "\nTHERE IS A DATA RACE.\n"  

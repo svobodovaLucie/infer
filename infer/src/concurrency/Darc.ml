@@ -240,7 +240,7 @@
 
 
   let _report_if_printf {InterproceduralAnalysis.proc_desc; err_log; _} post =
-    F.printf "REPORTING AND COMPUTING??? ----------------------------------------";
+    F.printf "---------------------------------------------------\n";
     (* compute_data_races in *)
     let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
     let message = F.asprintf "Number of printf: %a in Data Race Checker\n" DarcDomain.pp post in

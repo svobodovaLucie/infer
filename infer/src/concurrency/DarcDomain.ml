@@ -101,6 +101,13 @@ module AccessEvent = struct
     | Some t -> F.printf "on thread %a}\n" ThreadEvent.pp t
     | None -> F.printf "on None thread}\n"
 
+  let predicate_loc (a1, a2) = 
+    let cmp_result = Location.compare a1.loc a2.loc in
+    F.printf "\n /// COMPARE FUNCTION /// \n";
+    print_access a1;
+    print_access a2;
+    F.printf "\ncompare_result = %d\n\n" cmp_result;
+    if cmp_result <= 0 then true else false
   (*
   let print_access_pair (t1, t2) =
     F.printf "Printing access pair\n";
@@ -384,18 +391,16 @@ let compute_data_races post =
   let _in_loop accesses = 
     AccessSet.iter AccessEvent.print_access accesses in
   (* let list_of_access_pairs = [] in *)
-  let rec print_list lst =
+  let rec _print_list lst =
     match lst with
     | [] -> F.printf ".\n"
-    | h::t -> AccessEvent.print_access h; print_list t in
+    | h::t -> AccessEvent.print_access h; _print_list t in
 
   let rec print_pairs_list lst =
     match lst with
     | [] -> F.printf ".\n"
     | h::t -> AccessEvent.print_access_pair h; print_pairs_list t in
   
-  let list_of_access_pairs = [] in
-  print_list list_of_access_pairs;
   F.printf "PRINTIIIIING\n";
 
   (* TODO create a list of accesses - sth like [(ac1, ac1); (ac1, ac2)] *)
@@ -408,13 +413,26 @@ let compute_data_races post =
     | [], _ | _, [] -> []
     | h1::t1, h2::t2 -> (h1,h2)::(product [h1] t2)@(product t1 l2) in
 
-  let lst1 = AccessSet.fold fold_add_pairs post.accesses list_of_access_pairs in 
-  let lst2 = AccessSet.fold fold_add_pairs post.accesses list_of_access_pairs in 
+  let lst1 = AccessSet.fold fold_add_pairs post.accesses [] in 
+  let lst2 = AccessSet.fold fold_add_pairs post.accesses [] in 
 
-  let prod = product lst1 lst2 in
+  let list_of_access_pairs = product lst1 lst2 in
+  let optimised_list = (* function removes pairs where the first access has higher loc than the second one *)
+    List.filter ~f:AccessEvent.predicate_loc list_of_access_pairs in
 
-  print_pairs_list prod;
+  F.printf "TRYING THE PREDICATE\n";
+  let head = 
+    match List.hd list_of_access_pairs with
+    | Some h -> h
+    | None -> assert false
+  in
+  let _cmp_res = AccessEvent.predicate_loc head in
+  
 
+  F.printf "------------- unoptimised list: ---------------\n";
+  print_pairs_list list_of_access_pairs;
+  F.printf "-------------- optimised list: ----------------\n";
+  print_pairs_list optimised_list;
 
   (* print_list post.accesses; *)
   (* AccessSet.iter in_loop post.accesses; *)

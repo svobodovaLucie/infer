@@ -83,15 +83,84 @@ module AccessEvent = struct
     let threads_active = ThreadSet.union threads_active access.threads_active in
     { var=access.var; loc=access.loc; access_type=access.access_type; locked; unlocked; threads_active; thread }
 
+  let _cmp ((base, aclist) as th, _loc) ((base', aclist') as th', _sloc') =
+    if phys_equal th th' then 0
+    else begin
+      let res = AccessPath.compare_base base base' in
+      if not (Int.equal res 0) then res
+      else
+        List.compare AccessPath.compare_access aclist aclist'
+    end
+
+  let print_access t1 =
+    F.printf "Printing access\n";
+    F.printf "{%a, %a, %s, locked=%a, unlocked=%a, threads_active=%a\n"
+      AccessPath.pp t1.var Location.pp t1.loc t1.access_type Lockset.pp t1.locked
+      Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active;
+    match t1.thread with
+    | Some t -> F.printf "on thread %a}\n" ThreadEvent.pp t
+    | None -> F.printf "on None thread}\n"
+
+  (*
+  let print_access_pair (t1, t2) =
+    F.printf "Printing access pair\n";
+    F.printf "(%a, %a, %s, l=%a, ulo=%a, tha=%a\n"
+      AccessPath.pp t1.var Location.pp t1.loc t1.access_type Lockset.pp t1.locked
+      Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active;
+    match t1.thread with
+    | Some t -> F.printf "on thread %a,,, \n" ThreadEvent.pp t;
+    | None -> F.printf "on None thread,,, \n";
+    
+    F.printf "(%a, %a, %s, l=%a, ulo=%a, tha=%a\n"
+      AccessPath.pp t2.var Location.pp t2.loc t2.access_type Lockset.pp t2.locked
+      Lockset.pp t2.unlocked ThreadSet.pp t2.threads_active;
+    match t2.thread with
+    | Some t -> F.printf "on thread %a)\n" ThreadEvent.pp t
+    | None -> F.printf "on None thread)\n"
+  *)
+  let print_access_pair (t1, t2) =
+    F.printf "Printing access pair\n";
+    F.printf "(%a, %a,,,"
+      AccessPath.pp t1.var Location.pp t1.loc;
+    (*
+    match t1.thread with
+    | Some t -> F.printf "on thread %a,,, \n" ThreadEvent.pp t;
+    | None -> F.printf "on None thread,,, \n";
+    *)
+    F.printf " %a, %a)\n"
+      AccessPath.pp t2.var Location.pp t2.loc
+    (*
+    match t2.thread with
+    | Some t -> F.printf "on thread %a)\n" ThreadEvent.pp t
+    | None -> F.printf "on None thread)\n"
+    *)
+
   let pp fmt t1 =
     F.fprintf fmt "{%a, %a, %s,\n            locked=%a,\n            unlocked=%a,\n
                 threads_active=%a\n"
       AccessPath.pp t1.var Location.pp t1.loc t1.access_type Lockset.pp t1.locked
       Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active;
     match t1.thread with
-    | Some t -> F.fprintf fmt "on thread %a\n" ThreadEvent.pp t;
-    | None -> F.fprintf fmt "on None thread\n";
+    | Some t -> F.fprintf fmt "on thread %a\n" ThreadEvent.pp t
+    | None -> F.fprintf fmt "on None thread\n"
 
+  (* 
+  let compare ((base, aclist) as th, _loc) ((base', aclist') as th', _sloc') =
+      if phys_equal th th' then 0
+      else begin
+        let res = AccessPath.compare_base base base' in
+        if not (Int.equal res 0) then res
+        else
+          List.compare AccessPath.compare_access aclist aclist'
+      end
+      *)
+  (* let var_equals a1 a2 = compare a1.var a2.var *)
+  
+  (*
+var != var2, thr == t2, a1 == rd and a2 == rd nebo acc == w    
+  length (intersection t1 t2 } < 2
+  intersection lockset 1 lockset2 == {}
+    *)
   
 
 end
@@ -288,3 +357,73 @@ let pp : F.formatter -> t -> unit =
 
 (* TODO: summary: lockset, unlockset, accesses *)
 type summary = t
+
+
+
+let compute_data_races post = 
+  F.printf "\n\nSUMMARY MAIN: %a\n\n" pp post;
+  (* dostat se do jadra postcondition
+     vypsat accesses jen, vypsat napr var v accessu atd. *)
+  (* 
+  type t =
+  {
+    threads_active: ThreadSet.t;
+    accesses: AccessSet.t;
+    lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
+    unlockset: Lockset.t
+    (* vars_declared: Access Paths sth... *)
+  }
+  *)
+  (*
+  match post with
+  |
+  | _ -> F.printf "NIC\n"
+  *)
+
+  F.printf "ACCESSES: %a\n" AccessSet.pp post.accesses;
+  let _in_loop accesses = 
+    AccessSet.iter AccessEvent.print_access accesses in
+  (* let list_of_access_pairs = [] in *)
+  let rec print_list lst =
+    match lst with
+    | [] -> F.printf ".\n"
+    | h::t -> AccessEvent.print_access h; print_list t in
+
+  let rec print_pairs_list lst =
+    match lst with
+    | [] -> F.printf ".\n"
+    | h::t -> AccessEvent.print_access_pair h; print_pairs_list t in
+  
+  let list_of_access_pairs = [] in
+  print_list list_of_access_pairs;
+  F.printf "PRINTIIIIING\n";
+
+  (* TODO create a list of accesses - sth like [(ac1, ac1); (ac1, ac2)] *)
+  (* val fold : (elt -> 'a -> 'a) -> t -> 'a -> 'a *)
+  let fold_add_pairs access lst = lst @ [access] in
+  (* create list from set and then udelej cartesian product pomoci fold?*)
+
+  let rec product l1 l2 = 
+    match l1, l2 with
+    | [], _ | _, [] -> []
+    | h1::t1, h2::t2 -> (h1,h2)::(product [h1] t2)@(product t1 l2) in
+
+  let lst1 = AccessSet.fold fold_add_pairs post.accesses list_of_access_pairs in 
+  let lst2 = AccessSet.fold fold_add_pairs post.accesses list_of_access_pairs in 
+
+  let prod = product lst1 lst2 in
+
+  print_pairs_list prod;
+
+
+  (* print_list post.accesses; *)
+  (* AccessSet.iter in_loop post.accesses; *)
+  (* let res = AccessEvent.cmp *) 
+  (* TODO *)
+  (* prochazeni a postupne iterovani *)
+
+  (* pokusit se porovnat dva accesses spolecne - pomoci iter
+     a hlavne upravit funkci na porovnavani accessu - v ni 
+     by se mohly jednotlive podminky checkovat atd (lhs ~ rhs neco) *)
+  F.printf "\nEND OF THE compute_data_races FUNCTION\n\n"
+  

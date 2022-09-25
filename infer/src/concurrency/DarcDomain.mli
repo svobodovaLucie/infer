@@ -37,3 +37,5 @@ val integrate_pthread_summary : t -> ThreadEvent.t option-> Procname.t -> Locati
 val print_astate : t -> Location.t -> Procname.t -> unit
 
 type summary = t
+
+val compute_data_races : summary -> unit

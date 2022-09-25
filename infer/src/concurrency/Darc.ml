@@ -228,7 +228,20 @@
   (* Create an intraprocedural abstract interpreter from the transfer functions we defined *)
   module Analyzer = LowerHil.MakeAbstractInterpreter (TransferFunctions (CFG))
 
-  let report_if_printf {InterproceduralAnalysis.proc_desc; err_log; _} post =
+  (* COMPUTE THE RESULT AND REPORT ERRORS *)
+  let report {InterproceduralAnalysis.proc_desc; err_log; _} post =
+    F.printf "REPORTING AND COMPUTING??? ----------------------------------------";
+    (* F.printf "\n %a \n\n" Domain.pp post; *)
+    let _idk = Domain.compute_data_races post in
+
+    let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
+    let message = F.asprintf "Number of printf: %a in Data Race Checker\n" DarcDomain.pp post in
+    Reporting.log_issue proc_desc err_log ~loc:last_loc DarcChecker IssueType.darc_error message;;
+
+
+  let _report_if_printf {InterproceduralAnalysis.proc_desc; err_log; _} post =
+    F.printf "REPORTING AND COMPUTING??? ----------------------------------------";
+    (* compute_data_races in *)
     let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
     let message = F.asprintf "Number of printf: %a in Data Race Checker\n" DarcDomain.pp post in
     Reporting.log_issue proc_desc err_log ~loc:last_loc DarcChecker IssueType.darc_error message;;
@@ -246,7 +259,11 @@
       in
     
       let result = Analyzer.compute_post data ~initial:init_astate proc_desc in
-      Option.iter result ~f:(fun post -> report_if_printf interproc post);
+      if (phys_equal (String.compare (Procname.to_string (Procdesc.get_proc_name proc_desc)) "main") 0) then
+        (* maybe this is not okay *)
+        (* computing the result *)
+        (* Option.iter result ~f:(fun post -> report_if_printf interproc post); *)
+        Option.iter result ~f:(fun post -> report interproc post);
     
       F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
       

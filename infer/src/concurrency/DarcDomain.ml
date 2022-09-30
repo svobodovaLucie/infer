@@ -11,6 +11,42 @@ module F = Format
 module LockEvent = DeadlockDomain.LockEvent
 module Lockset = DeadlockDomain.Lockset
 
+module ReadWriteModels = struct
+  type t = 
+    | Read
+    | Write
+    (*| NoEffect
+    *)
+
+  let read_functions = 
+    [ "printf"
+    ; "sprintf" ]
+  
+  let write_functions = 
+    [ "write"
+    ; "writef" ]
+
+  let is_read method_name =
+    List.mem read_functions method_name ~equal:String.equal
+  
+  let is_write method_name =
+    List.mem write_functions method_name ~equal:String.equal
+
+  (* TODO moznost pridat do argumentu i actuals, at muzu nagenerovat
+     spravny pocet prvku listu napr. pro printf *)
+  let get_read_write_effect pname =
+    match pname with
+    | "printf"  -> [(1, Read)] (* TODO need to edit the format (%c, %d etc.) *)
+    | "sprintf" -> [(0, Write); (2, Read); (3, Read)]
+    | _ -> []
+
+  let access_to_string access_type = 
+    match access_type with
+    | Read  -> "read "
+    | Write -> "write"
+
+end
+
 module ThreadEvent = struct
   type t = (AccessPath.t * Location.t)
 
@@ -54,7 +90,7 @@ module AccessEvent = struct
   {
     var: AccessPath.t;
     loc: Location.t;
-    access_type: String.t;
+    access_type: ReadWriteModels.t;
     locked: Lockset.t;
     unlocked: Lockset.t;
     threads_active: ThreadSet.t;
@@ -112,15 +148,17 @@ module AccessEvent = struct
     | None -> F.printf "on None thread)\n"
   *)
   let print_access_pair (t1, t2) =
-    F.printf "(%a, %a |"
-      AccessPath.pp t1.var Location.pp t1.loc;
+    let t1_access_string = ReadWriteModels.access_to_string t1.access_type in
+    F.printf "(%a, %a, %s |"
+      AccessPath.pp t1.var Location.pp t1.loc t1_access_string;
     (*
     match t1.thread with
     | Some t -> F.printf "on thread %a,,, \n" ThreadEvent.pp t;
     | None -> F.printf "on None thread,,, \n";
     *)
-    F.printf " %a, %a)\n"
-      AccessPath.pp t2.var Location.pp t2.loc
+    let t2_access_string = ReadWriteModels.access_to_string t2.access_type in
+    F.printf " %a, %a, %s)\n"
+      AccessPath.pp t2.var Location.pp t2.loc t2_access_string
     (*
     match t2.thread with
     | Some t -> F.printf "on thread %a)\n" ThreadEvent.pp t
@@ -128,9 +166,10 @@ module AccessEvent = struct
     *)
 
   let pp fmt t1 =
+    let acc_type = ReadWriteModels.access_to_string t1.access_type in
     F.fprintf fmt "{%a, %a, %s,\n            locked=%a,\n            unlocked=%a,\n
                 threads_active=%a\n"
-      AccessPath.pp t1.var Location.pp t1.loc t1.access_type Lockset.pp t1.locked
+      AccessPath.pp t1.var Location.pp t1.loc acc_type (* t1.access_type *) Lockset.pp t1.locked
       Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active;
     match t1.thread with
     | Some t -> F.fprintf fmt "on thread %a\n" ThreadEvent.pp t
@@ -174,10 +213,11 @@ var != var2, thr == t2, a1 == rd and a2 == rd nebo acc == w
     let len = ThreadSet.cardinal a1.threads_active in
     if len < 2 then false else true
 
-  let predicate_read_write (a1, a2) = (* a1 == rd and a2 == rd -> false *)
+  let predicate_read_write (_a1, _a2) = true (* a1 == rd and a2 == rd -> false *)
+    (*
     if ((String.equal a1.access_type "rd") && (String.equal a2.access_type "rd"))
       then false else true
-
+    *)
   let predicate_threads_intersection (a1, a2) = (* length(intersect ts1 ts2) < 2 -> false *)
     let intersect = ThreadSet.inter a1.threads_active a2.threads_active in
     let len = ThreadSet.cardinal intersect in
@@ -274,7 +314,7 @@ let release lockid astate loc pname =
 let assign_expr var astate loc pname =
   F.printf "Inside assign_expr in Domain\n";
   let new_access : AccessEvent.t =
-    let access_type = "wr (or rd)" in (* TODO appropriate access_type*)
+    let access_type = ReadWriteModels.Write in (* TODO appropriate access_type*)
     let locked = astate.lockset in
     let unlocked = astate.unlockset in
     let threads_active = astate.threads_active in
@@ -288,6 +328,12 @@ let assign_expr var astate loc pname =
   let accesses = AccessSet.add new_access astate.accesses in
   { astate with accesses }
 
+  (*
+let read_expr _var _access_type astate _loc _pname =
+  astate
+
+  TODO TODO TODO
+*)
 
 let print_astate astate loc caller_pname = 
   F.printf "========= printing astate... ==========\n";
@@ -299,6 +345,26 @@ let print_astate astate loc caller_pname =
   F.printf "loc=%a\n" Location.pp loc;
   F.printf "=======================================\n"
 
+(* FIXME var is any expression now (n$7 etc.) *)
+let read_expr var access_type astate loc pname =
+  F.printf "--------------------------------------------------------- MEH \n\n";
+  F.printf "Inside read_expr in Domain\n";
+  let new_access : AccessEvent.t = (* TODO appropriate access_type*)
+    let locked = astate.lockset in
+    let unlocked = astate.unlockset in
+    let threads_active = astate.threads_active in
+    let thread = if (phys_equal (String.compare (Procname.to_string pname) "main") 0) 
+      then create_main_thread else 
+      (* if the astate.threads_active contains main thread -> the thread is main, alse None? *) 
+      (* or simply if the procedure is main -> main thread *)
+      
+        None in (* TODO in the case of main... *) (* TODO create_main_thread *)
+    { var; loc; access_type; locked; unlocked; threads_active; thread }
+  in
+  let accesses = AccessSet.add new_access astate.accesses in
+  let new_astate = { astate with accesses } in
+  print_astate new_astate loc pname;
+  { astate with accesses }
 
 let integrate_pthread_summary astate thread callee_pname loc callee_summary _callee_formals _actuals caller_pname =
   F.printf "integrate_pthread_summary: callee_pname=%a\n" Procname.pp callee_pname;

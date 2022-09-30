@@ -12,6 +12,21 @@ include AbstractDomain.S
 module LockEvent = DeadlockDomain.LockEvent
 module Lockset = DeadlockDomain.Lockset
 
+module ReadWriteModels : sig
+  type t = 
+    | Read
+    | Write
+
+  val is_read : String.t -> bool
+
+  val is_write : String.t -> bool
+
+  val get_read_write_effect : string -> (int * t) list
+
+  val access_to_string : t -> string
+
+end
+
 module ThreadEvent : sig
   type t = (AccessPath.t * Location.t)
 end
@@ -25,6 +40,8 @@ val acquire : AccessPath.t -> t -> Location.t -> Procname.t -> t
 val release : AccessPath.t -> t -> Location.t -> Procname.t -> t
 
 val assign_expr : AccessPath.t -> t -> Location.t -> Procname.t -> t
+
+val read_expr : AccessPath.t -> ReadWriteModels.t -> t -> Location.t -> Procname.t -> t
 
 val add_thread : ThreadEvent.t option -> t -> t
 

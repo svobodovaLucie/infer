@@ -28,6 +28,37 @@
     | None -> F.printf "Access rhs_first: None on loc %a\n" Location.pp loc;
     new_astate
 
+  let read_expr loc {interproc={tenv=_}; extras=_} pname actuals (astate : Domain.t) =
+    F.printf "Access READ at line %a\n" Location.pp loc;
+    F.printf "pname=%a\n" Procname.pp pname;
+    (* get effect a pak postupne ten list projizdet a podle toho pridavat pristupy *)
+    let pname_string = Procname.to_string pname in
+    let read_write_effects = Domain.ReadWriteModels.get_read_write_effect pname_string in
+    (* mame napr. "printf"  -> [(1, Read); (2, Read)] *)
+    let foo (nth, effect) =
+      let var = 
+        match List.nth actuals nth with
+        | Some actual -> (* prevest HilExp.t na AccessPath.t *)
+          (
+            F.printf "read_expr: actual\n";
+            match actual with
+          | HilExp.AccessExpression ae -> F.printf "read_expr: ae\n"; HilExp.AccessExpression.to_access_path ae
+          | _ -> assert false (* TODO check *)
+          )
+        
+        | None -> F.printf "read_expr: asserted\n"; assert false (* TODO check *)
+      in
+      let new_astate = Domain.read_expr var effect astate loc pname in
+      new_astate 
+    in
+    (* new access with access_type effect and var List.nth nth actuals *)  
+    let list_fold lst = 
+      match lst with 
+      | [] -> astate
+      | h::_ -> foo h 
+    in
+    list_fold read_write_effects
+
   module TransferFunctions (CFG : ProcCfg.S) = struct
       module CFG = CFG
       module Domain = Domain
@@ -46,7 +77,6 @@
               in
           match instr with
           | Call (_return_opt, Direct callee_pname, actuals, _, loc) -> (
-              (* pthread_create(thread, retval, start_routine, args) *)
               if (phys_equal (String.compare (Procname.to_string callee_pname) "pthread_create") 0) then
               (
                   F.printf "DarcChecker: Pthread_create function call %s at %a\n"
@@ -166,6 +196,19 @@
                 F.printf "DarcChecker: pthread_join function call %s at %a\n"
                                 (Procname.to_string callee_pname) Location.pp loc;
                 Domain.remove_thread new_thread astate (* arg 2 -> the thread to be removed *)
+              (* read effect*)
+              ) else if (Domain.ReadWriteModels.is_read (Procname.to_string callee_pname)) then
+              (
+                F.printf "is read - read_expr...\n\n";
+                Domain.print_astate astate loc pname;
+                (* _return_opt, Direct callee_pname, actuals, _, loc *)
+                read_expr loc analysis_data callee_pname actuals astate  (* TODO which variable is read??? *) (* what if there are more variables *) 
+                (* vymyslet jak pridat variable do toho - mela bych ji vzit z actuals *)
+              (* write effect - isn't it just assign? *)
+              ) else if (Domain.ReadWriteModels.is_write (Procname.to_string callee_pname)) then
+              (
+                F.printf "is write... callee_pname=%a\n\n" Procname.pp callee_pname;
+                astate
               ) else (
               (* LOCKS *)
               match ConcurrencyModels.get_lock_effect callee_pname actuals with

@@ -28,36 +28,41 @@
     | None -> F.printf "Access rhs_first: None on loc %a\n" Location.pp loc;
     new_astate
 
-  let read_expr loc {interproc={tenv=_}; extras=_} pname actuals (astate : Domain.t) =
-    F.printf "Access READ at line %a\n" Location.pp loc;
-    F.printf "pname=%a\n" Procname.pp pname;
+  let read_write_expr loc {interproc={tenv=_}; extras=_} pname actuals (astate : Domain.t) =
+    F.printf "Access READ at line %a in pname=%a\n" Location.pp loc Procname.pp pname;
     (* get effect a pak postupne ten list projizdet a podle toho pridavat pristupy *)
     let pname_string = Procname.to_string pname in
-    let read_write_effects = Domain.ReadWriteModels.get_read_write_effect pname_string in
+    let num_of_actuals = List.length actuals in
+    let read_write_effects = Domain.ReadWriteModels.get_read_write_effect pname_string num_of_actuals in
     (* mame napr. "printf"  -> [(1, Read); (2, Read)] *)
-    let foo (nth, effect) =
+    let insert_access (nth, effect) astate =
       let var = 
         match List.nth actuals nth with
-        | Some actual -> (* prevest HilExp.t na AccessPath.t *)
+        | Some actual -> (* HilExp.t -> AccessPath.t *)
           (
-            F.printf "read_expr: actual\n";
             match actual with
-          | HilExp.AccessExpression ae -> F.printf "read_expr: ae\n"; HilExp.AccessExpression.to_access_path ae
+          | HilExp.AccessExpression ae -> 
+              F.printf "read_write_expr: AccessExpression: %a\n" HilExp.AccessExpression.pp ae; 
+              HilExp.AccessExpression.to_access_path ae
           | _ -> assert false (* TODO check *)
           )
-        
-        | None -> F.printf "read_expr: asserted\n"; assert false (* TODO check *)
+        | None -> 
+            F.printf "read_write_expr: asserted nth=%d\n" nth; 
+            assert false (* TODO check *)
       in
-      let new_astate = Domain.read_expr var effect astate loc pname in
-      new_astate 
+      (* return new astate: *)
+      Domain.add_access_to_astate var effect astate loc pname
+
     in
     (* new access with access_type effect and var List.nth nth actuals *)  
-    let list_fold lst = 
+    let rec list_fold lst astate = 
       match lst with 
       | [] -> astate
-      | h::_ -> foo h 
+      | h::t -> 
+          let new_astate = insert_access h astate in
+          list_fold t new_astate
     in
-    list_fold read_write_effects
+    list_fold read_write_effects astate
 
   module TransferFunctions (CFG : ProcCfg.S) = struct
       module CFG = CFG
@@ -196,19 +201,10 @@
                 F.printf "DarcChecker: pthread_join function call %s at %a\n"
                                 (Procname.to_string callee_pname) Location.pp loc;
                 Domain.remove_thread new_thread astate (* arg 2 -> the thread to be removed *)
-              (* read effect*)
-              ) else if (Domain.ReadWriteModels.is_read (Procname.to_string callee_pname)) then
+              (* read or write effect*)
+              ) else if (Domain.ReadWriteModels.has_effect (Procname.to_string callee_pname)) then
               (
-                F.printf "is read - read_expr...\n\n";
-                Domain.print_astate astate loc pname;
-                (* _return_opt, Direct callee_pname, actuals, _, loc *)
-                read_expr loc analysis_data callee_pname actuals astate  (* TODO which variable is read??? *) (* what if there are more variables *) 
-                (* vymyslet jak pridat variable do toho - mela bych ji vzit z actuals *)
-              (* write effect - isn't it just assign? *)
-              ) else if (Domain.ReadWriteModels.is_write (Procname.to_string callee_pname)) then
-              (
-                F.printf "is write... callee_pname=%a\n\n" Procname.pp callee_pname;
-                astate
+                read_write_expr loc analysis_data callee_pname actuals astate
               ) else (
               (* LOCKS *)
               match ConcurrencyModels.get_lock_effect callee_pname actuals with
@@ -277,14 +273,6 @@
     (* F.printf "\n %a \n\n" Domain.pp post; *)
     let _idk = Domain.compute_data_races post in
 
-    let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
-    let message = F.asprintf "Number of printf: %a in Data Race Checker\n" DarcDomain.pp post in
-    Reporting.log_issue proc_desc err_log ~loc:last_loc DarcChecker IssueType.darc_error message;;
-
-
-  let _report_if_printf {InterproceduralAnalysis.proc_desc; err_log; _} post =
-    F.printf "---------------------------------------------------\n";
-    (* compute_data_races in *)
     let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
     let message = F.asprintf "Number of printf: %a in Data Race Checker\n" DarcDomain.pp post in
     Reporting.log_issue proc_desc err_log ~loc:last_loc DarcChecker IssueType.darc_error message;;

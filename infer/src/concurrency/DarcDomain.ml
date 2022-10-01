@@ -26,18 +26,22 @@ module ReadWriteModels = struct
     [ "write"
     ; "writef" ]
 
-  let is_read method_name =
-    List.mem read_functions method_name ~equal:String.equal
-  
-  let is_write method_name =
+  let has_effect method_name =
+    List.mem read_functions method_name ~equal:String.equal ||
     List.mem write_functions method_name ~equal:String.equal
 
-  (* TODO moznost pridat do argumentu i actuals, at muzu nagenerovat
-     spravny pocet prvku listu napr. pro printf *)
-  let get_read_write_effect pname =
+  let get_read_write_effect pname num_of_args =
     match pname with
-    | "printf"  -> [(1, Read)] (* TODO need to edit the format (%c, %d etc.) *)
-    | "sprintf" -> [(0, Write); (2, Read); (3, Read)]
+    | "printf"  -> 
+        let res_list = ref [] in
+        for i = num_of_args - 1 downto 1 do
+          begin
+            res_list := (i, Read) :: !res_list;
+            F.printf "i=%d\n" i
+          end
+        done;
+      !res_list
+    | "sprintf" -> [(0, Write); (2, Read); (3, Read)] (* FIXME *)
     | _ -> []
 
   let access_to_string access_type = 
@@ -172,11 +176,7 @@ module AccessEvent = struct
       AccessPath.pp t1.var Location.pp t1.loc acc_type (* t1.access_type *) Lockset.pp t1.locked
       Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active;
     match t1.thread with
-    | Some t -> F.fprintf fmt "on thread %a\n" ThreadEvent.pp t
-    | None -> F.fprintf fmt "on None thread\n"
-
-  (* 
-  let compare ((base, aclist) as th, _loc) ((base', aclist') as th', _sloc') =
+    (*[(1, Read)] (* TODO need to edit the format (%c, %d etc.) *) (* for num_of_args create (i, Read) and add to the list *) *)base', aclist') as th', _sloc') =
       if phys_equal th th' then 0
       else begin
         let res = AccessPath.compare_base base base' in
@@ -328,13 +328,6 @@ let assign_expr var astate loc pname =
   let accesses = AccessSet.add new_access astate.accesses in
   { astate with accesses }
 
-  (*
-let read_expr _var _access_type astate _loc _pname =
-  astate
-
-  TODO TODO TODO
-*)
-
 let print_astate astate loc caller_pname = 
   F.printf "========= printing astate... ==========\n";
   F.printf "access=%a\n" AccessSet.pp astate.accesses;
@@ -346,9 +339,8 @@ let print_astate astate loc caller_pname =
   F.printf "=======================================\n"
 
 (* FIXME var is any expression now (n$7 etc.) *)
-let read_expr var access_type astate loc pname =
-  F.printf "--------------------------------------------------------- MEH \n\n";
-  F.printf "Inside read_expr in Domain\n";
+let add_access_to_astate var access_type astate loc pname =
+  F.printf "Inside add_access_to_astate in Domain\n";
   let new_access : AccessEvent.t = (* TODO appropriate access_type*)
     let locked = astate.lockset in
     let unlocked = astate.unlockset in
@@ -370,7 +362,6 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary _cal
   F.printf "integrate_pthread_summary: callee_pname=%a\n" Procname.pp callee_pname;
   F.printf "summary before --------";
   print_astate astate loc caller_pname;
-  F.printf "summary before end ---------";
   (* edit information about each access - thread, threads_aactive, lockset, unlockset *)
   let edited_accesses_from_callee = AccessSet.map (AccessEvent.edit_accesses astate.threads_active astate.lockset astate.unlockset thread) callee_summary.accesses in
   let accesses_joined = AccessSet.join astate.accesses edited_accesses_from_callee in

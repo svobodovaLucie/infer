@@ -17,11 +17,9 @@ module ReadWriteModels : sig
     | Read
     | Write
 
-  val is_read : String.t -> bool
+  val has_effect : String.t -> bool
 
-  val is_write : String.t -> bool
-
-  val get_read_write_effect : string -> (int * t) list
+  val get_read_write_effect : string -> int -> (int * t) list
 
   val access_to_string : t -> string
 
@@ -41,7 +39,7 @@ val release : AccessPath.t -> t -> Location.t -> Procname.t -> t
 
 val assign_expr : AccessPath.t -> t -> Location.t -> Procname.t -> t
 
-val read_expr : AccessPath.t -> ReadWriteModels.t -> t -> Location.t -> Procname.t -> t
+val add_access_to_astate : AccessPath.t -> ReadWriteModels.t -> t -> Location.t -> Procname.t -> t
 
 val add_thread : ThreadEvent.t option -> t -> t
 

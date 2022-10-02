@@ -176,7 +176,11 @@ module AccessEvent = struct
       AccessPath.pp t1.var Location.pp t1.loc acc_type (* t1.access_type *) Lockset.pp t1.locked
       Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active;
     match t1.thread with
-    (*[(1, Read)] (* TODO need to edit the format (%c, %d etc.) *) (* for num_of_args create (i, Read) and add to the list *) *)base', aclist') as th', _sloc') =
+    | Some t -> F.fprintf fmt "on thread %a\n" ThreadEvent.pp t
+    | None -> F.fprintf fmt "on None thread\n"
+    
+    (*
+    let compare ((base, aclist) as th, _loc) ((base', aclist') as th', _sloc') =
       if phys_equal th th' then 0
       else begin
         let res = AccessPath.compare_base base base' in
@@ -482,8 +486,8 @@ let compute_data_races post =
     List.filter ~f:AccessEvent.predicate_loc list_of_access_pairs in
   
   (* the final computation*)
-  F.printf "cartesian product:\n";
-  print_pairs_list list_of_access_pairs;
+  (* F.printf "cartesian product:\n";
+  print_pairs_list list_of_access_pairs; *)
   F.printf "different pairs:\n";
   print_pairs_list optimised_list;
   F.printf "threads_active_length_checked:\n";

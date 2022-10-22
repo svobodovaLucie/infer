@@ -89,6 +89,19 @@ end
 
 module ThreadSet = AbstractDomain.FiniteSet(ThreadEvent)
 
+module Aliases = struct 
+  type t = (HilExp.AccessExpression.t * HilExp.AccessExpression.t)
+
+  let compare _t1 _t2 = 1
+  let _equal t1 t2 = Int.equal 0 (compare t1 t2)
+  let _hash t1 = Hashtbl.hash t1
+
+  let pp fmt (f, s) =
+    F.fprintf fmt "(%a, %a)" HilExp.AccessExpression.pp f HilExp.AccessExpression.pp s;
+end
+
+module AliasesSet = AbstractDomain.FiniteSet(Aliases)
+
 module AccessEvent = struct
   type t =
   {
@@ -239,12 +252,14 @@ end
 
 module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
 
+
 type t =
 {
   threads_active: ThreadSet.t;
   accesses: AccessSet.t;
   lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
-  unlockset: Lockset.t
+  unlockset: Lockset.t;
+  aliases: AliasesSet.t;
   (* vars_declared: Access Paths sth... *)
 }
 
@@ -253,8 +268,18 @@ let empty =
   threads_active = ThreadSet.empty;
   accesses = AccessSet.empty;
   lockset = Lockset.empty;
-  unlockset = Lockset.empty
+  unlockset = Lockset.empty;
+  aliases = AliasesSet.empty;
 }
+
+let add_new_alias astate alias =
+  F.printf "adding an alias: ";
+  match alias with
+  | (lhs, Some rhs) -> 
+    F.printf "(%a, %a)\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp rhs;
+    let aliases = AliasesSet.add (lhs, rhs) astate.aliases in
+    { astate with aliases }
+  | (_, None) -> F.printf "not adding\n"; astate
 
 (* TODO *)
 let add_thread th astate =
@@ -340,6 +365,7 @@ let print_astate astate loc caller_pname =
   F.printf "lockset=%a\n" Lockset.pp astate.lockset;
   F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
   F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
+  F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
   F.printf "caller_pname=%a\n" Procname.pp caller_pname;
   F.printf "loc=%a\n" Location.pp loc;
   F.printf "=======================================\n"
@@ -373,10 +399,21 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary _cal
   let accesses_joined = AccessSet.join astate.accesses edited_accesses_from_callee in
   { astate with accesses=accesses_joined }
 
-let integrate_summary astate callee_pname loc _callee_summary _callee_formals _actuals caller_pname =
+let integrate_summary astate callee_pname loc callee_summary _callee_formals _actuals caller_pname =
   F.printf "integrate_summary: callee_pname=%a in Darc\n" Procname.pp callee_pname;
   print_astate astate loc caller_pname;
-
+  (* TODO important *)
+  (* pridat do accesses vlakno, na kterem prave jsem -> v podstate to bude proste bud main nebo None *)
+  (* FIXME je to pravda? Ze vzdy bude bud main nebo None?!?!?! *)
+  let current_thread = 
+    if (ThreadSet.equal ThreadSet.empty astate.threads_active) then
+      None
+    else create_main_thread
+  in
+  let edited_accesses_from_callee = AccessSet.map (AccessEvent.edit_accesses astate.threads_active astate.lockset astate.unlockset current_thread) callee_summary.accesses in
+  let accesses_joined = AccessSet.join astate.accesses edited_accesses_from_callee in
+  { astate with accesses=accesses_joined }
+  (* TODO formals to actuals *)
   (*
   let formal_to_access_path : Mangled.t * Typ.t -> AccessPath.t = fun (name, typ) ->
     let pvar = Pvar.mk name callee_pname in
@@ -416,7 +453,7 @@ let integrate_summary astate callee_pname loc _callee_summary _callee_formals _a
   let _joinos = join astate callee_summary in
   { astate with lockset=new_lockset}
   *)
-  astate
+  (* astate *)
 
 let ( <= ) ~lhs ~rhs =
   Lockset.leq ~lhs:lhs.lockset ~rhs:rhs.lockset &&
@@ -430,7 +467,8 @@ let join astate1 astate2 =
     let accesses = AccessSet.union astate1.accesses astate2.accesses in
     let lockset = Lockset.union astate1.lockset astate2.lockset in
     let unlockset = Lockset.union astate1.unlockset astate2.unlockset in
-    { threads_active; accesses; lockset; unlockset }
+    let aliases = AliasesSet.union astate1.aliases astate2.aliases in  (* TODO FIXME how to join aliases*)
+    { threads_active; accesses; lockset; unlockset; aliases }
   in
   new_astate
 
@@ -443,6 +481,7 @@ let pp : F.formatter -> t -> unit =
     F.fprintf fmt "\naccesses=%a" AccessSet.pp astate.accesses;
     F.fprintf fmt "\nlockset=%a" Lockset.pp astate.lockset;
     F.fprintf fmt "\nunlockset=%a" Lockset.pp astate.unlockset;
+    F.fprintf fmt "\naliases=%a" AliasesSet.pp astate.aliases;
 
 (* TODO: summary: lockset, unlockset, accesses *)
 type summary = t

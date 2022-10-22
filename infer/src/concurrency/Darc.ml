@@ -38,25 +38,17 @@
     let new_astate = Domain.assign_expr lhs_access_expr astate loc pname in
     let rhs_access_expr = HilExp.get_access_exprs rhs_expr in
     let rhs_access_expr_first = List.hd rhs_access_expr in
+    (* add an alias to the aliases set in astate *)
+    let alias = (lhs_access_expr, rhs_access_expr_first) in (* (lhs, Some rhs) or (lhs, None)!!! *)
+    let new_astate_with_new_alias = Domain.add_new_alias new_astate alias in
     match rhs_access_expr_first with
       | Some rhs -> (* HilExp.t -> AccessPath.t *)
         let var = HilExp.AccessExpression.to_access_path rhs in
         F.printf "rhs var: %a\n" AccessPath.pp var;
         F.printf "rhs_ae: %a\n" HilExp.AccessExpression.pp rhs;
-        Domain.add_access_to_astate rhs Domain.ReadWriteModels.Read (* TODO is it Read every time? *) new_astate loc pname
+        Domain.add_access_to_astate rhs Domain.ReadWriteModels.Read (* TODO is it Read every time? *) new_astate_with_new_alias loc pname
     | None -> 
-        new_astate (* only left hand side - rhs is number or sth else *)
-
-  (*
-    match rhs_access_expr_first with
-    | Some rhs_access_expr_first ->
-        F.printf "Access rhs_first: %a\n" HilExp.AccessExpression.pp rhs_access_expr_first;
-        astate
-    | None -> F.printf "Access rhs_first: None on loc %a\n" Location.pp loc;
-    new_astate
-  *)
-
-
+        new_astate_with_new_alias (* only left hand side - rhs is number or sth else *)
 
   let read_write_expr loc {interproc={tenv=_}; extras=_} pname actuals (astate : Domain.t) =
     F.printf "Access READ at line %a in pname=%a\n" Location.pp loc Procname.pp pname;

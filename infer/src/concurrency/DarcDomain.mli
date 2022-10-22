@@ -29,6 +29,12 @@ module ThreadEvent : sig
   type t = (AccessPath.t * Location.t)
 end
 
+module Aliases : sig
+  type t = (HilExp.AccessExpression.t * HilExp.AccessExpression.t)
+end
+
+val add_new_alias : t -> (HilExp.AccessExpression.t * HilExp.AccessExpression.t option) -> t
+
 val empty : t
 
 val initial_main : t

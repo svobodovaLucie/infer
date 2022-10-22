@@ -204,12 +204,12 @@ var != var2, thr == t2, a1 == rd and a2 == rd nebo acc == w
     let t1 =
       match a1.thread with
       | Some t -> t
-      | None -> assert false
+      | None -> F.printf "first\n"; assert false
     in
     let t2 =
       match a2.thread with
       | Some t -> t
-      | None -> assert false
+      | None -> F.printf "second\n"; assert false
     in
     if phys_equal (ThreadEvent.compare t1 t2) 0 then false else true
 

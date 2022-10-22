@@ -5,7 +5,7 @@
  * LICENSE file in the root directory of this source tree.
  *)
 
- (* Data Race Checker *)
+  (* Data Race Checker *)
 
   open! IStd
   module F = Format
@@ -18,6 +18,23 @@
   let assign_expr lhs_access_expr rhs_expr loc {interproc={tenv=_}; extras=_} (astate : Domain.t) pname =
     F.printf "Access lhs: %a at line %a\n" HilExp.AccessExpression.pp lhs_access_expr Location.pp loc;
     let lhs_access_path = HilExp.AccessExpression.to_access_path lhs_access_expr in
+    F.printf "Access lhs access path: %a at line %a\n" AccessPath.pp lhs_access_path Location.pp loc;
+    (* access expression type: *)
+    let lhs_base = HilExp.AccessExpression.is_base lhs_access_expr in
+    (* F.printf "base: %s\n" Bool.to_string lhs_base; *)
+    let _sth = 
+    match lhs_base with
+    | true -> F.printf "true - lhs is base\n";
+    | false -> F.printf "false - lhs is not base\n";
+    in
+    let _idk = 
+    match lhs_access_expr with
+    | HilExp.AccessExpression.Base _ -> F.printf "Base\n";
+    | HilExp.AccessExpression.FieldOffset _ -> F.printf "FieldOffset\n";
+    | HilExp.AccessExpression.ArrayOffset _ -> F.printf "ArrayOffset\n";
+    | HilExp.AccessExpression.AddressOf ae -> F.printf "AddressOf &, %a\n" HilExp.AccessExpression.pp ae;
+    | HilExp.AccessExpression.Dereference ae -> F.printf "Dereference *, %a\n" HilExp.AccessExpression.pp ae;
+    in
     let new_astate = Domain.assign_expr lhs_access_path astate loc pname in
     let rhs_access_expr = HilExp.get_access_exprs rhs_expr in
     let rhs_access_expr_first = List.hd rhs_access_expr in
@@ -25,18 +42,19 @@
       | Some rhs -> (* HilExp.t -> AccessPath.t *)
         let var = HilExp.AccessExpression.to_access_path rhs in
         F.printf "rhs var: %a\n" AccessPath.pp var;
+        F.printf "rhs_ae: %a\n" HilExp.AccessExpression.pp rhs;
         Domain.add_access_to_astate var Domain.ReadWriteModels.Read (* TODO is it Read every time? *) new_astate loc pname
     | None -> 
         new_astate (* only left hand side - rhs is number or sth else *)
 
-(*
+  (*
     match rhs_access_expr_first with
     | Some rhs_access_expr_first ->
         F.printf "Access rhs_first: %a\n" HilExp.AccessExpression.pp rhs_access_expr_first;
         astate
     | None -> F.printf "Access rhs_first: None on loc %a\n" Location.pp loc;
     new_astate
-*)
+  *)
 
 
 
@@ -53,8 +71,8 @@
         | Some actual -> (* HilExp.t -> AccessPath.t *)
           (
             match actual with
-          | HilExp.AccessExpression ae -> 
-              F.printf "read_write_expr: AccessExpression: %a\n" HilExp.AccessExpression.pp ae; 
+          | HilExp.AccessExpression ae ->
+              F.printf "read_write_expr: AccessExpression: %a\n" HilExp.AccessExpression.pp ae;
               HilExp.AccessExpression.to_access_path ae
           | _ -> assert false (* TODO check *)
           )

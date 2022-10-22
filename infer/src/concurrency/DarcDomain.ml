@@ -92,8 +92,15 @@ module ThreadSet = AbstractDomain.FiniteSet(ThreadEvent)
 module Aliases = struct 
   type t = (HilExp.AccessExpression.t * HilExp.AccessExpression.t)
 
-  let compare _t1 _t2 = 1
-  let _equal t1 t2 = Int.equal 0 (compare t1 t2)
+  (* TODO *)
+  let compare t1 t2 = 
+    HilExp.AccessExpression.compare (fst t1) (fst t2)
+    (* somehow add HilExp.AccessExpression.compare (snd t1) (snd t2) *)
+
+  let _equal t1 t2 = 
+    HilExp.AccessExpression.equal (fst t1) (fst t2) &&
+    HilExp.AccessExpression.equal (snd t1) (snd t2)
+
   let _hash t1 = Hashtbl.hash t1
 
   let pp fmt (f, s) =
@@ -274,12 +281,57 @@ let empty =
 
 let add_new_alias astate alias =
   F.printf "adding an alias: ";
+  (* is lhs base? true or false *)
+  
+  let _lhs_ae_type lhs = HilExp.AccessExpression.is_base lhs in
+  let lhs_matches_opt lhs (fst, snd) =
+    F.printf "lhs_matches_opt... fst:%a, snd:%a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;
+    if (HilExp.AccessExpression.equal lhs fst) then (
+      F.printf "Some phys_equal...\n";
+      Some (fst, snd)
+    )
+    else (
+      F.printf "None phys_equal...\n";
+      None
+    )
+  in
+  let rec filter_aliases lhs = function
+    | [] -> F.printf "[]\n"; None
+    | h::t -> 
+        match lhs_matches_opt lhs h with
+        | Some a -> F.printf "Some filter aliases\n"; Some a
+        | None -> F.printf "None filter aliases...\n"; filter_aliases lhs t
+  in
+  
   match alias with
   | (lhs, Some rhs) -> 
     F.printf "(%a, %a)\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp rhs;
+    let aliases_list = AliasesSet.elements astate.aliases in
+    let alias_with_lhs_equal_opt = filter_aliases lhs aliases_list in (
+      (* pokud tam dany alias byl -> odstranime ho a vlozime ten novy *)
+      (* pokud nebyl, vracime proste astate *)
+      F.printf "before match\n";
+      match alias_with_lhs_equal_opt with
+      | Some a -> 
+        F.printf "Some a=(%a, %a)\n" HilExp.AccessExpression.pp (fst a) HilExp.AccessExpression.pp (snd a);
+        (* removuju spatnej par mozna? *)
+        F.printf "astate.aliases: %a\n" AliasesSet.pp astate.aliases;
+        let aliases_removed = AliasesSet.remove a astate.aliases in
+        F.printf "aliases_removed: %a\n" AliasesSet.pp aliases_removed;
+        let aliases_new = AliasesSet.add (lhs, rhs) aliases_removed in
+        F.printf "aliases_new: %a\n" AliasesSet.pp aliases_new;
+        { astate with aliases=aliases_new }
+      | None ->
+        (* F.printf "none\n"; astate *)
+        (* the alias is not in the aliases set - nothing to be removed - just add it *)
+        let aliases_new = AliasesSet.add (lhs, rhs) astate.aliases in
+        { astate with aliases=aliases_new }
+    )
+    (*
     let aliases = AliasesSet.add (lhs, rhs) astate.aliases in
     { astate with aliases }
-  | (_, None) -> F.printf "not adding\n"; astate
+    *)
+    | (_, None) -> F.printf "not adding\n"; astate (* e.g. k = 42; *)
 
 (* TODO *)
 let add_thread th astate =

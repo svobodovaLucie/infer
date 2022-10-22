@@ -92,7 +92,7 @@ module ThreadSet = AbstractDomain.FiniteSet(ThreadEvent)
 module AccessEvent = struct
   type t =
   {
-    var: AccessPath.t;
+    var: HilExp.AccessExpression.t;
     loc: Location.t;
     access_type: ReadWriteModels.t;
     locked: Lockset.t;
@@ -123,6 +123,7 @@ module AccessEvent = struct
     let threads_active = ThreadSet.union threads_active access.threads_active in
     { var=access.var; loc=access.loc; access_type=access.access_type; locked; unlocked; threads_active; thread }
 
+  (*
   let _cmp ((base, aclist) as th, _loc) ((base', aclist') as th', _sloc') =
     if phys_equal th th' then 0
     else begin
@@ -131,6 +132,7 @@ module AccessEvent = struct
       else
         List.compare AccessPath.compare_access aclist aclist'
     end
+  *)
 
   let predicate_loc (a1, a2) = 
     if Location.compare a1.loc a2.loc <= 0 then true else false
@@ -154,7 +156,7 @@ module AccessEvent = struct
   let print_access_pair (t1, t2) =
     let t1_access_string = ReadWriteModels.access_to_string t1.access_type in
     F.printf "(%a, %a, %s |"
-      AccessPath.pp t1.var Location.pp t1.loc t1_access_string;
+      HilExp.AccessExpression.pp t1.var Location.pp t1.loc t1_access_string;
     (*
     match t1.thread with
     | Some t -> F.printf "on thread %a,,, \n" ThreadEvent.pp t;
@@ -162,7 +164,7 @@ module AccessEvent = struct
     *)
     let t2_access_string = ReadWriteModels.access_to_string t2.access_type in
     F.printf " %a, %a, %s)\n"
-      AccessPath.pp t2.var Location.pp t2.loc t2_access_string
+    HilExp.AccessExpression.pp t2.var Location.pp t2.loc t2_access_string
     (*
     match t2.thread with
     | Some t -> F.printf "on thread %a)\n" ThreadEvent.pp t
@@ -173,7 +175,7 @@ module AccessEvent = struct
     let acc_type = ReadWriteModels.access_to_string t1.access_type in
     F.fprintf fmt "{%a, %a, %s,\n            locked=%a,\n            unlocked=%a,\n
                 threads_active=%a\n"
-      AccessPath.pp t1.var Location.pp t1.loc acc_type (* t1.access_type *) Lockset.pp t1.locked
+      HilExp.AccessExpression.pp t1.var Location.pp t1.loc acc_type (* t1.access_type *) Lockset.pp t1.locked
       Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active;
     match t1.thread with
     | Some t -> F.fprintf fmt "on thread %a\n" ThreadEvent.pp t
@@ -198,7 +200,7 @@ var != var2, thr == t2, a1 == rd and a2 == rd nebo acc == w
     *)
 
   let predicate_var (a1, a2) = (* var1 != var2 -> true *)
-    if phys_equal (AccessPath.compare a1.var a2.var) 0 then true else false
+    if phys_equal (HilExp.AccessExpression.compare a1.var a2.var) 0 then true else false
 
   let predicate_thread (a1, a2) = (* t1 != t2 -> true *)
     let t1 =

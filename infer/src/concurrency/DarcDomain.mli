@@ -37,9 +37,9 @@ val acquire : AccessPath.t -> t -> Location.t -> Procname.t -> t
 
 val release : AccessPath.t -> t -> Location.t -> Procname.t -> t
 
-val assign_expr : AccessPath.t -> t -> Location.t -> Procname.t -> t
+val assign_expr : HilExp.AccessExpression.t -> t -> Location.t -> Procname.t -> t
 
-val add_access_to_astate : AccessPath.t -> ReadWriteModels.t -> t -> Location.t -> Procname.t -> t
+val add_access_to_astate : HilExp.AccessExpression.t -> ReadWriteModels.t -> t -> Location.t -> Procname.t -> t
 
 val add_thread : ThreadEvent.t option -> t -> t
 

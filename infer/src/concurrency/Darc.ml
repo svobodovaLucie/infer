@@ -35,7 +35,7 @@
     | HilExp.AccessExpression.AddressOf ae -> F.printf "AddressOf &, %a\n" HilExp.AccessExpression.pp ae;
     | HilExp.AccessExpression.Dereference ae -> F.printf "Dereference *, %a\n" HilExp.AccessExpression.pp ae;
     in
-    let new_astate = Domain.assign_expr lhs_access_path astate loc pname in
+    let new_astate = Domain.assign_expr lhs_access_expr astate loc pname in
     let rhs_access_expr = HilExp.get_access_exprs rhs_expr in
     let rhs_access_expr_first = List.hd rhs_access_expr in
     match rhs_access_expr_first with
@@ -43,7 +43,7 @@
         let var = HilExp.AccessExpression.to_access_path rhs in
         F.printf "rhs var: %a\n" AccessPath.pp var;
         F.printf "rhs_ae: %a\n" HilExp.AccessExpression.pp rhs;
-        Domain.add_access_to_astate var Domain.ReadWriteModels.Read (* TODO is it Read every time? *) new_astate loc pname
+        Domain.add_access_to_astate rhs Domain.ReadWriteModels.Read (* TODO is it Read every time? *) new_astate loc pname
     | None -> 
         new_astate (* only left hand side - rhs is number or sth else *)
 
@@ -73,7 +73,8 @@
             match actual with
           | HilExp.AccessExpression ae ->
               F.printf "read_write_expr: AccessExpression: %a\n" HilExp.AccessExpression.pp ae;
-              HilExp.AccessExpression.to_access_path ae
+              (* HilExp.AccessExpression.to_access_path ae *)
+              ae
           | _ -> assert false (* TODO check *)
           )
         | None -> 

@@ -445,12 +445,13 @@ let add_access_to_astate var access_type astate loc pname =
     let locked = astate.lockset in
     let unlocked = astate.unlockset in
     let threads_active = astate.threads_active in
-    let thread = if (phys_equal (String.compare (Procname.to_string pname) "main") 0) 
-      then create_main_thread else 
-      (* if the astate.threads_active contains main thread -> the thread is main, alse None? *) 
-      (* or simply if the procedure is main -> main thread *)
-      
-        None in (* TODO in the case of main... *) (* TODO create_main_thread *)
+    let thread =
+      (* if there is no thread in threads_active -> the access is not in main function*)
+      if (ThreadSet.equal ThreadSet.empty astate.threads_active) then
+        None
+      else
+        create_main_thread
+    in
     { var; loc; access_type; locked; unlocked; threads_active; thread }
   in
   let accesses = AccessSet.add new_access astate.accesses in

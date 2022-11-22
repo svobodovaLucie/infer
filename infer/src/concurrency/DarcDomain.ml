@@ -103,6 +103,10 @@ module Aliases = struct
 
   let _hash t1 = Hashtbl.hash t1
 
+  let _get_fst (fst, _) = fst
+
+  let _get_snd (_, snd) = snd
+
   let pp fmt (f, s) =
     F.fprintf fmt "(%a, %a)" HilExp.AccessExpression.pp f HilExp.AccessExpression.pp s;
 end
@@ -214,7 +218,7 @@ module AccessEvent = struct
   (* let var_equals a1 a2 = compare a1.var a2.var *)
   
   (*
-var != var2, thr == t2, a1 == rd and a2 == rd nebo acc == w    
+  var != var2, thr == t2, a1 == rd and a2 == rd nebo acc == w
   length (intersection t1 t2 } < 2
   intersection lockset 1 lockset2 == {}
     *)
@@ -258,7 +262,6 @@ var != var2, thr == t2, a1 == rd and a2 == rd nebo acc == w
 end
 
 module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
-
 
 type t =
 {
@@ -317,7 +320,7 @@ let add_new_alias astate alias =
           match alias_with_lhs_equal_opt with
           | Some a -> 
             F.printf "Some a=(%a, %a)\n" HilExp.AccessExpression.pp (fst a) HilExp.AccessExpression.pp (snd a);
-            (* removuju spatnej par mozna? *)
+            (* removuju spatny par mozna? *)
             F.printf "astate.aliases: %a\n" AliasesSet.pp astate.aliases;
             let aliases_removed = AliasesSet.remove a astate.aliases in
             F.printf "aliases_removed: %a\n" AliasesSet.pp aliases_removed;
@@ -348,6 +351,36 @@ let add_new_alias astate alias =
   { astate with aliases }
   *)
   | (_, None) -> F.printf "not adding\n"; astate (* e.g. k = 42; *)
+
+let rec find_lhs_alias lhs aliases =  (* return Aliases.t option *)
+ match aliases with
+ | [] -> F.printf "find_lhs_alias: None\n"; None
+ | (fst, snd)::t -> (
+   F.printf "find_lhs_alias: fst: %a, snd: %a, lhs: %a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd HilExp.AccessExpression.pp lhs;
+   if ((HilExp.AccessExpression.equal fst lhs) || (HilExp.AccessExpression.equal snd lhs)) then (
+     F.printf "find_lhs_alias: %a, rhs: .a\n" Aliases.pp (fst, snd) (* HilExp.AccessExpression.pp rhs *);
+     Some (fst, snd)
+   ) else (
+     find_lhs_alias lhs t
+   )
+ )
+
+let update_aliases lhs _rhs astate =
+ let aliases = AliasesSet.elements astate.aliases in
+ let rec print_ae_list ae_list =
+   match ae_list with
+   | [] -> F.printf ".\n";
+   | h::t -> F.printf "%a, " Aliases.pp h; print_ae_list t;
+ in
+ print_ae_list aliases;
+ let _lhs_alias = find_lhs_alias lhs aliases in (* None | Some (m, &y) *)
+ (*
+ let deref_alias = find_alias_dereference lhs_alias aliases in (* None | Some (y, &x) *)
+ let new_alias = replace_rhs_in_deref_alias deref_alias rhs in
+ let new_astate = remove_alias_from_aliases deref_alias astate in
+ add_new_alias
+ *)
+ astate
 
 (* TODO *)
 let add_thread th astate =

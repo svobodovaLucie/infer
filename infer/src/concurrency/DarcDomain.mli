@@ -35,6 +35,8 @@ end
 
 val add_new_alias : t -> (HilExp.AccessExpression.t * HilExp.AccessExpression.t option) -> t
 
+val update_aliases : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> t -> t
+
 val empty : t
 
 val initial_main : t

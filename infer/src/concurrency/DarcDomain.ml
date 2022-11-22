@@ -55,7 +55,7 @@ module ThreadEvent = struct
   type t = (AccessPath.t * Location.t)
 
   (* FIXME how to compare threads *)
-  (* 
+  (*
   let compare ((base, aclist) as th, loc) ((base', aclist') as th', loc') =
     let result_th =
       if phys_equal th th' then 0
@@ -125,16 +125,6 @@ module AccessEvent = struct
     thread: ThreadEvent.t option;
   }
 
-  (*
-  let compare (((base, aclist) as lock), _) ((((base'), aclist') as lock' ), _) =
-    if phys_equal lock lock' then 0
-    else begin
-      let res = AccessPath.compare_base base base' in
-      if not (Int.equal res 0) then res
-      else
-        List.compare AccessPath.compare_access aclist aclist'
-    end
-  *)
   (* TODO how to compare accesses? is it necessary? *)
   let compare _t1 _t2 = 1
   let _equal t1 t2 = Int.equal 0 (compare t1 t2)
@@ -147,36 +137,9 @@ module AccessEvent = struct
     let threads_active = ThreadSet.union threads_active access.threads_active in
     { var=access.var; loc=access.loc; access_type=access.access_type; locked; unlocked; threads_active; thread }
 
-  (*
-  let _cmp ((base, aclist) as th, _loc) ((base', aclist') as th', _sloc') =
-    if phys_equal th th' then 0
-    else begin
-      let res = AccessPath.compare_base base base' in
-      if not (Int.equal res 0) then res
-      else
-        List.compare AccessPath.compare_access aclist aclist'
-    end
-  *)
-
-  let predicate_loc (a1, a2) = 
+  let predicate_loc (a1, a2) =
     if Location.compare a1.loc a2.loc <= 0 then true else false
-  (*
-  let print_access_pair (t1, t2) =
-    F.printf "Printing access pair\n";
-    F.printf "(%a, %a, %s, l=%a, ulo=%a, tha=%a\n"
-      AccessPath.pp t1.var Location.pp t1.loc t1.access_type Lockset.pp t1.locked
-      Lockset.pp t1.unlocked ThreadSet.pp t1.threads_active;
-    match t1.thread with
-    | Some t -> F.printf "on thread %a,,, \n" ThreadEvent.pp t;
-    | None -> F.printf "on None thread,,, \n";
-    
-    F.printf "(%a, %a, %s, l=%a, ulo=%a, tha=%a\n"
-      AccessPath.pp t2.var Location.pp t2.loc t2.access_type Lockset.pp t2.locked
-      Lockset.pp t2.unlocked ThreadSet.pp t2.threads_active;
-    match t2.thread with
-    | Some t -> F.printf "on thread %a)\n" ThreadEvent.pp t
-    | None -> F.printf "on None thread)\n"
-  *)
+
   let print_access_pair (t1, t2) =
     let t1_access_string = ReadWriteModels.access_to_string t1.access_type in
     F.printf "(%a, %a, %s |"
@@ -205,24 +168,6 @@ module AccessEvent = struct
     | Some t -> F.fprintf fmt "on thread %a\n" ThreadEvent.pp t
     | None -> F.fprintf fmt "on None thread\n"
     
-    (*
-    let compare ((base, aclist) as th, _loc) ((base', aclist') as th', _sloc') =
-      if phys_equal th th' then 0
-      else begin
-        let res = AccessPath.compare_base base base' in
-        if not (Int.equal res 0) then res
-        else
-          List.compare AccessPath.compare_access aclist aclist'
-      end
-      *)
-  (* let var_equals a1 a2 = compare a1.var a2.var *)
-  
-  (*
-  var != var2, thr == t2, a1 == rd and a2 == rd nebo acc == w
-  length (intersection t1 t2 } < 2
-  intersection lockset 1 lockset2 == {}
-    *)
-
   let predicate_var (a1, a2) = (* var1 != var2 -> true *)
     if phys_equal (HilExp.AccessExpression.compare a1.var a2.var) 0 then true else false
 
@@ -244,10 +189,6 @@ module AccessEvent = struct
     if len < 2 then false else true
 
   let predicate_read_write (_a1, _a2) = true (* a1 == rd and a2 == rd -> false *)
-    (*
-    if ((String.equal a1.access_type "rd") && (String.equal a2.access_type "rd"))
-      then false else true
-    *)
   let predicate_threads_intersection (a1, a2) = (* length(intersect ts1 ts2) < 2 -> false *)
     let intersect = ThreadSet.inter a1.threads_active a2.threads_active in
     let len = ThreadSet.cardinal intersect in
@@ -352,20 +293,83 @@ let add_new_alias astate alias =
   *)
   | (_, None) -> F.printf "not adding\n"; astate (* e.g. k = 42; *)
 
-let rec find_lhs_alias lhs aliases =  (* return Aliases.t option *)
+(*
+  Function returns an alias if there is relation with a variable in aliases.
+  Returns
+    None if the var isn't in aliases
+    Some (lhs, snd) if found
+*)
+
+let _print_alias alias = (
+  match alias with
+ | None -> F.printf "print_alias: None\n";
+ | Some (fst, snd) -> F.printf "print_alias: %a\n" Aliases.pp (fst, snd);
+ )
+
+let rec find_alias var aliases =  (* return Aliases.t option *)
  match aliases with
- | [] -> F.printf "find_lhs_alias: None\n"; None
+ | [] -> F.printf "find_alias: None\n"; None
  | (fst, snd)::t -> (
-   F.printf "find_lhs_alias: fst: %a, snd: %a, lhs: %a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd HilExp.AccessExpression.pp lhs;
-   if ((HilExp.AccessExpression.equal fst lhs) || (HilExp.AccessExpression.equal snd lhs)) then (
-     F.printf "find_lhs_alias: %a, rhs: .a\n" Aliases.pp (fst, snd) (* HilExp.AccessExpression.pp rhs *);
+   F.printf "find_alias: fst: %a, snd: %a, lhs: %a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd HilExp.AccessExpression.pp var;
+   if ((HilExp.AccessExpression.equal fst var) || (HilExp.AccessExpression.equal snd var)) then (
+     F.printf "find_alias: %a, rhs: .a\n" Aliases.pp (fst, snd) (* HilExp.AccessExpression.pp rhs *);
      Some (fst, snd)
    ) else (
-     find_lhs_alias lhs t
+     find_alias var t
    )
  )
 
-let update_aliases lhs _rhs astate =
+(*
+  Check
+  let rec
+  if *m != m then  (more like while se nerovnaji tak hledej)
+  (* TODO co kdyz mam **m -> co s temi mezidereferencemi? taky se musi upravovat, nebo se jen hleda? *)
+    find_alias_dereference (pouze jednou udela dereferenci, najde alias a ten vrati)
+  else (tzn. *m == *m)
+    return
+*)
+(*
+  Function
+  e.g.:
+  aliases: [(y, &x), (m, &y)]
+  lhs_alias: (m, &y)
+  -> returns: (y, &x)
+*)
+let find_alias_dereference init_alias aliases =
+  (* create dereference *)
+  match init_alias with
+  | None -> None
+  | Some (_fst, snd) ->
+    let snd_deref = HilExp.AccessExpression.dereference snd in
+    F.printf "find_alias_dereference: snd_deref: %a\n" HilExp.AccessExpression.pp snd_deref;
+    find_alias snd_deref aliases
+
+let replace_snd_in_alias alias var = (
+  match alias with
+  | None -> None
+  | Some (fst, _) -> Some (fst, var)
+)
+
+let remove_alias_from_aliases alias astate = (
+  match alias with
+  | None -> astate
+  | Some alias -> (
+    let new_aliases = AliasesSet.remove alias astate.aliases in
+    (* )print_astate_aliases {astate with aliases=new_aliases }; *)
+    { astate with aliases=new_aliases }
+  )
+)
+
+let add_new_alias_no_option astate alias = (
+  match alias with
+  | None -> astate
+  | Some alias -> (
+    let new_aliases = AliasesSet.add alias astate.aliases in
+    { astate with aliases=new_aliases }
+  )
+)
+
+let update_aliases lhs rhs astate =
  let aliases = AliasesSet.elements astate.aliases in
  let rec print_ae_list ae_list =
    match ae_list with
@@ -373,14 +377,18 @@ let update_aliases lhs _rhs astate =
    | h::t -> F.printf "%a, " Aliases.pp h; print_ae_list t;
  in
  print_ae_list aliases;
- let _lhs_alias = find_lhs_alias lhs aliases in (* None | Some (m, &y) *)
- (*
+ let lhs_alias = find_alias lhs aliases in (* None | Some (m, &y) *)
  let deref_alias = find_alias_dereference lhs_alias aliases in (* None | Some (y, &x) *)
- let new_alias = replace_rhs_in_deref_alias deref_alias rhs in
- let new_astate = remove_alias_from_aliases deref_alias astate in
- add_new_alias
+ let new_alias = replace_snd_in_alias deref_alias rhs in (* None | Some (y, &z) *)
+ (* new version:
+ let new_alias_fst = (* fst ae *) in
+ let new_alias_snd = (* snd ae *) in
+ let new_alias = (* vytvorit (fst, snd) *) (* TODO co kdyz neni zadny alias - je None! *)
  *)
- astate
+ let new_astate = remove_alias_from_aliases deref_alias astate in (* astate *)
+ let final_astate = add_new_alias_no_option new_astate new_alias (* astate *) in
+ final_astate
+
 
 (* TODO *)
 let add_thread th astate =
@@ -460,7 +468,7 @@ let assign_expr var astate loc pname =
   let accesses = AccessSet.add new_access astate.accesses in
   { astate with accesses }
 
-let print_astate astate loc caller_pname = 
+let print_astate astate loc caller_pname =
   F.printf "========= printing astate... ==========\n";
   F.printf "access=%a\n" AccessSet.pp astate.accesses;
   F.printf "lockset=%a\n" Lockset.pp astate.lockset;

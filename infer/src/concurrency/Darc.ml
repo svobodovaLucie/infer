@@ -38,8 +38,6 @@
       let new_astate = Domain.add_new_alias new_astate alias in
       new_astate
     )
-
-
     | HilExp.AccessExpression.FieldOffset _ -> F.printf "FieldOffset\n"; new_astate
     | HilExp.AccessExpression.ArrayOffset _ -> F.printf "ArrayOffset\n"; new_astate
     | HilExp.AccessExpression.AddressOf ae -> F.printf "AddressOf &, %a\n" HilExp.AccessExpression.pp ae; new_astate
@@ -55,7 +53,7 @@
         | Some r -> r
         | None -> assert false (* TODO *)
       in
-      let _res = Domain.update_aliases ae_lhs ae_rhs astate in
+      let astate_with_updated_aliases = Domain.update_aliases ae_lhs ae_rhs astate in
       (* )res *)
       (* find base in aliases *)
       (* let find_var_in_aliases var aliases = *)
@@ -81,7 +79,8 @@
       (* if found then add new alias somehow and delete the old one if it is necessary *)
       (* if not found then don't add it *)
       (* TODO malloc!! *)
-      new_astate
+      (* )new_astate *)
+      astate_with_updated_aliases
     )
     in
     (* add an alias to the aliases set in astate *)

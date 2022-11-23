@@ -42,18 +42,24 @@
     | HilExp.AccessExpression.ArrayOffset _ -> F.printf "ArrayOffset\n"; new_astate
     | HilExp.AccessExpression.AddressOf ae -> F.printf "AddressOf &, %a\n" HilExp.AccessExpression.pp ae; new_astate
     | HilExp.AccessExpression.Dereference ae -> (
-      F.printf "Dereference *, %a\n" HilExp.AccessExpression.pp ae;
+      (* F.printf "Dereference *, %a\n" HilExp.AccessExpression.pp ae; *)
       let base_lhs = HilExp.AccessExpression.get_base ae in
       let ae_lhs = HilExp.AccessExpression.base base_lhs in (* type: ae *)
       (* do Dereference until it is the same as the first ae *)
       F.printf "base_lhs: %a\n" AccessPath.pp_base base_lhs;
       F.printf "ae_lhs: %a\n" HilExp.AccessExpression.pp ae_lhs;
-      let ae_rhs =
-        match rhs_access_expr_first with
-        | Some r -> r
-        | None -> assert false (* TODO *)
-      in
-      let astate_with_updated_aliases = Domain.update_aliases ae_lhs ae_rhs astate in
+      match rhs_access_expr_first with
+        | Some ae_rhs -> Domain.update_aliases lhs_access_expr ae_rhs astate (* astate with updated aliases *)
+        (*
+        (
+          let base_rhs = HilExp.AccessExpression.get_base r in
+          let ae_rhs = HilExp.AccessExpression.base base_rhs in (* type: ae *)
+          ae_rhs
+        )
+        *)
+        | None -> astate (* TODO pokud je to cislo, tak se assertne*)
+
+
       (* )res *)
       (* find base in aliases *)
       (* let find_var_in_aliases var aliases = *)
@@ -80,7 +86,6 @@
       (* if not found then don't add it *)
       (* TODO malloc!! *)
       (* )new_astate *)
-      astate_with_updated_aliases
     )
     in
     (* add an alias to the aliases set in astate *)

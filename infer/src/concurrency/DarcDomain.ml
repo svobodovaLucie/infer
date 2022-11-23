@@ -223,7 +223,7 @@ let empty =
   aliases = AliasesSet.empty;
 }
 
-let add_new_alias astate alias =
+let _add_new_alias astate alias =
   F.printf "adding an alias: ";
   (* is lhs base? true or false *)
   
@@ -423,11 +423,13 @@ let rec check_lhs lhs lhs_current var aliases =
   if (HilExp.AccessExpression.equal lhs lhs_current) then
     begin
       F.printf "check_lhs-if: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;
-      find_alias var aliases  (* e.g. None | Some (y, &k) *)
+      let alias = find_alias var aliases in (* e.g. None | Some (y, &k) *)
+      match alias with
+      | Some alias -> Some alias   (* return alias *)
+      | None -> Some (var, var)    (* the var is not in aliases -> return var (only the second variable will be needed later) *)
     end
   else
     begin
-      (*Some (lhs, var) *)
       F.printf "check_lhs-else: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;
       let find_current_in_aliases = find_alias var aliases in (* e.g. None | Some (m, &y) *)
       let lhs_dereference = HilExp.AccessExpression.dereference lhs_current in (* *m *)
@@ -444,9 +446,9 @@ let get_base_alias lhs aliases = (* vraci None | Some (m, &y) *)
   let lhs_ae = HilExp.AccessExpression.base lhs_base in
   check_lhs lhs lhs_ae lhs_ae aliases
 
-let get_option_fst alias = (
+let get_option_fst lhs alias = (
   match alias with
-  | None -> None
+  | None -> Some lhs
   | Some (fst, _) -> Some fst
 )
 
@@ -466,22 +468,32 @@ let update_aliases lhs rhs astate =
  F.printf "aliases:\n";
  print_ae_list aliases;
  (* lhs *)
- F.printf "lhs_alias:\n";
- let lhs_alias = get_base_alias lhs aliases in (* **u -> Some (y, &k) *)
  F.printf "lhs_alias_fst:\n";
- let lhs_alias_fst = get_option_fst lhs_alias in (* Some (y, &k) -> Some y *)
- let astate_alias_removed = remove_alias_from_aliases lhs_alias astate in (* astate *)
+ let lhs_alias = ( (* returns None | Some (y, &x) *)
+   match lhs with
+   | HilExp.AccessExpression.Base _ae -> (
+     F.printf "lhs_alias_fst: base: lhs: %a\n" HilExp.AccessExpression.pp lhs;
+     None
+   )
+   | HilExp.AccessExpression.Dereference _ae -> (
+     F.printf "lhs_alias_fst: dereference: lhs: %a\n" HilExp.AccessExpression.pp lhs;
+     F.printf "lhs_alias:\n";
+     let lhs_alias = get_base_alias lhs aliases in (* **u -> Some (y, &k) *)
+     lhs_alias
+   )
+   | _ -> ( (* addressOf, other *)
+     None (* TODO *)
+   )
+ )
+ in
+ F.printf "lhs_alias_fst:\n";
+ let lhs_alias_fst = get_option_fst lhs lhs_alias in
  (* rhs *)
- F.printf "rhs_alias:\n";
- (* check rhs if it is addressOf -> do nothing *)
- (* if rhs is addressOf -> vrat jen rhs
-    else do rhs_alias
-    TODO co kdyz je to base? *)
  F.printf "rhs_alias_snd:\n";
  let rhs_alias_snd = (
    match rhs with
-   | HilExp.AccessExpression.AddressOf ae -> (
-     F.printf "rhs_alias_snd: rhs: AddressOf &, %a\n" HilExp.AccessExpression.pp ae;
+   | HilExp.AccessExpression.AddressOf _ae -> (
+     F.printf "rhs_alias_snd: addressOf: rhs: %a\n" HilExp.AccessExpression.pp rhs;
      Some rhs
    )
    | _ -> (  (* base, dereference etc. *)
@@ -494,29 +506,11 @@ let update_aliases lhs rhs astate =
  let new_alias = create_new_alias lhs_alias_fst rhs_alias_snd in (* Some (y, &z) *)
  F.printf "new_alias: ";
  _print_alias new_alias;
+ F.printf "remove_alias_from_aliases:\n";
+ let astate_alias_removed = remove_alias_from_aliases lhs_alias astate in (* astate *)
  F.printf "final_astate:\n";
  let final_astate = add_new_alias_no_option astate_alias_removed new_alias in (* astate *)
  final_astate
-
- (*
- print_ae_list aliases;
- (* *m = &x *)
- let lhs_alias_snd = find_alias_return_snd lhs aliases in (* None | Some &y *)
- (* let deref_alias = find_alias_dereference lhs_alias aliases in (* None | Some (y, &x) *) *)
- (* let new_alias = replace_snd_in_alias deref_alias rhs in (* None | Some (y, &z) *) *)
- (* new version: *)
- let new_alias_fst = find_alias_var lhs_alias_snd aliases (* fst ae *) in
-
- let rhs_alias_snd = find_alias_return_snd rhs aliases in (* TODO may be None *)
- let new_alias_snd = find_alias_var rhs_alias_snd aliases (* snd ae *) in
- (* let new_alias = Some (new_alias_fst, new_alias_snd) in (* vytvorit (fst, snd) *) (* TODO co kdyz neni zadny alias - je None! *) *)
- let new_alias = create_new_alias new_alias_fst new_alias_snd in
- (* TODO remove first aliases from aliases *)
- (* let new_astate = remove_alias_from_aliases deref_alias astate in (* astate *) *)
- let final_astate = add_new_alias_no_option new_astate new_alias (* astate *) in
- final_astate
- *)
-
 
 (* TODO *)
 let add_thread th astate =

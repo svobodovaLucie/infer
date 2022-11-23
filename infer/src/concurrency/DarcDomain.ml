@@ -142,21 +142,9 @@ module AccessEvent = struct
 
   let print_access_pair (t1, t2) =
     let t1_access_string = ReadWriteModels.access_to_string t1.access_type in
-    F.printf "(%a, %a, %s |"
-      HilExp.AccessExpression.pp t1.var Location.pp t1.loc t1_access_string;
-    (*
-    match t1.thread with
-    | Some t -> F.printf "on thread %a,,, \n" ThreadEvent.pp t;
-    | None -> F.printf "on None thread,,, \n";
-    *)
+    F.printf "(%a, %a, %s |" HilExp.AccessExpression.pp t1.var Location.pp t1.loc t1_access_string;
     let t2_access_string = ReadWriteModels.access_to_string t2.access_type in
-    F.printf " %a, %a, %s)\n"
-    HilExp.AccessExpression.pp t2.var Location.pp t2.loc t2_access_string
-    (*
-    match t2.thread with
-    | Some t -> F.printf "on thread %a)\n" ThreadEvent.pp t
-    | None -> F.printf "on None thread)\n"
-    *)
+    F.printf " %a, %a, %s)\n" HilExp.AccessExpression.pp t2.var Location.pp t2.loc t2_access_string
 
   let pp fmt t1 =
     let acc_type = ReadWriteModels.access_to_string t1.access_type in
@@ -223,83 +211,6 @@ let empty =
   aliases = AliasesSet.empty;
 }
 
-let _add_new_alias astate alias =
-  F.printf "adding an alias: ";
-  (* is lhs base? true or false *)
-  
-  let lhs_is_base lhs = HilExp.AccessExpression.is_base lhs in
-  let lhs_matches_opt lhs (fst, snd) =
-    F.printf "lhs_matches_opt... fst:%a, snd:%a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;
-    if (HilExp.AccessExpression.equal lhs fst) then (
-      F.printf "Some phys_equal...\n";
-      Some (fst, snd)
-    )
-    else (
-      F.printf "None phys_equal...\n";
-      None
-    )
-  in
-  let rec filter_aliases lhs = function
-    | [] -> F.printf "alias with this lhs wasn't matched\n"; None
-    | h::t -> 
-        match lhs_matches_opt lhs h with
-        | Some a -> F.printf "Some filter aliases\n"; Some a
-        | None -> F.printf "None filter aliases...\n"; filter_aliases lhs t
-  in
-    (* lhs is base -> 
-        1. if lhs already is in aliases -> remove it, add the new one and return new astate with aliases *)
-  match alias with
-  | (lhs, Some rhs) -> 
-    F.printf "(%a, %a)\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp rhs;
-    if (lhs_is_base (fst alias)) then 
-      begin
-        let aliases_list = AliasesSet.elements astate.aliases in
-        let alias_with_lhs_equal_opt = filter_aliases lhs aliases_list in (
-          (* pokud tam dany alias byl -> odstranime ho a vlozime ten novy *)
-          (* pokud nebyl, vracime proste astate *)
-          F.printf "before match\n";
-          match alias_with_lhs_equal_opt with
-          | Some a -> 
-            F.printf "Some a=(%a, %a)\n" HilExp.AccessExpression.pp (fst a) HilExp.AccessExpression.pp (snd a);
-            (* removuju spatny par mozna? *)
-            F.printf "astate.aliases: %a\n" AliasesSet.pp astate.aliases;
-            let aliases_removed = AliasesSet.remove a astate.aliases in
-            F.printf "aliases_removed: %a\n" AliasesSet.pp aliases_removed;
-            let aliases_new = AliasesSet.add (lhs, rhs) aliases_removed in
-            F.printf "aliases_new: %a\n" AliasesSet.pp aliases_new;
-            { astate with aliases=aliases_new }
-          | None ->
-            (* F.printf "none\n"; astate *)
-            (* the alias is not in the aliases set - nothing to be removed - just add it *)
-            let aliases_new = AliasesSet.add (lhs, rhs) astate.aliases in
-            { astate with aliases=aliases_new }
-        )
-      end
-    else
-      begin
-        F.printf "alias, lhs not base  - works slightly different -> how?\n";
-        (* najit base lhs *)
-        (* najit par s lhs_base v aliases *)
-        (* dereferencuji ji tolikrat, dokud se nebude rovnat tomu puvodnimu - 
-           pozor, asi to bude potreba postupne dereferencovat a po kaze dereferenci checkovat, 
-           jestli neco takoveho je v aliases *)
-        (* pokud je v aliases dany par, odstranim ho *)
-        (* pridam novy alias *)
-        astate
-      end
-  (*
-  let aliases = AliasesSet.add (lhs, rhs) astate.aliases in
-  { astate with aliases }
-  *)
-  | (_, None) -> F.printf "not adding\n"; astate (* e.g. k = 42; *)
-
-(*
-  Function returns an alias if there is relation with a variable in aliases.
-  Returns
-    None if the var isn't in aliases
-    Some (lhs, snd) if found
-*)
-
 let _print_alias alias = (
   match alias with
  | None -> F.printf "print_alias: None\n";
@@ -318,52 +229,6 @@ let rec find_alias var aliases =  (* return Aliases.t option *)
      find_alias var t
    )
  )
-
-(*
-let rec find_alias_return_snd var aliases =  (* return Aliases.t option *)
- match aliases with
- | [] -> F.printf "find_alias: None\n"; None
- | (fst, snd)::t -> (
-   F.printf "find_alias: fst: %a, snd: %a, lhs: %a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd HilExp.AccessExpression.pp var;
-   if ((HilExp.AccessExpression.equal fst var) || (HilExp.AccessExpression.equal snd var)) then (
-     F.printf "find_alias: %a, rhs: .a\n" Aliases.pp (fst, snd) (* HilExp.AccessExpression.pp rhs *);
-     Some snd
-   ) else (
-     find_alias var t
-   )
- )
-(*
-  Check
-  let rec
-  if *m != m then  (more like while se nerovnaji tak hledej)
-  (* TODO co kdyz mam **m -> co s temi mezidereferencemi? taky se musi upravovat, nebo se jen hleda? *)
-    find_alias_dereference (pouze jednou udela dereferenci, najde alias a ten vrati)
-  else (tzn. *m == *m)
-    return
-*)
-*)
-
-(*
-  Function
-  e.g.:
-  aliases: [(y, &x), (m, &y)]
-  lhs_alias: (m, &y)
-  -> returns: (y, &x)
-*)
-let _find_alias_dereference init_alias aliases =
-  (* create dereference *)
-  match init_alias with
-  | None -> None
-  | Some (_fst, snd) ->
-    let snd_deref = HilExp.AccessExpression.dereference snd in
-    F.printf "find_alias_dereference: snd_deref: %a\n" HilExp.AccessExpression.pp snd_deref;
-    find_alias snd_deref aliases
-
-let _replace_snd_in_alias alias var = (
-  match alias with
-  | None -> None
-  | Some (fst, _) -> Some (fst, var)
-)
 
 let remove_alias_from_aliases alias astate = (
   match alias with
@@ -384,20 +249,6 @@ let add_new_alias_no_option astate alias = (
   )
 )
 
-let _find_alias_var var aliases = (* returns final_var_opt -> None | Some ae *)
-  let var_dereference = HilExp.AccessExpression.dereference var in
-  F.printf "find_alias_var: var_dereference: %a\n" HilExp.AccessExpression.pp var_dereference;
-  let alias_dereference = find_alias var_dereference aliases in
-  let final_var_opt =
-    match alias_dereference with
-    | None -> F.printf "None\n"; None
-    | Some (_, ae) -> (
-      F.printf "find_alias_var: var: %a, final_var_opt: %a\n" HilExp.AccessExpression.pp var HilExp.AccessExpression.pp ae;
-      Some ae
-    )
-  in
-  final_var_opt
-
 let create_new_alias fst snd = (
   match fst with
   | None -> None
@@ -405,19 +256,10 @@ let create_new_alias fst snd = (
     match snd with
     | None -> None
     | Some s -> (
-      (* let f_ae = HilExp.AccessExpression.base f in *)
-      (* )let s_ae = HilExp.AccessExpression.base s in *)
       Some (f, s)
     )
-    (* prevest na ae *)
   )
 )
-
-(*
-let check_lhs _lhs lhs_current var _aliases =
-  let var_ae = HilExp.AccessExpression.get_base var in
-  Some (lhs_current, var_ae)
-*)
 
 let rec check_lhs lhs lhs_current var aliases =
   if (HilExp.AccessExpression.equal lhs lhs_current) then
@@ -719,21 +561,6 @@ let pp : F.formatter -> t -> unit =
 type summary = t
 
 let compute_data_races post = 
-  (* F.printf "\n\nSUMMARY MAIN: %a\n\n" pp post; *)
-
-  (* 
-  type t =
-  {
-    threads_active: ThreadSet.t;
-    accesses: AccessSet.t;
-    lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
-    unlockset: Lockset.t
-    (* vars_declared: Access Paths sth... *)
-  }
-  *)
-
-  (* F.printf "ACCESSES: %a\n" AccessSet.pp post.accesses; *)
-
   let rec print_pairs_list lst =
     match lst with
     | [] -> F.printf "\n"

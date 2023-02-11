@@ -37,7 +37,7 @@ val update_aliases : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> t
 
 val empty : t
 
-val empty_with_vars : (Mangled.t * Typ.t) list -> t
+val empty_with_locals : (Mangled.t * Typ.t) list -> t
 
 val initial_main : (Mangled.t * Typ.t) list -> t
 

@@ -227,8 +227,7 @@ type t =
   lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
   unlockset: Lockset.t;
   aliases: AliasesSet.t;
-  (* vars_declared: HilExp.AccessExpression.t list; *)
-  vars_declared: (Mangled.t * Typ.t) list;
+  locals: (Mangled.t * Typ.t) list; (* TODO maybe use HilExp.AccessExpression.t? *)
 }
 
 let empty =
@@ -238,17 +237,17 @@ let empty =
   lockset = Lockset.empty;
   unlockset = Lockset.empty;
   aliases = AliasesSet.empty;
-  vars_declared = [];
+  locals = [];
 }
 
-let empty_with_vars vars_declared =
+let empty_with_locals locals =
 {
   threads_active = ThreadSet.empty;
   accesses = AccessSet.empty;
   lockset = Lockset.empty;
   unlockset = Lockset.empty;
   aliases = AliasesSet.empty;
-  vars_declared;
+  locals;
 }
 
 let _print_alias alias = (
@@ -425,12 +424,12 @@ let create_main_thread =
   let acc_path_from_pvar : AccessPath.t = AccessPath.of_pvar pvar_from_pname typ_main_thread in
   Some (acc_path_from_pvar, Location.dummy)
 
-let initial_main vars_declared =
+let initial_main locals =
   (* create main thread *)
   let main_thread = create_main_thread in
   (* add the main thread to an empty astate *)
   (* let initial_astate = empty in *)
-  let initial_astate = empty_with_vars vars_declared in
+  let initial_astate = empty_with_locals locals in
   add_thread main_thread initial_astate
 
 let acquire lockid astate loc pname =
@@ -494,8 +493,8 @@ let _print_summary_accesses astate pname =
   F.printf "--------------------------------------\n"
 *)
 
-let print_vars_declared astate =
-  F.printf "vars_declared: {";
+let print_locals astate =
+  F.printf "locals: {";
   let rec print_vars = function
     | [] -> F.printf "}\n"
     (* | hd :: tl -> F.printf "%a, " HilExp.AccessExpression.pp hd; print_vars tl *)
@@ -503,7 +502,7 @@ let print_vars_declared astate =
       let typ_string = Typ.to_string (snd hd) in
       F.printf "|(%a, %s)|" Mangled.pp (fst hd) typ_string; print_vars tl
   in
-  print_vars astate.vars_declared
+  print_vars astate.locals
 
 let _print_astate_all astate loc caller_pname =
   F.printf "========= printing astate... ==========\n";
@@ -514,7 +513,7 @@ let _print_astate_all astate loc caller_pname =
   F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
   F.printf "caller_pname=%a\n" Procname.pp caller_pname;
   F.printf "loc=%a\n" Location.pp loc;
-  print_vars_declared astate;
+  print_locals astate;
   F.printf "=======================================\n"
 
 (*
@@ -600,8 +599,8 @@ let integrate_summary astate callee_pname loc callee_summary callee_formals actu
   F.printf "actuals: --------------------------------------\n";
   print_actuals actuals;
   F.printf "--------------------------------------\n";
-  F.printf "vars_declared: --------------------------------\n";
-  print_vars_declared astate;
+  F.printf "locals: --------------------------------\n";
+  print_locals astate;
   (* TODO important *)
   (* pridat do accesses vlakno, na kterem prave jsem -> v podstate to bude proste bud main nebo None *)
   (* FIXME je to pravda? Ze vzdy bude bud main nebo None?!?!?! *)
@@ -674,8 +673,8 @@ let join astate1 astate2 =
     let lockset = Lockset.union astate1.lockset astate2.lockset in
     let unlockset = Lockset.union astate1.unlockset astate2.unlockset in
     let aliases = AliasesSet.union astate1.aliases astate2.aliases in  (* TODO FIXME how to join aliases*)
-    let vars_declared = [] in (* TODO *)
-    { threads_active; accesses; lockset; unlockset; aliases; vars_declared }
+    let locals = [] in (* TODO *)
+    { threads_active; accesses; lockset; unlockset; aliases; locals }
   in
   new_astate
 

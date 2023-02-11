@@ -131,7 +131,7 @@ module AccessEvent = struct
   let _hash t1 = Hashtbl.hash t1.loc
 
   let edit_accesses threads_active lockset unlockset thread access = 
-    (* create new access and use informations from astate (sth like union access.lockset & astate.lockset etc.) *)
+    (* create new access and use information from astate (sth like union access.lockset & astate.lockset etc.) *)
     let locked = Lockset.diff (Lockset.union lockset access.locked) access.unlocked in
     let unlocked = Lockset.union (Lockset.diff unlockset access.locked) access.unlocked in
     let threads_active = ThreadSet.union threads_active access.threads_active in
@@ -146,6 +146,8 @@ module AccessEvent = struct
     let t2_access_string = ReadWriteModels.access_to_string t2.access_type in
     F.printf " %a, %a, %s)\n" HilExp.AccessExpression.pp t2.var Location.pp t2.loc t2_access_string
 
+  (* pp with all information *)
+  (*
   let pp fmt t1 =
     let acc_type = ReadWriteModels.access_to_string t1.access_type in
     F.fprintf fmt "{%a, %a, %s,\n            locked=%a,\n            unlocked=%a,\n
@@ -155,7 +157,14 @@ module AccessEvent = struct
     match t1.thread with
     | Some t -> F.fprintf fmt "on thread %a\n" ThreadEvent.pp t
     | None -> F.fprintf fmt "on None thread\n"
-    
+  *)
+  (* pp short version  - accesses only *)
+  let pp fmt t1 =
+    F.fprintf fmt "{%a, %a, " HilExp.AccessExpression.pp t1.var Location.pp t1.loc;
+    match t1.thread with
+    | Some t -> F.fprintf fmt "thread %a}" ThreadEvent.pp t
+    | None -> F.fprintf fmt "None thread}"
+
   let predicate_var (a1, a2) = (* var1 != var2 -> true *)
     if phys_equal (HilExp.AccessExpression.compare a1.var a2.var) 0 then true else false
 
@@ -177,20 +186,39 @@ module AccessEvent = struct
     if len < 2 then false else true
 
   let predicate_read_write (_a1, _a2) = true (* a1 == rd and a2 == rd -> false *)
+
   let predicate_threads_intersection (a1, a2) = (* length(intersect ts1 ts2) < 2 -> false *)
     let intersect = ThreadSet.inter a1.threads_active a2.threads_active in
     let len = ThreadSet.cardinal intersect in
     if len < 2 then false else true
 
-  let predicate_locksets (a1, a2) = (* intersect ls1 ls2 == {} -> false *)
+  let predicate_locksets (a1, a2) = (* intersect ls1 ls2 == {} -> false *) (* TODO nestaci aby aspon lockset alespon jednoho pristupu byla prazdna? *)
     let both_empty = 
       if ((phys_equal a1.locked Lockset.empty) && (phys_equal a2.locked Lockset.empty)) 
         then true else false in
     let intersect = Lockset.inter a1.locked a2.locked in
-    if Lockset.equal intersect Lockset.empty || not both_empty then true else false
+    if Lockset.equal intersect Lockset.empty || not both_empty then true else false (* TODO wtf to nejak neodpovida *)
+    (* proc tu vubec je to not both_empty, vsak intersect bude empty, i kdyz bude oboji empty -> proc to mam rozdelene wtf? *)
+    (* prece kdyz maji obe both lockset, tak tam normalne data race byt muze *)
+
+  (*
+  let pp_short fmt t1 =
+    F.fprintf fmt "{%a, %a, " HilExp.AccessExpression.pp t1.var Location.pp t1.loc;
+    match t1.thread with
+    | Some t -> F.fprintf fmt "thread %a}\n" ThreadEvent.pp t
+    | None -> F.fprintf fmt "None thread}\n"
+  *)
 end
 
 module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
+
+(*
+module Vars = struct
+  type t = HilExp.AccessExpression.t
+end
+
+module VarsSet = AbstractDomain.FiniteSet(Vars)
+*)
 
 type t =
 {
@@ -199,7 +227,8 @@ type t =
   lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
   unlockset: Lockset.t;
   aliases: AliasesSet.t;
-  (* vars_declared: Access Paths sth... *)
+  (* vars_declared: HilExp.AccessExpression.t list; *)
+  vars_declared: (Mangled.t * Typ.t) list;
 }
 
 let empty =
@@ -209,6 +238,17 @@ let empty =
   lockset = Lockset.empty;
   unlockset = Lockset.empty;
   aliases = AliasesSet.empty;
+  vars_declared = [];
+}
+
+let empty_with_vars vars_declared =
+{
+  threads_active = ThreadSet.empty;
+  accesses = AccessSet.empty;
+  lockset = Lockset.empty;
+  unlockset = Lockset.empty;
+  aliases = AliasesSet.empty;
+  vars_declared;
 }
 
 let _print_alias alias = (
@@ -385,11 +425,12 @@ let create_main_thread =
   let acc_path_from_pvar : AccessPath.t = AccessPath.of_pvar pvar_from_pname typ_main_thread in
   Some (acc_path_from_pvar, Location.dummy)
 
-let initial_main =
+let initial_main vars_declared =
   (* create main thread *)
   let main_thread = create_main_thread in
   (* add the main thread to an empty astate *)
-  let initial_astate = empty in 
+  (* let initial_astate = empty in *)
+  let initial_astate = empty_with_vars vars_declared in
   add_thread main_thread initial_astate
 
 let acquire lockid astate loc pname =
@@ -432,7 +473,39 @@ let assign_expr var astate loc pname =
   let accesses = AccessSet.add new_access astate.accesses in
   { astate with accesses }
 
-let print_astate astate loc caller_pname =
+let print_astate astate _loc _caller_pname =
+  (* F.printf "========= printing astate... ==========\n"; *)
+  F.printf "access=%a\n" AccessSet.pp astate.accesses
+  (*
+  F.printf "lockset=%a\n" Lockset.pp astate.lockset;
+  F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
+  F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
+  F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
+  F.printf "caller_pname=%a\n" Procname.pp caller_pname;
+  F.printf "loc=%a\n" Location.pp loc;
+  *)
+  (* F.printf "=======================================\n" *)
+
+(*
+let _print_summary_accesses astate pname =
+  F.printf "---- print_summary_accesses of %a ----\n" Procname.pp pname;
+  (* F.printf "%a\n" AccessSet.pp_short astate.accesses; *)
+  F.printf "%a\n" AccessSet.pp astate;
+  F.printf "--------------------------------------\n"
+*)
+
+let print_vars_declared astate =
+  F.printf "vars_declared: {";
+  let rec print_vars = function
+    | [] -> F.printf "}\n"
+    (* | hd :: tl -> F.printf "%a, " HilExp.AccessExpression.pp hd; print_vars tl *)
+    | hd :: tl ->
+      let typ_string = Typ.to_string (snd hd) in
+      F.printf "|(%a, %s)|" Mangled.pp (fst hd) typ_string; print_vars tl
+  in
+  print_vars astate.vars_declared
+
+let _print_astate_all astate loc caller_pname =
   F.printf "========= printing astate... ==========\n";
   F.printf "access=%a\n" AccessSet.pp astate.accesses;
   F.printf "lockset=%a\n" Lockset.pp astate.lockset;
@@ -441,9 +514,18 @@ let print_astate astate loc caller_pname =
   F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
   F.printf "caller_pname=%a\n" Procname.pp caller_pname;
   F.printf "loc=%a\n" Location.pp loc;
+  print_vars_declared astate;
   F.printf "=======================================\n"
 
-(* FIXME var is any expression now (n$7 etc.) *)
+(*
+let _print_summary_accesses astate pname =
+  F.printf "---- print_summary_accesses of %a ----\n" Procname.pp pname;
+  (* F.printf "%a\n" AccessSet.pp_short astate.accesses; *)
+  F.printf "%a\n" AccessSet.pp astate;
+  F.printf "--------------------------------------\n"
+*)
+
+(* FIXME var is any expression now (n$7 etc.`) *)
 let add_access_to_astate var access_type astate loc pname =
   F.printf "Inside add_access_to_astate in Domain\n";
   let new_access : AccessEvent.t = (* TODO appropriate access_type*)
@@ -473,19 +555,69 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary _cal
   let accesses_joined = AccessSet.join astate.accesses edited_accesses_from_callee in
   { astate with accesses=accesses_joined }
 
-let integrate_summary astate callee_pname loc callee_summary _callee_formals _actuals caller_pname =
+let print_actuals actuals =
+  let rec loop = function
+    | [] -> F.printf "\n"
+    | hd :: tl -> F.printf "| %a |" HilExp.pp hd; loop tl
+  in loop actuals
+
+let print_formals formals =
+  let rec loop = function
+    | [] -> F.printf "\n"
+    | (mangled, typ) :: tl ->
+      (*
+      let print_type typ =
+        match typ with
+        | Tptr -> F.printf "Tptr\n";
+        | Tfun -> F.printf "Tfun\n";
+        | Tvar -> F.printf "Tvar\n";
+        | _ -> F.printf "Tother\n";
+      in
+      print_type typ;
+      *)
+      let typ_string = Typ.to_string typ in
+      (* F.printf "typ: %s\n" (Typ.to_string typ); *)
+      let _is_ptr =
+        if (Typ.is_pointer typ) then
+          F.printf "is pointer\n"
+        else
+          F.printf "isn't pointer\n"
+      in
+      F.printf "| (%a," IR.Mangled.pp mangled; F.printf " %s) |" typ_string; loop tl
+  in loop formals
+
+(* myslim, ze integrate_summary je stejna jako uintegrate_pthread_summary, akorat se nepridava aktualne nove vlakno, 
+   takze nevim, jake vlakno k tem pristupum pridat -> TODO vymyslet!! *)
+(* plus tady se jeste musi nejak integrovat locks, threads atd. -> jeste neni domyslene *)
+let integrate_summary astate callee_pname loc callee_summary callee_formals actuals caller_pname =
   F.printf "integrate_summary: callee_pname=%a in Darc\n" Procname.pp callee_pname;
+  F.printf "astate %a ---------------------------------------\n" Procname.pp caller_pname;
   print_astate astate loc caller_pname;
+  F.printf "summary %a --------------------------------------\n" Procname.pp callee_pname;
+  print_astate callee_summary loc callee_pname;
+  F.printf "callee_formals: --------------------------------------\n";
+  print_formals callee_formals;
+  F.printf "actuals: --------------------------------------\n";
+  print_actuals actuals;
+  F.printf "--------------------------------------\n";
+  F.printf "vars_declared: --------------------------------\n";
+  print_vars_declared astate;
   (* TODO important *)
   (* pridat do accesses vlakno, na kterem prave jsem -> v podstate to bude proste bud main nebo None *)
   (* FIXME je to pravda? Ze vzdy bude bud main nebo None?!?!?! *)
+  (* podle me by tu melo byt ze se vezme current thread -> pridat do summary? nelze, 
+     protoze kdyz se vytvori thread, muze jich tam byt vic current threads*)
   let current_thread = 
     if (ThreadSet.equal ThreadSet.empty astate.threads_active) then
       None
-    else create_main_thread
+    else create_main_thread (* false, upravit a zmenit na neco jineho! -> mozna to neni spatne, jen upravit podminku -> main se tam da, pokud uz nam bezi main thread, ne pokud je mnozina threads_active prazdna -> to muze nastat i tehdy, pokud jeste nebezi main, ale uz jsme vytvorili nejake vlakno -> wait ale 
+       poradne rozmyslet -> co kdyz v main vytvorim vlakno t1 ktere jde do foo, ve foo vytvorim t2 ktere jde do bar *)
   in
   let edited_accesses_from_callee = AccessSet.map (AccessEvent.edit_accesses astate.threads_active astate.lockset astate.unlockset current_thread) callee_summary.accesses in
   let accesses_joined = AccessSet.join astate.accesses edited_accesses_from_callee in
+  F.printf "integrated summary: ========================================\n";
+  print_astate { astate with accesses=accesses_joined } loc caller_pname;
+  F.printf "============================================================\n";
   { astate with accesses=accesses_joined }
   (* TODO formals to actuals *)
   (*
@@ -542,7 +674,8 @@ let join astate1 astate2 =
     let lockset = Lockset.union astate1.lockset astate2.lockset in
     let unlockset = Lockset.union astate1.unlockset astate2.unlockset in
     let aliases = AliasesSet.union astate1.aliases astate2.aliases in  (* TODO FIXME how to join aliases*)
-    { threads_active; accesses; lockset; unlockset; aliases }
+    let vars_declared = [] in (* TODO *)
+    { threads_active; accesses; lockset; unlockset; aliases; vars_declared }
   in
   new_astate
 

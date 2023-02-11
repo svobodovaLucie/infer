@@ -37,7 +37,9 @@ val update_aliases : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> t
 
 val empty : t
 
-val initial_main : t
+val empty_with_vars : (Mangled.t * Typ.t) list -> t
+
+val initial_main : (Mangled.t * Typ.t) list -> t
 
 val acquire : AccessPath.t -> t -> Location.t -> Procname.t -> t
 

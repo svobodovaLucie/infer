@@ -18,6 +18,12 @@ let assign_expr lhs_access_expr rhs_expr loc {interproc={tenv=_}; extras=_} (ast
   F.printf "Access lhs: %a at line %a\n" HilExp.AccessExpression.pp lhs_access_expr Location.pp loc;
   let lhs_access_path = HilExp.AccessExpression.to_access_path lhs_access_expr in
   F.printf "Access lhs access path: %a at line %a\n" AccessPath.pp lhs_access_path Location.pp loc;
+  let get_base (a, _) = a in
+  let get_access_list (_, b) = b in
+  let lhs_base = get_base (lhs_access_path) in
+  let lhs_access_list = get_access_list (lhs_access_path) in
+  let _lhs_accesses = HilExp.AccessExpression.to_accesses lhs_access_expr in
+  F.printf "AccessPath: pp: |%a|, pp_base: |%a|, pp_access: , pp_access_list: |%a|\n" AccessPath.pp lhs_access_path AccessPath.pp_base lhs_base AccessPath.pp_access_list lhs_access_list;
   (* access expression type: *)
   let new_astate = Domain.assign_expr lhs_access_expr astate loc pname in
   let rhs_access_expr = HilExp.get_access_exprs rhs_expr in
@@ -225,6 +231,7 @@ module Analyzer = LowerHil.MakeAbstractInterpreter (TransferFunctions (CFG))
 (* COMPUTE THE RESULT AND REPORT ERRORS *)
 let report {InterproceduralAnalysis.proc_desc; err_log; _} post =
   F.printf "REPORTING AND COMPUTING??? ----------------------------------------";
+  let _idk = Domain.compute_data_races post in
   let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
   let message = F.asprintf "Number of printf: %a in Data Race Checker\n" DarcDomain.pp post in
   Reporting.log_issue proc_desc err_log ~loc:last_loc DarcChecker IssueType.darc_error message;;
@@ -236,14 +243,76 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc
   F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s START >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
 
   (* If the analysed function is main -> we need to do few changes -> add main thread to threads... *)
+
+  (* vytvorime list vars_declared, ktery pak posleme do inicializace astate *)
+  let vars_declared_ref = ref [] in
+
+
+let print_vars_declared vars =
+  F.printf "darc_vars_declared: {";
+  let rec print_vars = function
+    | [] -> F.printf "}\n"
+    (* | hd :: tl -> F.printf "%a, " HilExp.AccessExpression.pp hd; print_vars tl *)
+    | hd :: tl ->
+      let typ_string = Typ.to_string (snd hd) in
+      F.printf "|(%a, %s)|" Mangled.pp (fst hd) typ_string; print_vars tl
+  in
+  print_vars vars
+  in
+
+  (* a pridame do nej formals passed by value + lokalni promenne (TODO na to pozor - opravdu je vsechny muzu pridat rovnou uz ted? asi jo,
+     pokud se pak vytvori vlakno, tak pokud nejaka promenna byla poslana dal, tak ji ze seznamu odstranime (pozor ale -> jak poslana dal?
+     dana do struktury, ktera je pak predana do vlakna?)) *)
+  (* locals deklarovane v dane funkci: *)
+  let locals = Procdesc.get_locals proc_desc in
+  let print_locals =
+    F.printf "locals: {";
+    let rec print : ProcAttributes.var_data list -> unit = function
+      | [] -> F.printf "}\n"
+      | hd :: tl ->
+        F.printf "%a, " Mangled.pp hd.name;
+        let new_local = (hd.name, hd.typ) in
+        vars_declared_ref := new_local :: !vars_declared_ref;
+        print tl (* da se vytisknout i Typ.t atd. *)
+    in
+    print locals
+  in
+  print_locals;
+
+  (* formals dane funkce: *)
+  let formals = Procdesc.get_formals proc_desc in
+  let print_formals =
+    F.printf "formals: {";
+    let rec print : (Mangled.t * Typ.t) list -> unit = function
+      | [] -> F.printf "}\n"
+      | hd :: tl ->
+        (* F.printf "%a, " Mangled.pp (fst hd); *)
+        let typ_string = Typ.to_string (snd hd) in
+          (* F.printf "typ: %s\n" (Typ.to_string typ); *)
+          let _is_ptr =
+            (* if typ is not a pointer, add the variable to vars_declared list *)
+            if not (Typ.is_pointer (snd hd)) then
+              vars_declared_ref := hd :: !vars_declared_ref
+            in
+            F.printf "| (%a," IR.Mangled.pp (fst hd); F.printf " %s) |" typ_string;
+            print_vars_declared !vars_declared_ref;
+        print tl
+    in
+    print formals
+  in
+  print_formals;
+
+  let vars_declared = !vars_declared_ref in
+
+  (* zF.printf "Procdesc: %a\n" Procdesc.pp proc_desc;*)
   let init_astate : DarcDomain.t =
     if (phys_equal (String.compare (Procname.to_string (Procdesc.get_proc_name proc_desc)) "main") 0) then
       begin
-        DarcDomain.initial_main
+        DarcDomain.initial_main vars_declared
       end
     else
       begin
-        DarcDomain.empty
+        DarcDomain.empty_with_vars vars_declared
       end
     in
     let result = Analyzer.compute_post data ~initial:init_astate proc_desc in

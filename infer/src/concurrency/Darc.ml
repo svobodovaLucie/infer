@@ -14,10 +14,10 @@ module Domain = DarcDomain
 
 type analysis_data = {interproc: DarcDomain.summary InterproceduralAnalysis.t; extras : int}
 
-let assign_expr lhs_access_expr rhs_expr loc {interproc={tenv=_}; extras=_} (astate : Domain.t) pname =
-  F.printf "Access lhs: %a at line %a\n" HilExp.AccessExpression.pp lhs_access_expr Location.pp loc;
+let assign_expr lhs_access_expr rhs_expr loc {interproc={tenv}; extras=_} (astate : Domain.t) pname =
+  F.printf "Access lhs: %a at %a\n" HilExp.AccessExpression.pp lhs_access_expr Location.pp loc;
   let lhs_access_path = HilExp.AccessExpression.to_access_path lhs_access_expr in
-  F.printf "Access lhs access path: %a at line %a\n" AccessPath.pp lhs_access_path Location.pp loc;
+  F.printf "Access lhs access path: %a at %a\n" AccessPath.pp lhs_access_path Location.pp loc;
   let get_base (a, _) = a in
   let get_access_list (_, b) = b in
   let lhs_base = get_base (lhs_access_path) in
@@ -25,16 +25,36 @@ let assign_expr lhs_access_expr rhs_expr loc {interproc={tenv=_}; extras=_} (ast
   let _lhs_accesses = HilExp.AccessExpression.to_accesses lhs_access_expr in
   F.printf "AccessPath: pp: |%a|, pp_base: |%a|, pp_access: , pp_access_list: |%a|\n" AccessPath.pp lhs_access_path AccessPath.pp_base lhs_base AccessPath.pp_access_list lhs_access_list;
   (* access expression type: *)
-  let new_astate = Domain.assign_expr lhs_access_expr astate loc pname in
+  let new_astate = Domain.assign_expr lhs_access_expr astate loc pname Domain.ReadWriteModels.Write in
   let rhs_access_expr = HilExp.get_access_exprs rhs_expr in
   let rhs_access_expr_first = List.hd rhs_access_expr in
   match rhs_access_expr_first with
-  | Some rhs_access_expr ->
-    Domain.update_aliases lhs_access_expr rhs_access_expr new_astate
-  | None -> new_astate
+  | Some rhs_access_expr_some ->
+    (* add rhs expression (transformed with an alias if any) to accesses, then add alias *)
+    (* add rhs expr *)
+      (* find rhs in expr and nahrad ho pokud tam je *)
+    (* let new_astate_with_rhs = Domain.add_rhs_expr_to_accesses rhs_access_expr_some new_astate loc pname in *)
+    let new_astate_with_rhs = Domain.assign_expr rhs_access_expr_some new_astate loc pname Domain.ReadWriteModels.Read in
+    let _nothing =
+      let t = HilExp.AccessExpression.get_typ rhs_access_expr_some tenv in
+      match t with
+      | Some e -> F.printf "typ: %s\n" (Typ.to_string e)
+      | None -> F.printf "typ: None\n"
+
+    in
+    (* update aliases *)
+    let astate_with_updated_aliases = Domain.update_aliases lhs_access_expr rhs_access_expr_some new_astate_with_rhs in
+    (* TODO nepridavam rhs expressions do accesses!!! *)
+    (* add rhs to accesses, implicitly Read, jinak je funkce stejna jako Domain.assign_expr pro lhs! *)
+    F.printf "Some in Darc.assign_expr - rhs_access_expr_some: %a\n" HilExp.AccessExpression.pp rhs_access_expr_some;
+    astate_with_updated_aliases
+  | None -> (
+    F.printf "None in Darc.assign_expr - rhs_access_expr_some\n";
+    new_astate
+  )
 
 let read_write_expr loc {interproc={tenv=_}; extras=_} pname actuals (astate : Domain.t) =
-  F.printf "Access READ at line %a in pname=%a\n" Location.pp loc Procname.pp pname;
+  F.printf "Access READ at %a in pname=%a\n" Location.pp loc Procname.pp pname;
   (* get effect a pak postupne ten list projizdet a podle toho pridavat pristupy *)
   let pname_string = Procname.to_string pname in
   let num_of_actuals = List.length actuals in
@@ -91,7 +111,7 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
         let print_raw num : unit = (
           match List.nth actuals num with
           | Some arg -> (
-            F.printf "DarcChecker: arg %d %a at line %a\n" num HilExp.pp arg Location.pp loc;
+            F.printf "DarcChecker: arg %d %a at %a\n" num HilExp.pp arg Location.pp loc;
             ()
           )
           | None -> (
@@ -179,20 +199,20 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
         match ConcurrencyModels.get_lock_effect callee_pname actuals with
         | Lock _ -> (
           (* lock(l1) *)
-          F.printf "Function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
-          F.printf "lock at line %a\n" Location.pp loc;
+          F.printf "Function %a at %a\n" Procname.pp callee_pname Location.pp loc;
+          F.printf "lock at %a\n" Location.pp loc;
           get_path actuals
           |> Option.value_map ~default:astate ~f:(fun path -> Domain.acquire path astate loc (* extras *) pname)
         )
         | Unlock _ -> (
-          F.printf "Function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
-          F.printf "unlock at line %a\n" Location.pp loc;
+          F.printf "Function %a at %a\n" Procname.pp callee_pname Location.pp loc;
+          F.printf "unlock at %a\n" Location.pp loc;
           get_path actuals
           |> Option.value_map ~default:astate ~f:(fun path -> Domain.release path astate loc (* extras *) pname)
         )
         (* TODO try_lock *)
         | NoEffect -> (
-          F.printf "User defined function %a at line %a\n" Procname.pp callee_pname Location.pp loc;
+          F.printf "User defined function %a at %a\n" Procname.pp callee_pname Location.pp loc;
           Domain.print_astate astate loc pname;
           analyze_dependency callee_pname
           |> Option.value_map ~default:(astate) ~f:(
@@ -206,7 +226,7 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
           )
         )
         | _ ->
-          F.printf "Function that probably should not be here %a at line %a\n" Procname.pp callee_pname Location.pp loc;
+          F.printf "Function that probably should not be here %a at %a\n" Procname.pp callee_pname Location.pp loc;
           astate
       end
   )
@@ -247,7 +267,7 @@ let add_locals_to_list locals lst_ref =
   in
   loop locals
 
-(* function adds non-pointer formalsto the locals list *)
+(* function adds non-pointer formals to the locals list *)
 let add_nonpointer_formals_to_list formals lst_ref =
   let rec loop : (Mangled.t * Typ.t) list -> unit = function
     | [] -> ()

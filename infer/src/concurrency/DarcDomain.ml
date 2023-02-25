@@ -46,7 +46,7 @@ module ReadWriteModels = struct
 
   let access_to_string access_type = 
     match access_type with
-    | Read  -> "read "
+    | Read  -> "read"
     | Write -> "write"
 
 end
@@ -137,6 +137,9 @@ module AccessEvent = struct
     let threads_active = ThreadSet.union threads_active access.threads_active in
     { var=access.var; loc=access.loc; access_type=access.access_type; locked; unlocked; threads_active; thread }
 
+  let edit_var_in_access new_var access access_type =
+    {access with var=new_var; access_type}
+
 (* TODO zkopirovano z HilExp.ml *)
 let rec replace_inner_var var actual =
       let replace_base_inner = replace_inner_var actual in
@@ -151,14 +154,12 @@ let rec replace_inner_var var actual =
           let res =
             match address_of_option with
             | Some opt -> (F.printf "Some address_of: %a\n" HilExp.AccessExpression.pp opt; opt)
-            | None -> (F.printf "None address_of -> check!\n"; ae)
+            | None -> (F.printf "None address_of -> check!\n"; ae) (* napr. &(&a) -> v kodu teoreticky muze nastat, ale toto neni spravny zapis! -> TODO *)
           in
           res
-      (*
+      (* TODO
       | Base _ ->
           Base base_new
-      *)
-      (* TODO
       | FieldOffset (ae, fld) ->
           FieldOffset (replace_base_inner ae, fld)
       | ArrayOffset (ae, typ, x) ->
@@ -228,7 +229,7 @@ let rec replace_inner_var var actual =
   *)
   (* pp short version  - accesses only *)
   let pp fmt t1 =
-    F.fprintf fmt "{%a, %a, " HilExp.AccessExpression.pp t1.var Location.pp t1.loc;
+    F.fprintf fmt "{%a, %s, %a, " HilExp.AccessExpression.pp t1.var (ReadWriteModels.access_to_string t1.access_type) Location.pp t1.loc;
     match t1.thread with
     | Some t -> F.fprintf fmt "thread %a}" ThreadEvent.pp t
     | None -> F.fprintf fmt "None thread}"
@@ -368,7 +369,68 @@ let create_new_alias fst snd = (
   )
 )
 
+(* funkce projde pres vsechny aliasy a prida je do mnoziny, ktera je nasledne ve volajici funkci sloucena s mnozinou accesses z astate *)
+let rec record_all_aliased_accesses lhs lhs_current var aliases accesses_set access_to_modify access_type =
+  F.printf "----------------- record_all_aliased_accesses: ------------------\n";
+  F.printf "accesses_before: %a\n" AccessSet.pp accesses_set;
+  if (HilExp.AccessExpression.equal lhs lhs_current) then
+    begin
+      F.printf "NO check_lhs-if: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;
+      (* add var to accesses as Write TODO: (pokud je to lhs, pokud rhs, tak vzdy Read) *)
+      (* if addressOf -> zapsat lhs, else zapsat var *)
+      let var_to_add =
+        match lhs with
+        | HilExp.AccessExpression.AddressOf _ -> ( F.printf "addressOf %a\n" HilExp.AccessExpression.pp lhs; lhs )
+        | _ -> (F.printf "%a, returning %a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp var; var )
+      in
+      let new_access = AccessEvent.edit_var_in_access var_to_add access_to_modify access_type in
+      let new_accesses_set = AccessSet.add new_access accesses_set in
+      F.printf "Adding new access - Write/Read...\n";
+
+      (* mam access -> jen zmenim var *)
+      F.printf "new_accesses_after: %a\n" AccessSet.pp new_accesses_set;
+      new_accesses_set
+      (* TODO proc je tu tohle:
+      let alias = find_alias var aliases in (* e.g. None | Some (y, &k) *)
+      match alias with
+      | Some alias -> Some alias   (* return alias *)
+      | None -> Some (var, var)    (* the var is not in aliases -> return var (only the second variable will be needed later) *)
+      *)
+    end
+  else
+    begin
+      F.printf "NO check_lhs-else: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;
+      (* add var to accesses as Read *)
+      (* if addressOf -> zapsat lhs, else zapsat var *)
+      match lhs with
+      | HilExp.AccessExpression.AddressOf _ -> (
+         F.printf "addressOf\n";
+         (* add to accesses, ale uz nepokracovat rekurzi *)
+         let new_access = AccessEvent.edit_var_in_access lhs access_to_modify ReadWriteModels.Read in
+         let new_accesses_set = AccessSet.add new_access accesses_set in
+         F.printf "new_accesses_after: %a\n" AccessSet.pp new_accesses_set;
+         new_accesses_set
+       )
+      | _ -> (
+        let new_access = AccessEvent.edit_var_in_access var access_to_modify ReadWriteModels.Read (* TODO vzdy je tu Read I think *) in
+        let new_accesses_set = AccessSet.add new_access accesses_set in
+        F.printf "Adding new access - Read...\n";
+        (* mam access -> jen zmenim var *)
+        F.printf "new_accesses_after: %a\n" AccessSet.pp new_accesses_set;
+        let find_current_in_aliases = find_alias var aliases in (* e.g. None | Some (m, &y) *)
+        let lhs_dereference = HilExp.AccessExpression.dereference lhs_current in (* *m *)
+        match find_current_in_aliases with
+        | None -> new_accesses_set
+        | Some (_, snd) -> (
+          let snd_dereference = HilExp.AccessExpression.dereference snd in
+          (* rekurze s tim, co je vpravo v aliasu *)
+          record_all_aliased_accesses lhs lhs_dereference snd_dereference aliases new_accesses_set access_to_modify access_type
+        )
+      )
+    end
+
 let rec check_lhs lhs lhs_current var aliases =
+  F.printf "-----------------check_lhs:------------------\n";
   if (HilExp.AccessExpression.equal lhs lhs_current) then
     begin
       F.printf "check_lhs-if: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;
@@ -385,6 +447,7 @@ let rec check_lhs lhs lhs_current var aliases =
       match find_current_in_aliases with
       | None -> None
       | Some (_, snd) -> (
+        F.printf "else Some snd\n";
         let snd_dereference = HilExp.AccessExpression.dereference snd in
         check_lhs lhs lhs_dereference snd_dereference aliases
       )
@@ -394,6 +457,27 @@ let get_base_alias lhs aliases = (* vraci None | Some (m, &y) *)
   let lhs_base = HilExp.AccessExpression.get_base lhs in
   let lhs_ae = HilExp.AccessExpression.base lhs_base in
   check_lhs lhs lhs_ae lhs_ae aliases
+
+let replace_var_with_aliases var aliases = (* if alias is not found, var is returned *)
+  let var_base = HilExp.AccessExpression.get_base var in
+  let var_ae = HilExp.AccessExpression.base var_base in
+  let result_option = check_lhs var var_ae var_ae aliases in
+  match result_option with
+  | None -> var
+  | Some (_, snd) -> snd
+
+(* funkce vraci mnozinu novych pristupu *)
+let add_aliased_vars_to_accesses var var_access aliases access_type =
+  let empty_accesses = AccessSet.empty in
+  let var_base = HilExp.AccessExpression.get_base var in
+  let var_ae = HilExp.AccessExpression.base var_base in
+  (* returns accesses with new access *)
+  record_all_aliased_accesses var var_ae var_ae aliases empty_accesses var_access access_type
+  (*
+  match result_option with
+  | None -> var
+  | Some (_, snd) -> snd
+  *)
 
 let get_option_fst lhs alias = (
   match alias with
@@ -523,9 +607,12 @@ let release lockid astate loc pname =
 (* TODO function for read_expression -> initial access_type is rd *)
 
 (* FIXME var is any expression now (n$7 etc.) *)
-let assign_expr var astate loc pname =
+let assign_expr var astate loc pname access_type =
   F.printf "Inside assign_expr in Domain\n";
   let new_access : AccessEvent.t =
+    (* z replace_var_with_aliases dostanu jen jednu promennou - ale potrebuji vsechny, pres ktere to jde (jako Read krome posledni) *)
+    (* let lhs_var_aliased = replace_var_with_aliases var (AliasesSet.elements astate.aliases) in *)
+    (* var je zatim dummy_var *)
     let access_type = ReadWriteModels.Write in (* TODO appropriate access_type*)
     let locked = astate.lockset in
     let unlocked = astate.unlockset in
@@ -537,8 +624,55 @@ let assign_expr var astate loc pname =
         None in (* TODO in the case of main... *) (* TODO create_main_thread *)
     { var; loc; access_type; locked; unlocked; threads_active; thread }
   in
-  let accesses = AccessSet.add new_access astate.accesses in
+  (* mam dummy access, ale pokud je to nejaky pointerovsky pristup, je potreba do accesses ulozit vsechny ty pristupy *)
+  (* tzn. vytvorit tolik pristupu, kolikrat je promenna odkazovana pres pointery *)
+  let new_accesses_from_assign = add_aliased_vars_to_accesses var new_access (AliasesSet.elements astate.aliases) access_type in
+  (* let accesses = AccessSet.add new_access astate.accesses in *)
+  let accesses = AccessSet.union astate.accesses new_accesses_from_assign in
   { astate with accesses }
+(* FIXME var is any expression now (n$7 etc.) *)
+
+
+let print_accesses accesses =
+  F.printf "accesses: -----\n%a\n" AccessSet.pp accesses
+(*
+let _print_summary_accesses astate pname =
+  F.printf "---- print_summary_accesses of %a ----\n" Procname.pp pname;
+  (* F.printf "%a\n" AccessSet.pp_short astate.accesses; *)
+  F.printf "%a\n" AccessSet.pp astate;
+  F.printf "--------------------------------------\n"
+*)
+
+
+let _print_alias_opt alias =
+  F.printf "print_alias_opt...\n";
+  match alias with
+  | None -> F.printf "None\n"
+  | Some (fst, snd) -> F.printf "(%a, %a)\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd
+
+(* implicitly Read *)
+let _add_rhs_expr_to_accesses var astate loc pname =
+  F.printf "Inside add_rhs_expr_to_accesses in Domain\n";
+  let new_access : AccessEvent.t =
+    let var_aliased = replace_var_with_aliases var (AliasesSet.elements astate.aliases) in
+    let access_type = ReadWriteModels.Read in (* TODO appropriate access_type*)
+    let locked = astate.lockset in
+    let unlocked = astate.unlockset in
+    let threads_active = astate.threads_active in
+    let thread = if (phys_equal (String.compare (Procname.to_string pname) "main") 0) then create_main_thread else
+      (* if the astate.threads_active contains main thread -> the thread is main, alse None? *)
+      (* or simply if the procedure is main -> main thread *)
+
+        None in (* TODO in the case of main... *) (* TODO create_main_thread *)
+    { var=var_aliased; loc; access_type; locked; unlocked; threads_active; thread }
+  in
+  let accesses = AccessSet.add new_access astate.accesses in
+  F.printf "Accesses old: ------------\n";
+  print_accesses astate.accesses;
+  F.printf "Accesses new: ------------\n";
+  print_accesses accesses;
+  { astate with accesses }
+
 
 let print_astate astate _loc _caller_pname =
   (* F.printf "========= printing astate... ==========\n"; *)

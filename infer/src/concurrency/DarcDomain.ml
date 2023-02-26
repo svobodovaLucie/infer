@@ -371,8 +371,8 @@ let create_new_alias fst snd = (
 
 (* funkce projde pres vsechny aliasy a prida je do mnoziny, ktera je nasledne ve volajici funkci sloucena s mnozinou accesses z astate *)
 let rec record_all_aliased_accesses lhs lhs_current var aliases accesses_set access_to_modify access_type =
-  F.printf "----------------- record_all_aliased_accesses: ------------------\n";
-  F.printf "accesses_before: %a\n" AccessSet.pp accesses_set;
+(*  F.printf "----------------- record_all_aliased_accesses: ------------------\n";*)
+(*  F.printf "accesses_before: %a\n" AccessSet.pp accesses_set;*)
   if (HilExp.AccessExpression.equal lhs lhs_current) then
     begin
       F.printf "NO check_lhs-if: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;
@@ -404,7 +404,7 @@ let rec record_all_aliased_accesses lhs lhs_current var aliases accesses_set acc
       (* if addressOf -> zapsat lhs, else zapsat var *)
       match lhs with
       | HilExp.AccessExpression.AddressOf _ -> (
-         F.printf "addressOf\n";
+(*         F.printf "addressOf\n";*)
          (* add to accesses, ale uz nepokracovat rekurzi *)
          let new_access = AccessEvent.edit_var_in_access lhs access_to_modify ReadWriteModels.Read in
          let new_accesses_set = AccessSet.add new_access accesses_set in
@@ -447,7 +447,7 @@ let rec check_lhs lhs lhs_current var aliases =
       match find_current_in_aliases with
       | None -> None
       | Some (_, snd) -> (
-        F.printf "else Some snd\n";
+(*        F.printf "else Some snd\n";*)
         let snd_dereference = HilExp.AccessExpression.dereference snd in
         check_lhs lhs lhs_dereference snd_dereference aliases
       )
@@ -498,19 +498,19 @@ let update_aliases lhs rhs astate =
    | [] -> F.printf ".\n";
    | h::t -> F.printf "%a, " Aliases.pp h; print_ae_list t;
  in
- F.printf "aliases:\n";
+(* F.printf "aliases:\n";*)
  print_ae_list aliases;
  (* lhs *)
- F.printf "lhs_alias_fst:\n";
+(* F.printf "lhs_alias_fst:\n";*)
  let lhs_alias = ( (* returns None | Some (y, &x) *)
    match lhs with
    | HilExp.AccessExpression.Base _ae -> (
-     F.printf "lhs_alias_fst: base: lhs: %a\n" HilExp.AccessExpression.pp lhs;
+(*     F.printf "lhs_alias_fst: base: lhs: %a\n" HilExp.AccessExpression.pp lhs;*)
      None
    )
    | HilExp.AccessExpression.Dereference _ae -> (
-     F.printf "lhs_alias_fst: dereference: lhs: %a\n" HilExp.AccessExpression.pp lhs;
-     F.printf "lhs_alias:\n";
+(*     F.printf "lhs_alias_fst: dereference: lhs: %a\n" HilExp.AccessExpression.pp lhs;*)
+(*     F.printf "lhs_alias:\n";*)
      let lhs_alias = get_base_alias lhs aliases in (* **u -> Some (y, &k) *)
      lhs_alias
    )
@@ -519,14 +519,14 @@ let update_aliases lhs rhs astate =
    )
  )
  in
- F.printf "lhs_alias_fst:\n";
+(* F.printf "lhs_alias_fst:\n";*)
  let lhs_alias_fst = get_option_fst lhs lhs_alias in
  (* rhs *)
- F.printf "rhs_alias_snd:\n";
+(* F.printf "rhs_alias_snd:\n";*)
  let rhs_alias_snd = (
    match rhs with
    | HilExp.AccessExpression.AddressOf _ae -> (
-     F.printf "rhs_alias_snd: addressOf: rhs: %a\n" HilExp.AccessExpression.pp rhs;
+(*     F.printf "rhs_alias_snd: addressOf: rhs: %a\n" HilExp.AccessExpression.pp rhs;*)
      Some rhs
    )
    | _ -> (  (* base, dereference etc. *)
@@ -535,13 +535,13 @@ let update_aliases lhs rhs astate =
    )
  )
  in
- F.printf "new_alias:\n";
+(* F.printf "new_alias:\n";*)
  let new_alias = create_new_alias lhs_alias_fst rhs_alias_snd in (* Some (y, &z) *)
- F.printf "new_alias: ";
+(* F.printf "new_alias: ";*)
  _print_alias new_alias;
- F.printf "remove_alias_from_aliases:\n";
+(* F.printf "remove_alias_from_aliases:\n";*)
  let astate_alias_removed = remove_alias_from_aliases lhs_alias astate in (* astate *)
- F.printf "final_astate:\n";
+(* F.printf "final_astate:\n";*)
  let final_astate = add_new_alias_no_option astate_alias_removed new_alias in (* astate *)
  final_astate
 
@@ -758,14 +758,14 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary _cal
   let accesses_joined = AccessSet.join astate.accesses edited_accesses_from_callee in
   { astate with accesses=accesses_joined }
 
-let print_actuals actuals =
+let _print_actuals actuals =
   F.printf "print_actuals: \n";
   let rec loop = function
     | [] -> F.printf "\n"
     | hd :: tl -> F.printf "| %a |" HilExp.pp hd; loop tl
   in loop actuals
 
-let print_formals formals =
+let _print_formals formals =
   F.printf "print_formals: \n";
   let rec loop = function
     | [] -> F.printf "\n"
@@ -796,17 +796,17 @@ let print_formals formals =
 (* plus tady se jeste musi nejak integrovat locks, threads atd. -> jeste neni domyslene *)
 let integrate_summary astate callee_pname loc callee_summary callee_formals actuals caller_pname =
   F.printf "integrate_summary: callee_pname=%a in Darc\n" Procname.pp callee_pname;
-  F.printf "astate %a ---------------------------------------\n" Procname.pp caller_pname;
-  print_astate astate loc caller_pname;
-  F.printf "summary %a --------------------------------------\n" Procname.pp callee_pname;
-  print_astate callee_summary loc callee_pname;
-  F.printf "callee_formals: --------------------------------------\n";
-  print_formals callee_formals;
-  F.printf "actuals: --------------------------------------\n";
-  print_actuals actuals;
-  F.printf "--------------------------------------\n";
-  F.printf "locals: --------------------------------\n";
-  print_locals astate;
+(*  F.printf "astate %a ---------------------------------------\n" Procname.pp caller_pname;*)
+(*  print_astate astate loc caller_pname;*)
+(*  F.printf "summary %a --------------------------------------\n" Procname.pp callee_pname;*)
+(*  print_astate callee_summary loc callee_pname;*)
+(*  F.printf "callee_formals: --------------------------------------\n";*)
+(*  print_formals callee_formals;*)
+(*  F.printf "actuals: --------------------------------------\n";*)
+(*  print_actuals actuals;*)
+(*  F.printf "--------------------------------------\n";*)
+(*  F.printf "locals: --------------------------------\n";*)
+(*  print_locals astate;*)
   (* TODO important *)
   (* pridat do accesses vlakno, na kterem prave jsem -> v podstate to bude proste bud main nebo None *)
   (* FIXME je to pravda? Ze vzdy bude bud main nebo None?!?!?! *)
@@ -967,10 +967,10 @@ let pp : F.formatter -> t -> unit =
 type summary = t
 
 let compute_data_races post = 
-  let rec print_pairs_list lst =
+  let rec _print_pairs_list lst =
     match lst with
     | [] -> F.printf "\n"
-    | h::t -> AccessEvent.print_access_pair h; print_pairs_list t in
+    | h::t -> AccessEvent.print_access_pair h; _print_pairs_list t in
   
   F.printf "DATA RACES COMPUTATION\n\n";
 
@@ -994,26 +994,26 @@ let compute_data_races post =
   (* the final computation*)
   (* F.printf "cartesian product:\n";
   print_pairs_list list_of_access_pairs; *)
-  F.printf "different pairs:\n";
-  print_pairs_list optimised_list;
-  F.printf "threads_active_length_checked:\n";
+(*  F.printf "different pairs:\n";*)
+(*  print_pairs_list optimised_list;*)
+(*  F.printf "threads_active_length_checked:\n";*)
   let threads_active_length_checked = List.filter ~f:AccessEvent.predicate_threads_active_length optimised_list in
-  print_pairs_list threads_active_length_checked;
-  F.printf "vars_checked:\n";  
+(*  print_pairs_list threads_active_length_checked;*)
+(*  F.printf "vars_checked:\n";  *)
   let vars_checked = List.filter ~f:AccessEvent.predicate_var threads_active_length_checked in
-  print_pairs_list vars_checked;
-  F.printf "read_write_checked:\n";
+(*  print_pairs_list vars_checked;*)
+(*  F.printf "read_write_checked:\n";*)
   let read_write_checked = List.filter ~f:AccessEvent.predicate_read_write vars_checked in
-  print_pairs_list read_write_checked;
-  F.printf "threads_checked:\n";
+(*  print_pairs_list read_write_checked;*)
+(*  F.printf "threads_checked:\n";*)
   let threads_checked = List.filter ~f:AccessEvent.predicate_thread read_write_checked in
-  print_pairs_list threads_checked;
-  F.printf "threads_intersection_checked:\n";
+(*  print_pairs_list threads_checked;*)
+(*  F.printf "threads_intersection_checked:\n";*)
   let threads_intersection_checked = List.filter ~f:AccessEvent.predicate_threads_intersection threads_checked in
-  print_pairs_list threads_intersection_checked;
-  F.printf "locksets_checked:\n";
+(*  print_pairs_list threads_intersection_checked;*)
+(*  F.printf "locksets_checked:\n";*)
   let locksets_checked = List.filter ~f:AccessEvent.predicate_locksets threads_intersection_checked in
-  print_pairs_list locksets_checked;
+(*  print_pairs_list locksets_checked;*)
   let has_data_race = List.length locksets_checked in
   if phys_equal has_data_race 0 then
     F.printf "\nTHERE IS NO DATA RACE.\n"

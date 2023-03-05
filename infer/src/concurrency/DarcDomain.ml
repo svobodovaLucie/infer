@@ -297,6 +297,7 @@ type t =
   unlockset: Lockset.t;
   aliases: AliasesSet.t;
   load_aliases: (HilExp.AccessExpression.t * HilExp.AccessExpression.t * Exp.t) list;
+  heap_aliases: (HilExp.AccessExpression.t * Location.t) list;
   locals: (Mangled.t * Typ.t) list; (* TODO maybe use HilExp.AccessExpression.t? *)
 }
 
@@ -308,6 +309,7 @@ let empty =
   unlockset = Lockset.empty;
   aliases = AliasesSet.empty;
   load_aliases = [];
+  heap_aliases = [];
   locals = [];
 }
 
@@ -319,6 +321,7 @@ let empty_with_locals locals =
   unlockset = Lockset.empty;
   aliases = AliasesSet.empty;
   load_aliases = [];
+  heap_aliases = [];
   locals;
 }
 
@@ -345,6 +348,17 @@ let _print_load_aliases_list astate =
      | h::t -> print_load_aliases h; print t
    in
    print astate.load_aliases
+
+let print_heap_aliases (ae, loc) =
+  F.printf "(%a, %a), e: " HilExp.AccessExpression.pp ae Location.pp loc
+
+let _print_heap_aliases_list astate =
+  let rec print list =
+     match list with
+     | [] -> F.printf ".\n";
+     | h::t -> print_heap_aliases h; print t
+   in
+   print astate.heap_aliases
 
 let _print_alias alias = (
   match alias with
@@ -520,8 +534,15 @@ let rec check_lhs_without_address_of lhs lhs_current var aliases =
       | HilExp.AccessExpression.Dereference _ -> (
         let alias = find_alias lhs aliases in (* e.g. None | Some (y, &k) *)
         match alias with
-        | Some alias -> Some alias   (* return alias *)
-        | None -> Some (var, var)    (* the var is not in aliases -> return var (only the second variable will be needed later) *)
+        | Some alias -> (
+          (* TODO kdyz je n mallocovana a v aliasech je (p, n), musim zapsat pristup k obema, nejen k *n *)
+          (* pozor, z vysledku beru jen var -> mrlo by se zkontrolovat potom, jestli var na leve strane je stejna jako na prave a pokud ne, tak pokud jsou oboji neadressof, musi se udelat pristup k obojimu *)
+          Some alias   (* return alias *)
+        )
+        | None -> (
+          Some (var, var)    (* the var is not in aliases -> return var (only the second variable will be needed later) *)
+          (* None *) (* protoze se nasledne pokusime hledat v heap_aliases *) (* TODO TODO TODO *)
+        )
       )
       | _ -> (
         Some (var, var)
@@ -548,6 +569,8 @@ let replace_var_with_aliases_without_address_of var aliases = (* if alias is not
   match result_option with
   | None -> var
   | Some (_, snd) -> snd
+
+
 
 (* funkce vraci mnozinu novych pristupu *)
 let add_aliased_vars_to_accesses var var_access aliases access_type =
@@ -912,6 +935,7 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate =
       F.printf "e_aliased_final: %a\n" HilExp.AccessExpression.pp e_aliased_final;
       (* save alias to the load_aliases set *)
       e_aliased_final
+(*      e_ae*)
   )
   | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> (
     F.printf "Lvar or Lfield or Lindex\n";
@@ -998,12 +1022,13 @@ let store_vol2 e1 typ e2 loc astate _pname =
           )
           | Exp.Var ident -> (
           let var = Var.of_id ident in
-            let add_deref =
+            let _add_deref =
               match (var : Var.t) with
-              | LogicalVar _ -> (F.printf "%a je LogicalVar -> true\n" Var.pp var; true)
+              | LogicalVar _ -> (F.printf "%a je LogicalVar -> true, ale davam ted schvalne taky false\n" Var.pp var; true)
               | ProgramVar _ -> (F.printf "%a je ProgramVar -> false\n" Var.pp var; false)
             in
-            add_deref
+(*            add_deref*)
+            false (* TODO melo by byt add_deref *)
           )
           | _ -> (
             F.printf "other -> add_deref=false\n";
@@ -1026,7 +1051,21 @@ let store_vol2 e1 typ e2 loc astate _pname =
             | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> e2_ae
             | Exp.Var _ | _ ->  (
               F.printf "TODO: dealiasovat\n";
-              e2_ae
+              let e2_aliased = fst_aliasing_snd e2_ae astate.load_aliases in
+              F.printf "e2_aliased: %a\n" HilExp.AccessExpression.pp e2_aliased;
+              F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
+              let e2_aliased_final = replace_var_with_aliases_without_address_of e2_aliased (AliasesSet.elements astate.aliases) in
+              F.printf "e2_aliased_final: %a instead of e2_ae: %a\n" HilExp.AccessExpression.pp e2_aliased_final HilExp.AccessExpression.pp e2_ae;
+              e2_aliased_final
+(*              let e2_aliased = fst_aliasing_snd_with_dereference_counter e2_ae astate.load_aliases in*)
+(*              F.printf "e2_aliased: %a\n" HilExp.AccessExpression.pp e2_aliased;*)
+(*              (* find e_alised in aliases *)*)
+(*              F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;*)
+(*              let e2_aliased_final = replace_var_with_aliases_without_address_of e2_aliased (AliasesSet.elements astate.aliases) in*)
+(*              F.printf "e2_aliased_final: %a instead of e2_ae: %a\n" HilExp.AccessExpression.pp e2_aliased_final HilExp.AccessExpression.pp e2_ae;*)
+(*               e2_ae*)
+               (* e2_aliased_final *)
+
             )
           in
           (* save alias to the aliases set *)
@@ -1358,8 +1397,9 @@ let join astate1 astate2 =
     let unlockset = Lockset.union astate1.unlockset astate2.unlockset in
     let aliases = AliasesSet.union astate1.aliases astate2.aliases in  (* TODO FIXME how to join aliases*)
     let load_aliases = astate1.load_aliases @ astate2.load_aliases in (* TODO fix and check *)
+    let heap_aliases = astate1.heap_aliases @ astate2.heap_aliases in (* TODO fix and check *)
     let locals = [] in (* TODO *)
-    { threads_active; accesses; lockset; unlockset; aliases; load_aliases; locals }
+    { threads_active; accesses; lockset; unlockset; aliases; load_aliases; heap_aliases; locals }
   in
   new_astate
 

@@ -47,9 +47,25 @@ val release : AccessPath.t -> t -> Location.t -> Procname.t -> t
 
 val assign_expr : HilExp.AccessExpression.t -> t -> Location.t -> Procname.t -> ReadWriteModels.t -> t
 
+(* val store : HilExp.AccessExpression.t -> t -> Location.t -> Procname.t -> ReadWriteModels.t -> t *)
+
+val transform_sil_expr_to_hil : Exp.t -> Typ.t -> bool -> HilExp.t
+
+val transform_sil_exprs_to_hil_list : (Exp.t * Typ.t) list -> bool -> HilExp.t list
+
+(*val load : Ident.t -> Exp.t -> Typ.t -> Location.t -> t -> t*)
+
+val load : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Exp.t -> Typ.t -> Location.t -> t -> t
+
+val store_with_alias : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Location.t -> t -> t
+
+val store_vol2 : Exp.t -> Typ.t -> Exp.t -> Location.t -> t -> Procname.t -> t
+
+val store : HilExp.AccessExpression.t -> Location.t -> t -> t
+
 val _add_rhs_expr_to_accesses : HilExp.AccessExpression.t -> t -> Location.t -> Procname.t -> t
 
-val add_access_to_astate : HilExp.AccessExpression.t -> ReadWriteModels.t -> t -> Location.t -> Procname.t -> t
+val add_access_to_astate : HilExp.AccessExpression.t -> ReadWriteModels.t -> t -> Location.t (* -> Procname.t *) -> t
 
 val add_thread : ThreadEvent.t option -> t -> t
 
@@ -59,7 +75,7 @@ val integrate_summary : t -> Procname.t -> Location.t -> t -> (Mangled.t * IR.Ty
 
 val integrate_pthread_summary : t -> ThreadEvent.t option-> Procname.t -> Location.t -> t -> (Mangled.t * IR.Typ.t) list -> HilExp.t list -> Procname.t -> t
 
-val print_astate : t -> Location.t -> Procname.t -> unit
+val print_astate : t (* -> Location.t -> Procname.t *) -> unit
 
 type summary = t
 

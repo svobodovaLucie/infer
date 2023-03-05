@@ -46,7 +46,7 @@ let _assign_expr lhs_access_expr rhs_expr loc (astate : Domain.t) pname =
     new_astate
   )
 
-let _read_write_expr loc {interproc={tenv=_}; extras=_} pname actuals (astate : Domain.t) =
+let _read_write_expr loc pname actuals (astate : Domain.t) =
   F.printf "Access READ at %a in pname=%a\n" Location.pp loc Procname.pp pname;
   (* get effect a pak postupne ten list projizdet a podle toho pridavat pristupy *)
   let pname_string = Procname.to_string pname in
@@ -69,7 +69,7 @@ let _read_write_expr loc {interproc={tenv=_}; extras=_} pname actuals (astate : 
         assert false (* TODO check *)
     in
     (* return new astate: *)
-    Domain.add_access_to_astate var effect astate loc pname
+    Domain.add_access_to_astate var effect astate loc (* pname *)
     in
     (* new access with access_type effect and var List.nth nth actuals *)  
     let rec list_fold lst astate = 
@@ -81,52 +81,87 @@ let _read_write_expr loc {interproc={tenv=_}; extras=_} pname actuals (astate : 
     in
     list_fold read_write_effects astate
 
-(* Function transforms SIL expression to HIL expression *)
-(* TODO handle f_resolve_id, add_deref and include_array_indexes correctly *)
-let transform_sil_expr_to_hil sil_exp sil_typ add_deref =
-  let f_resolve_id _var = None in
-  let hil_expr = HilExp.of_sil ~include_array_indexes:false ~f_resolve_id ~add_deref sil_exp sil_typ in
-  F.printf "%a " HilExp.pp hil_expr;
-  hil_expr
-
-(* Function transforms list of SIL expressions to HIL expressions *)
-(* TODO handle f_resolve_id, add_deref and include_array_indexes correctly *)
-let transform_sil_exprs_to_hil_list sil_expr_list add_deref = (* list of sil exprs *)
-  F.printf "hil_actuals: ";
-  let rec transform_sil_to_hil_actuals (sil_list : (Exp.t * Typ.t) list) (acc : HilExp.t list) =
-    match sil_list with
-    | [] -> (F.printf "\n"; acc)
-    | (exp, typ) :: t -> (
-      let hil_expr = transform_sil_expr_to_hil exp typ add_deref in
-      (* add h to the list of HilExp.t *)
-      let list_updated = acc @ [hil_expr] in
-      transform_sil_to_hil_actuals t list_updated
-    )
-    in
-    transform_sil_to_hil_actuals sil_expr_list []
-
 module TransferFunctions (CFG : ProcCfg.S) = struct
   module CFG = CFG
   module Domain = Domain
 
   type nonrec analysis_data = analysis_data
 
-  (* READ access *)
-  let handle_load _tenv ~lhs rhs_exp rhs_typ (astate : Domain.t) =
+  (* READ access handle_load tenv id e typ ~lhs:(Var.of_id id, typ) loc astate *)
+  let handle_load _tenv id e typ ~lhs loc (astate : Domain.t) =
+    F.printf "handle_load...\n";
     let lhs_var = fst lhs in
-      let add_deref = match (lhs_var : Var.t) with LogicalVar _ -> true | ProgramVar _ -> false in
-      let rhs_hil_exp = transform_sil_expr_to_hil rhs_exp rhs_typ add_deref in
-      let _print_hil_exp =
-        match rhs_hil_exp with
-        | HilExp.AccessExpression ae -> F.printf "rhs_hil_exp: %a\n" HilExp.AccessExpression.pp ae
-        | _ -> F.printf "rhs_hil_exp: other\n"
-      in
-    astate
+    let add_deref = match (lhs_var : Var.t) with LogicalVar _ -> (F.printf "%a je LogicalVar\n" Var.pp lhs_var; true) | ProgramVar _ -> (F.printf "%a je ProgramVar\n" Var.pp lhs_var; false) in
+    F.printf "e_hil_exp: ";
+    let e_hil_exp = Domain.transform_sil_expr_to_hil e typ add_deref in
+    F.printf "\n";
+    match e_hil_exp with
+    | HilExp.AccessExpression e_ae -> (
+      F.printf "e_hil_exp: access expression\n";
+      let id_ae = HilExp.AccessExpression.of_id id typ in
+      Domain.load id_ae e_ae e typ loc astate
+    )
+    | _ -> (
+      F.printf "e_hil_exp: other\n";
+      astate
+    )
 
   (* WRITE access *)
-  let handle_store _e1 _e2 _loc astate _pname =
+  let _handle_store e1 e2 loc astate _pname =
     (* assign_expr e1 e2 loc astate pname *)
-    astate
+    match e2 with
+    | HilExp.AccessExpression e2_ae -> (
+      (* will be an alias *)
+      Domain.store_with_alias e1 e2_ae loc astate
+    )
+    | _ -> (
+      F.printf "store: e2 is not an access expression -> handle differently\n";
+      Domain.store e1 loc astate
+    )
+
+  let handle_store_vol2 e1 typ e2 loc astate pname =
+    F.printf "handle_store_vol2 -------------\n";
+   Domain.store_vol2 e1 typ e2 loc astate pname
+   (*
+    match e1 with
+    | Exp.Lvar _ -> (
+      (* Lvar je LogicalVar -> add_deref = true *)
+      F.printf "e1_hil: ";
+      let e1_hil = Domain.transform_sil_expr_to_hil e1 typ true in
+      F.printf "\n";
+      (* pro pridani write accessu nepotrebujeme provadet dealiasing -> ten pouze pro pridani aliasu, coz zalezi na typu e2 *)
+      (* add_access *)
+      match e2 with
+      | Exp.Lvar _ -> (
+        (* add alias rovnou *)
+        (* add write access k e1 *)
+      )
+      | Exp.Var _ -> (
+        (* dealiasing - find in load_aliases, potom v aliases, pridej alias *)
+        (* add write access k e1 *)
+      )
+      | _ ->
+        (* add write access k e1 *)
+    )
+    | Exp.Var _ -> (
+      F.printf "Var\n";
+      (* provest dealiasing *)
+      (* nejprve v load_aliases, potom v aliases a chceme vratit jedine Pvar *)
+    )
+
+          F.printf "hil_expr2: ";
+          let e2_hil = Domain.transform_sil_expr_to_hil e2 typ false in
+          F.printf "\n";
+        match e1_hil with
+        | HilExp.AccessExpression e1_hil_ae -> (
+           match e2 with
+           | Exp.Lvar _ -> handle_store e1_hil_ae e2_hil loc astate pname
+           | _ -> astate (* TODO *)
+         )
+        | _ -> astate
+      )
+      | _ -> astate (* TODO - pridat vubec nejaky access? ano, ale je potreba dealiasovat *)
+  *)
 
   let handle_pthread_create callee_pname pname loc actuals analyze_dependency astate =
     F.printf "pthread_create\n";
@@ -229,10 +264,23 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
     match (instr : Sil.instr) with
     | Load {id; e; typ; loc} -> (
       F.printf "Load: id=%a, e=%a on %a...\n" Ident.pp id Exp.pp e Location.pp loc;
-      F.printf "hil_expr: ";
-      let _e_to_hil = transform_sil_expr_to_hil e typ false in
-      F.printf "\n";
-      handle_load tenv ~lhs:(Var.of_id id, typ) e typ astate
+      F.printf "e: ";
+            let _print_e =
+            match e with
+            | Var var -> F.printf "Var %a\n" Ident.pp var
+            | UnOp _ -> F.printf "UnOp\n" (* of Unop.t * t * Typ.t option  (** Unary operator with type of the result if known *) *)
+            | BinOp _ -> F.printf "BinOp\n" (* of Binop.t * t * t  (** Binary operator *) *)
+            | Exn _exn -> F.printf "Exn\n" (* of t  (** Exception *) *)
+            | Closure closure ->  F.printf "Closure %a\n" Exp.pp_closure closure (* of closure  (** Anonymous function *) *)
+            | Const _const -> F.printf "Const\n" (* Const.pp const  (** Constants *)*)
+            | Cast _ -> F.printf "Cast\n" (* of Typ.t * t  (** Type cast *) *)
+            | Lvar lvar -> F.printf "Lvar %a\n" Pvar.pp_value lvar (** The address of a program variable *)
+            | Lfield (exp, fieldname, _typ) -> F.printf "Lfield exp: %a fieldname: %a\n" Exp.pp exp Fieldname.pp fieldname (* of t * Fieldname.t * Typ.t *)
+                  (** A field offset, the type is the surrounding struct type *)
+            | Lindex _ -> F.printf "Lindex\n" (* )of t * t  (** An array index offset: [exp1\[exp2\]] *) *)
+            | Sizeof _ -> F.printf "Sizeof\n" (*  sizeof_data *)
+            in
+      handle_load tenv id e typ ~lhs:(Var.of_id id, typ) loc astate
     )
     | Store {e1; typ; e2; loc} -> (
       F.printf "Store: e1=%a, e2=%a on %a: " Exp.pp e1 Exp.pp e2 Location.pp loc;
@@ -247,7 +295,7 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
       | Const _const -> F.printf "Const\n" (* Const.pp const  (** Constants *)*)
       | Cast _ -> F.printf "Cast\n" (* of Typ.t * t  (** Type cast *) *)
       | Lvar lvar -> F.printf "Lvar %a\n" Pvar.pp_value lvar  (** The address of a program variable *)
-      | Lfield _ -> F.printf "Lfield\n" (* of t * Fieldname.t * Typ.t *)
+      | Lfield (exp, fieldname, _typ) -> F.printf "Lfield exp: %a fieldname: %a\n" Exp.pp exp Fieldname.pp fieldname (* of t * Fieldname.t * Typ.t *)
             (** A field offset, the type is the surrounding struct type *)
       | Lindex _ -> F.printf "Lindex\n" (* )of t * t  (** An array index offset: [exp1\[exp2\]] *) *)
       | Sizeof _ -> F.printf "Sizeof\n" (*  sizeof_data *)
@@ -268,15 +316,16 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
           | Lindex _ -> F.printf "Lindex\n" (* )of t * t  (** An array index offset: [exp1\[exp2\]] *) *)
           | Sizeof _ -> F.printf "Sizeof\n" (*  sizeof_data *)
         in
-      F.printf "hil_expr1: ";
-      (* TODO nemuzu davat vzdy true, protoze pokud je na lhs napr. *p, prevede se to na n$7 a pak mam po dereferenci *n$7 *)
-      let e1_hil = transform_sil_expr_to_hil e1 typ true in
-      F.printf "hil_expr2: ";
-      let e2_hil = transform_sil_expr_to_hil e2 typ false in
-      F.printf "\n";
-      match e1_hil with
-      | AccessExpression e1_hil_ae -> handle_store e1_hil_ae e2_hil loc astate pname
-      | _ -> astate
+(*      F.printf "hil_expr1: ";*)
+(*      (* TODO nemuzu davat vzdy true, protoze pokud je na lhs napr. *p, prevede se to na n$7 a pak mam po dereferenci *n$7 *)*)
+(*      let e1_hil = Domain.transform_sil_expr_to_hil e1 typ true in*)
+(*      F.printf "hil_expr2: ";*)
+(*      let e2_hil = Domain.transform_sil_expr_to_hil e2 typ false in*)
+(*      F.printf "\n";*)
+(*      match e1_hil with*)
+(*      | AccessExpression e1_hil_ae -> handle_store e1_hil_ae e2_hil loc astate pname*)
+(*      | _ -> astate*)
+      handle_store_vol2 e1 typ e2 loc astate pname
     )
     | Prune  (_exp, loc, then_branch, _if_kind) -> (
       F.printf "Prune";
@@ -286,7 +335,7 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
     )
     | Call ((ret_id, ret_typ), Const (Cfun callee_pname), sil_actuals, loc, call_flags) -> (
       F.printf "Call %a on %a: ret_id: %a, ret_typ: %s, call_flags: %a\n" Procname.pp callee_pname Location.pp loc Ident.pp ret_id (Typ.to_string ret_typ) CallFlags.pp call_flags;
-      let hil_actuals = transform_sil_exprs_to_hil_list sil_actuals (* TODO add_deref:false? *) false in
+      let hil_actuals = Domain.transform_sil_exprs_to_hil_list sil_actuals (* TODO add_deref:false? *) false in
       if (phys_equal (String.compare (Procname.to_string callee_pname) "pthread_create") 0) then
         handle_pthread_create callee_pname pname loc hil_actuals analyze_dependency astate
       else if (phys_equal (String.compare (Procname.to_string callee_pname) "pthread_join") 0) then
@@ -300,21 +349,21 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
                  (* lock(l1) *)
                  F.printf "Function %a at %a\n" Procname.pp callee_pname Location.pp loc;
                  F.printf "lock at %a\n" Location.pp loc;
-                 Domain.print_astate astate loc pname;
+                 Domain.print_astate astate (* loc pname*);
                  get_path hil_actuals
                  |> Option.value_map ~default:astate ~f:(fun path -> Domain.acquire path astate loc (* extras *) pname)
                )
                | Unlock _ -> (
                  F.printf "Function %a at %a\n" Procname.pp callee_pname Location.pp loc;
                  F.printf "unlock at %a\n" Location.pp loc;
-                 Domain.print_astate astate loc pname;
+                 Domain.print_astate astate (* loc pname*);
                  get_path hil_actuals
                  |> Option.value_map ~default:astate ~f:(fun path -> Domain.release path astate loc (* extras *) pname)
                )
                (* TODO try_lock *)
                | NoEffect -> (
                  F.printf "User defined function %a at %a\n" Procname.pp callee_pname Location.pp loc;
-                 Domain.print_astate astate loc pname;
+                 Domain.print_astate astate (* loc pname*);
                  analyze_dependency callee_pname
                  |> Option.value_map ~default:(astate) ~f:(
                    fun (_, summary) ->
@@ -357,22 +406,26 @@ let report {InterproceduralAnalysis.proc_desc; err_log; _} post =
 
 (* function adds all locals to the locals list *)
 let add_locals_to_list locals lst_ref =
+  F.printf "locals...\n";
   let rec loop : ProcAttributes.var_data list -> unit = function
     | [] -> ()
     | var :: tl ->
       (* add the variable to the locals list *)
       lst_ref := (var.name, var.typ) :: !lst_ref;
+      F.printf "%a | \n" Mangled.pp (var.name);
       loop tl
   in
   loop locals
 
 (* function adds non-pointer formals to the locals list *)
 let add_nonpointer_formals_to_list formals lst_ref =
+  F.printf "formals...\n";
   let rec loop : (Mangled.t * Typ.t) list -> unit = function
     | [] -> ()
     | var :: tl ->
       (* if typ is not a pointer, add the variable to locals list *)
       if not (Typ.is_pointer (snd var)) then lst_ref := var :: !lst_ref;
+      F.printf "%a | \n" Mangled.pp (fst var);
       loop tl
   in
   loop formals

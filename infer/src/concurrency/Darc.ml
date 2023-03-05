@@ -122,46 +122,6 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
   let handle_store_vol2 e1 typ e2 loc astate pname =
     F.printf "handle_store_vol2 -------------\n";
    Domain.store_vol2 e1 typ e2 loc astate pname
-   (*
-    match e1 with
-    | Exp.Lvar _ -> (
-      (* Lvar je LogicalVar -> add_deref = true *)
-      F.printf "e1_hil: ";
-      let e1_hil = Domain.transform_sil_expr_to_hil e1 typ true in
-      F.printf "\n";
-      (* pro pridani write accessu nepotrebujeme provadet dealiasing -> ten pouze pro pridani aliasu, coz zalezi na typu e2 *)
-      (* add_access *)
-      match e2 with
-      | Exp.Lvar _ -> (
-        (* add alias rovnou *)
-        (* add write access k e1 *)
-      )
-      | Exp.Var _ -> (
-        (* dealiasing - find in load_aliases, potom v aliases, pridej alias *)
-        (* add write access k e1 *)
-      )
-      | _ ->
-        (* add write access k e1 *)
-    )
-    | Exp.Var _ -> (
-      F.printf "Var\n";
-      (* provest dealiasing *)
-      (* nejprve v load_aliases, potom v aliases a chceme vratit jedine Pvar *)
-    )
-
-          F.printf "hil_expr2: ";
-          let e2_hil = Domain.transform_sil_expr_to_hil e2 typ false in
-          F.printf "\n";
-        match e1_hil with
-        | HilExp.AccessExpression e1_hil_ae -> (
-           match e2 with
-           | Exp.Lvar _ -> handle_store e1_hil_ae e2_hil loc astate pname
-           | _ -> astate (* TODO *)
-         )
-        | _ -> astate
-      )
-      | _ -> astate (* TODO - pridat vubec nejaky access? ano, ale je potreba dealiasovat *)
-  *)
 
   let handle_pthread_create callee_pname pname loc actuals analyze_dependency astate =
     F.printf "pthread_create\n";

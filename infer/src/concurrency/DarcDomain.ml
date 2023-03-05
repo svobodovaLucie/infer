@@ -574,6 +574,9 @@ let get_option_snd alias = (
   | Some (_, snd) -> Some snd
 )
 
+(* TODO vyresit, kdyz se prida nejaky pointer na malloc, ktery uz predtim ale byl v aliases
+   -> napr bylo (p, &j), ale ted jsme pridali p jako pointer na malloc -> musi se odstranit
+   z aliases uplne *)
 let update_aliases lhs rhs astate =
  let aliases = AliasesSet.elements astate.aliases in
  let rec print_ae_list ae_list =
@@ -581,19 +584,21 @@ let update_aliases lhs rhs astate =
    | [] -> F.printf ".\n";
    | h::t -> F.printf "%a, " Aliases.pp h; print_ae_list t;
  in
-(* F.printf "aliases:\n";*)
+ F.printf "aliases:\n";
  print_ae_list aliases;
  (* lhs *)
-(* F.printf "lhs_alias_fst:\n";*)
+ F.printf "lhs_alias_fst:\n";
  let lhs_alias = ( (* returns None | Some (y, &x) *)
    match lhs with
    | HilExp.AccessExpression.Base _ae -> (
-(*     F.printf "lhs_alias_fst: base: lhs: %a\n" HilExp.AccessExpression.pp lhs;*)
-     None
+     F.printf "lhs_alias_fst: base: lhs: %a\n" HilExp.AccessExpression.pp lhs;
+     (* TODO bylo tu None -> proc? *)
+     (* None *)
+     find_alias lhs (AliasesSet.elements astate.aliases)
    )
    | HilExp.AccessExpression.Dereference _ae -> (
-(*     F.printf "lhs_alias_fst: dereference: lhs: %a\n" HilExp.AccessExpression.pp lhs;*)
-(*     F.printf "lhs_alias:\n";*)
+     F.printf "lhs_alias_fst: dereference: lhs: %a\n" HilExp.AccessExpression.pp lhs;
+     F.printf "lhs_alias:\n";
      let lhs_alias = get_base_alias lhs aliases in (* **u -> Some (y, &k) *)
      lhs_alias
    )
@@ -602,14 +607,14 @@ let update_aliases lhs rhs astate =
    )
  )
  in
-(* F.printf "lhs_alias_fst:\n";*)
+ F.printf "lhs_alias_fst:\n";
  let lhs_alias_fst = get_option_fst lhs lhs_alias in
  (* rhs *)
-(* F.printf "rhs_alias_snd:\n";*)
+ F.printf "rhs_alias_snd:\n";
  let rhs_alias_snd = (
    match rhs with
    | HilExp.AccessExpression.AddressOf _ae -> (
-(*     F.printf "rhs_alias_snd: addressOf: rhs: %a\n" HilExp.AccessExpression.pp rhs;*)
+     F.printf "rhs_alias_snd: addressOf: rhs: %a\n" HilExp.AccessExpression.pp rhs;
      Some rhs
    )
    | _ -> (  (* base, dereference etc. *)
@@ -618,14 +623,19 @@ let update_aliases lhs rhs astate =
    )
  )
  in
-(* F.printf "new_alias:\n";*)
+ F.printf "new_alias:\n";
  let new_alias = create_new_alias lhs_alias_fst rhs_alias_snd in (* Some (y, &z) *)
-(* F.printf "new_alias: ";*)
+ F.printf "new_alias: ";
  _print_alias new_alias;
-(* F.printf "remove_alias_from_aliases:\n";*)
+ F.printf "remove_alias_from_aliases:\n";
+F.printf "aliases: %a\n" AliasesSet.pp astate.aliases;
+F.printf "alias to be removed: \n";
+_print_alias lhs_alias;
  let astate_alias_removed = remove_alias_from_aliases lhs_alias astate in (* astate *)
-(* F.printf "final_astate:\n";*)
+ F.printf "aliases_removed: %a\n" AliasesSet.pp astate_alias_removed.aliases;
+ F.printf "final_astate:\n";
  let final_astate = add_new_alias_no_option astate_alias_removed new_alias in (* astate *)
+ F.printf "final_astate: %a\n" AliasesSet.pp final_astate.aliases;
  final_astate
 
 (* TODO *)
@@ -1020,12 +1030,16 @@ let store_vol2 e1 typ e2 loc astate _pname =
             )
           in
           (* save alias to the aliases set *)
-          let alias = (e1_aliased_final, e2_final) in
-          (* TODO melo by byt rafinovanejsi - pokud uz nejaky alias je, musi se najit a dal aliasovat atd. *)
-          let new_aliases = AliasesSet.add alias astate.aliases in
           F.printf "aliases before=%a\n" AliasesSet.pp astate.aliases;
-          F.printf "aliases before=%a\n" AliasesSet.pp new_aliases;
-          { astate with aliases=new_aliases }
+          let astate = update_aliases e1_aliased_final e2_final astate in
+          F.printf "aliases after=%a\n" AliasesSet.pp astate.aliases;
+          astate
+(*          let alias = (e1_aliased_final, e2_final) in*)
+(*          (* TODO melo by byt rafinovanejsi - pokud uz nejaky alias je, musi se najit a dal aliasovat atd. *)*)
+(*          let new_aliases = AliasesSet.add alias astate.aliases in*)
+(*          F.printf "aliases before=%a\n" AliasesSet.pp astate.aliases;*)
+(*          F.printf "aliases before=%a\n" AliasesSet.pp new_aliases;*)
+(*          { astate with aliases=new_aliases }*)
         )
         | _ -> astate
       end

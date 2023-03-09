@@ -55,11 +55,15 @@ val transform_sil_exprs_to_hil_list : (Exp.t * Typ.t) list -> bool -> HilExp.t l
 
 (*val load : Ident.t -> Exp.t -> Typ.t -> Location.t -> t -> t*)
 
+val add_heap_alias_when_malloc : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Location.t -> t -> (HilExp.AccessExpression.t * Location.t) list -> (t * (HilExp.AccessExpression.t * Location.t) list)
+
 val load : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Exp.t -> Typ.t -> Location.t -> t -> t
 
 val store_with_alias : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Location.t -> t -> t
 
 val store_vol2 : Exp.t -> Typ.t -> Exp.t -> Location.t -> t -> Procname.t -> t
+
+val store_with_heap_alloc : Exp.t -> Typ.t -> Exp.t -> Location.t -> t -> Procname.t -> (HilExp.AccessExpression.t * Location.t) list -> t
 
 val store : HilExp.AccessExpression.t -> Location.t -> t -> t
 
@@ -80,3 +84,5 @@ val print_astate : t (* -> Location.t -> Procname.t *) -> unit
 type summary = t
 
 val compute_data_races : summary -> unit
+
+val astate_with_clear_load_aliases : t -> t

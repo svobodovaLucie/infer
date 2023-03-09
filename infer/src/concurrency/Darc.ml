@@ -12,7 +12,21 @@ module F = Format
 (* module L = Logging *)
 module Domain = DarcDomain
 
-type analysis_data = {interproc: DarcDomain.summary InterproceduralAnalysis.t; extras : int}
+type extras_t =
+{
+  last_loc: Location.t;
+  heap_tmp: (HilExp.AccessExpression.t * Location.t) list;
+  random_int: int;
+}
+
+let initial_extras =
+{
+  last_loc = Location.dummy;
+  heap_tmp = [];
+  random_int = 0;
+}
+
+type analysis_data = {interproc: DarcDomain.summary InterproceduralAnalysis.t; extras : extras_t ref}
 
 let _assign_expr lhs_access_expr rhs_expr loc (astate : Domain.t) pname =
   F.printf "Access lhs: %a at %a\n" HilExp.AccessExpression.pp lhs_access_expr Location.pp loc;
@@ -119,9 +133,51 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
       Domain.store e1 loc astate
     )
 
-  let handle_store_vol2 e1 typ e2 loc astate pname =
-    F.printf "handle_store_vol2 -------------\n";
-   Domain.store_vol2 e1 typ e2 loc astate pname
+
+let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
+  F.printf "random_foo\n";
+  let add_deref_e1 =
+    match e1 with
+    (* TODO asi to neni uplne spravne *)
+    | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> true
+    | Exp.Var _ | _ -> false
+  in
+  F.printf "e1_hil: ";
+  let e1_hil = Domain.transform_sil_expr_to_hil e1 typ add_deref_e1 in
+  F.printf "\n";
+    match e1_hil with
+    | AccessExpression e1_ae -> (
+      (* transform e2 *)
+      let add_deref_e2 = false
+              in
+      (* if e2 is Cast (e.g. in malloc), get only the cast_exp, e.g. n$0 *)
+      let e2_exp =
+        match e2 with
+        | Exp.Cast (_, cast_exp) -> cast_exp
+        | _ -> e2
+      in
+      F.printf "e2_hil: ";
+      let e2_hil = Domain.transform_sil_expr_to_hil e2_exp typ add_deref_e2 in
+      F.printf "\n";
+      match e2_hil with
+      | AccessExpression e2_ae -> (
+        let (astate_with_new_access_and_heap_alias, updated_heap_tmp) = Domain.add_heap_alias_when_malloc e1_ae e2_ae loc astate !(extras).heap_tmp in
+        extras := { !(extras) with heap_tmp=updated_heap_tmp };
+        astate_with_new_access_and_heap_alias
+      )
+      | _ -> astate
+    )
+    | _ -> astate (* TODO *)
+
+  let handle_store_vol2 e1 typ e2 loc astate pname (extras : extras_t ref)  =
+   F.printf "handle_store_vol2 -------------\n";
+   match !(extras).heap_tmp with
+   | [] -> (* basic store *)
+     Domain.store_vol2 e1 typ e2 loc astate pname
+   | _ -> ( (* if neco je v extras, then handle heap_store else below *)
+(*     Domain.store_with_heap_alloc e1 typ e2 loc astate pname heap_tmp_list*)
+     handle_store_after_malloc e1 typ e2 loc astate extras
+   )
 
   let handle_pthread_create callee_pname pname loc actuals analyze_dependency astate =
     F.printf "pthread_create\n";
@@ -212,8 +268,20 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
             (* read or write effect*)
           end
 
+  let clear_load_aliases_if_new_loc astate (last_loc : Location.t) (loc : Location.t) =
+    if (loc.line > last_loc.line) then
+      begin
+(*        F.printf "loc is larger than last_loc -> clearing\n";*)
+        Domain.astate_with_clear_load_aliases astate
+      end
+    else
+      begin
+(*        F.printf "loc is not larger than last_loc -> not clearing\n";*)
+        astate
+      end
+
   (** Take an abstract state and instruction, produce a new abstract state *)
-  let exec_instr (astate : Domain.t) ({interproc= {proc_desc; tenv; analyze_dependency}} as _analysis_data) _ _ instr =
+  let exec_instr (astate : Domain.t) ({interproc= {proc_desc; tenv; analyze_dependency}} as analysis_data) _ _ instr =
     F.printf "\n";
     let pname = Procdesc.get_proc_name proc_desc in
     (*     l1 + l2 / l3 -> [l1] *)
@@ -221,8 +289,12 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
       List.hd actuals |> Option.value_map ~default:[] ~f:HilExp.get_access_exprs |> List.hd
       |> Option.map ~f:HilExp.AccessExpression.to_access_path
     in
+    (* F.printf "extras.last_loc: %a =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= \n" Location.pp !(analysis_data.extras).last_loc; *)
     match (instr : Sil.instr) with
     | Load {id; e; typ; loc} -> (
+      (* check if loc is larger than last_loc -> if true, clear load_aliases set *)
+      let astate = clear_load_aliases_if_new_loc astate !(analysis_data.extras).last_loc loc in
+      (* compute whatever you need to compute *)
       F.printf "Load: id=%a, e=%a on %a...\n" Ident.pp id Exp.pp e Location.pp loc;
       F.printf "e: ";
             let _print_e =
@@ -240,9 +312,16 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
             | Lindex _ -> F.printf "Lindex\n" (* )of t * t  (** An array index offset: [exp1\[exp2\]] *) *)
             | Sizeof _ -> F.printf "Sizeof\n" (*  sizeof_data *)
             in
-      handle_load tenv id e typ ~lhs:(Var.of_id id, typ) loc astate
+      (* compute the result (add new access, load_aliases etc.) *)
+      let result = handle_load tenv id e typ ~lhs:(Var.of_id id, typ) loc astate in
+      (* update last_loc *)
+      analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
+      result
     )
     | Store {e1; typ; e2; loc} -> (
+      (* check if loc is larger than last_loc -> if true, clear load_aliases set *)
+      let astate = clear_load_aliases_if_new_loc astate !(analysis_data.extras).last_loc loc in
+      (* compute whatever you need to compute *)
       F.printf "Store: e1=%a, e2=%a on %a: " Exp.pp e1 Exp.pp e2 Location.pp loc;
       F.printf "e1: ";
       let _print_e1 =
@@ -269,7 +348,7 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
           | Exn _exn -> F.printf "Exn\n" (* of t  (** Exception *) *)
           | Closure closure ->  F.printf "Closure %a\n" Exp.pp_closure closure (* of closure  (** Anonymous function *) *)
           | Const _const -> F.printf "Const\n" (* Const.pp const  (** Constants *)*)
-          | Cast _ -> F.printf "Cast\n" (* of Typ.t * t  (** Type cast *) *)
+          | Cast (_, cast_exp) -> F.printf "Cast %a\n" Exp.pp cast_exp (* of Typ.t * t  (** Type cast *) *)
           | Lvar lvar -> F.printf "Lvar %a\n" Pvar.pp_value lvar  (** The address of a program variable *)
           | Lfield _ -> F.printf "Lfield\n" (* of t * Fieldname.t * Typ.t *)
                 (** A field offset, the type is the surrounding struct type *)
@@ -285,22 +364,50 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
 (*      match e1_hil with*)
 (*      | AccessExpression e1_hil_ae -> handle_store e1_hil_ae e2_hil loc astate pname*)
 (*      | _ -> astate*)
-      handle_store_vol2 e1 typ e2 loc astate pname
+
+      (* compute the result (add new access, load_aliases etc.) *)
+      let result = handle_store_vol2 e1 typ e2 loc astate pname analysis_data.extras in
+      (* update last_loc AND CLEAR HEAP_TMP *)
+      analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = [] };
+(*      let result_malloc = random_foo e1 typ e2 astate analysis_data.extras in*)
+      F.printf "ahojky\n";
+      result
     )
     | Prune  (_exp, loc, then_branch, _if_kind) -> (
+      (* check if loc is larger than last_loc -> if true, clear load_aliases set *)
+      let astate = clear_load_aliases_if_new_loc astate !(analysis_data.extras).last_loc loc in
+      (* compute whatever you need to compute *)
       F.printf "Prune";
       let _print_if_then = if (then_branch) then F.printf " if " else F.printf " then " in
       F.printf "on %a...\n" Location.pp loc;
-      astate
+      let result = astate in
+      (* update last_loc *)
+      analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
+      result
     )
     | Call ((ret_id, ret_typ), Const (Cfun callee_pname), sil_actuals, loc, call_flags) -> (
+      (* check if loc is larger than last_loc -> if true, clear load_aliases set *)
+      let astate = clear_load_aliases_if_new_loc astate !(analysis_data.extras).last_loc loc in
+      (* compute whatever you need to compute *)
       F.printf "Call %a on %a: ret_id: %a, ret_typ: %s, call_flags: %a\n" Procname.pp callee_pname Location.pp loc Ident.pp ret_id (Typ.to_string ret_typ) CallFlags.pp call_flags;
       let hil_actuals = Domain.transform_sil_exprs_to_hil_list sil_actuals (* TODO add_deref:false? *) false in
       if (phys_equal (String.compare (Procname.to_string callee_pname) "pthread_create") 0) then
-        handle_pthread_create callee_pname pname loc hil_actuals analyze_dependency astate
+        let result = handle_pthread_create callee_pname pname loc hil_actuals analyze_dependency astate in
+        analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
+        result
       else if (phys_equal (String.compare (Procname.to_string callee_pname) "pthread_join") 0) then
-        handle_pthread_join callee_pname loc hil_actuals astate
+        let result = handle_pthread_join callee_pname loc hil_actuals astate in
+        analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
+        result
       (* else if (Domain.ReadWriteModels.has_effect (Procname.to_string callee_pname)) then TODO is it still needed? *)
+      else if (phys_equal (String.compare (Procname.to_string callee_pname) "malloc") 0) then
+        (* TODO nahradit za malloc, calloc, realloc? atd. - neexistuje nejaka funkce is_dynamically_allocated? *)
+        (* add (ret_id, loc) to extras.heap_tmp *)
+        let ret_id_ae = HilExp.AccessExpression.of_id ret_id ret_typ in
+        let new_heap_tmp = (ret_id_ae, loc) in
+        let heap_tmp = new_heap_tmp :: !(analysis_data.extras).heap_tmp in
+        analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp };
+        astate
       else
         begin
          (* LOCKS *)
@@ -310,8 +417,11 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
                  F.printf "Function %a at %a\n" Procname.pp callee_pname Location.pp loc;
                  F.printf "lock at %a\n" Location.pp loc;
                  Domain.print_astate astate (* loc pname*);
-                 get_path hil_actuals
+                 let result = get_path hil_actuals
                  |> Option.value_map ~default:astate ~f:(fun path -> Domain.acquire path astate loc (* extras *) pname)
+                 in
+                 analysis_data.extras := { !(analysis_data.extras) with last_loc = loc };
+                 result
                )
                | Unlock _ -> (
                  F.printf "Function %a at %a\n" Procname.pp callee_pname Location.pp loc;
@@ -341,8 +451,12 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
              end
   )
   | Call _ -> (
+    (* check if loc is larger than last_loc -> if true, clear load_aliases set *)
+    (* let astate = clear_load_aliases_if_new_loc astate !(analysis_data.extras).last_loc loc in *)
+    (* compute whatever you need to compute *)
     F.printf "Call - TODO...\n";
     astate
+    (* TODO update last_loc *)
   )
   | Metadata _ -> astate
 
@@ -392,7 +506,7 @@ let add_nonpointer_formals_to_list formals lst_ref =
 
 (** Main function into the checker--registered in RegisterCheckers *)
 let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc) =
-  let data = {interproc; extras = 0} in
+  let data = {interproc; extras = ref initial_extras} in
   F.printf "Hello from Darc Checker.\n";
   F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s START >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
 

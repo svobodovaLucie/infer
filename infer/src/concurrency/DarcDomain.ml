@@ -640,43 +640,27 @@ let rec find_heap_alias_by_var var heap_aliases =
       end
   )
 
-let rec _find_load_alias_by_var var load_aliases =
+let rec find_load_alias_by_var var load_aliases =
   match load_aliases with
   | [] -> None
-  | (fst, loc) :: t -> (
+  | (fst, snd, _) :: t -> (
     if HilExp.AccessExpression.equal var fst then
-      Some (fst, loc)
+      Some (fst, snd)
     else
-      _find_load_alias_by_var var t
+      find_load_alias_by_var var t
   )
 
-(* TODO funkce na remove jednoho aliasu, pokud to byl malloc a nahradi se to (memleak) jinym aliasem *)
-(* potreba odstranit pouze tu jednu var z listu, pouze tu jednu dvojici *)
-(*let remove_heap_alias var astate = *)
-(*  let rec update_heap_aliases var list acc =*)
-(*      match list with*)
-(*      | [] -> acc*)
-(*      | (var, _) :: t -> ( *)
-(*        if HilExp.AccessExpression.equal var_to_be_removed var then*)
-(*          update_heap_aliases loc t acc*)
-(*        else*)
-(*          begin*)
-(*            let new_acc = (var, location) :: acc in*)
-(*            update_heap_aliases loc t new_acc*)
-(*          end*)
-(*      )*)
-(*    in*)
-(*    update_heap_aliases loc astate.heap_aliases []*)
-
-
-let _remove_heap_alias_by_var_name var astate =
+let remove_heap_alias_by_var_name var astate =
   (* find var alias in heap_aliases, return loc *)
   let loc_of_alias_to_be_removed = find_heap_alias_by_var var astate.heap_aliases in
   match loc_of_alias_to_be_removed with
   | Some loc ->
     (* remove all heap_aliases with the returned loc *)
     let updated_heap_aliases = remove_heap_aliases_by_loc loc astate in
-    { astate with heap_aliases=updated_heap_aliases }
+    let new_astate = { astate with heap_aliases=updated_heap_aliases } in
+    F.printf "heap_aliases after remove by free: ";
+    _print_heap_aliases_list new_astate;
+    new_astate
   | None -> astate
 
 let find_heap_aliases_with_same_loc loc list =
@@ -1504,6 +1488,17 @@ let store_vol2 e1 typ e2 loc astate _pname =
       end
     )
     | _ -> astate
+
+(* actual_to_be_removed is e.g. n$0 *)
+let remove_heap_aliases_when_free actual_to_be_removed astate =
+  (* find actual in load aliases *)
+  let load_alias = find_load_alias_by_var actual_to_be_removed astate.load_aliases in
+  match load_alias with
+  | None -> astate
+  | Some (var, snd) ->
+    F.printf "Some var=%a, snd=%a\n" HilExp.AccessExpression.pp var HilExp.AccessExpression.pp snd;
+  (* remove var and all aliases with the same loc as loc *)
+    remove_heap_alias_by_var_name snd astate
 
 (* FIXME var is any expression now (n$7 etc.) *)
 let assign_expr var astate loc pname access_type =

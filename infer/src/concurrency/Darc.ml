@@ -95,6 +95,24 @@ let _read_write_expr loc pname actuals (astate : Domain.t) =
     in
     list_fold read_write_effects astate
 
+let handle_free hil_actuals astate =
+  (* get actuals - prvni z nich je LOAD alias toho, co se ma odstranit z heap_aliases *)
+  let hil_actuals_first = List.hd hil_actuals in
+  match hil_actuals_first with
+  | None -> (
+    F.printf "None\n";
+    astate
+  )
+  | Some HilExp.AccessExpression actual -> (
+    F.printf "Some actual=%a\n" HilExp.AccessExpression.pp actual;
+    (* find actual in load aliases *)
+    Domain.remove_heap_aliases_when_free actual astate
+  )
+  | Some _ -> (
+    F.printf "Some actual=other type\n";
+    astate
+  )
+
 module TransferFunctions (CFG : ProcCfg.S) = struct
   module CFG = CFG
   module Domain = Domain
@@ -400,7 +418,8 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
         analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
         result
       (* else if (Domain.ReadWriteModels.has_effect (Procname.to_string callee_pname)) then TODO is it still needed? *)
-      else if (phys_equal (String.compare (Procname.to_string callee_pname) "malloc") 0) then
+      else if (phys_equal (String.compare (Procname.to_string callee_pname) "malloc") 0)
+        || (phys_equal (String.compare (Procname.to_string callee_pname) "calloc") 0) then
         (* TODO nahradit za malloc, calloc, realloc? atd. - neexistuje nejaka funkce is_dynamically_allocated? *)
         (* add (ret_id, loc) to extras.heap_tmp *)
         let ret_id_ae = HilExp.AccessExpression.of_id ret_id ret_typ in
@@ -408,6 +427,9 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
         let heap_tmp = new_heap_tmp :: !(analysis_data.extras).heap_tmp in
         analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp };
         astate
+      else if (phys_equal (String.compare (Procname.to_string callee_pname) "free") 0) then
+        (* free odstrani z heap_aliases to, co je v argumentu te funkce + vsechno se stejnym loc *)
+        handle_free hil_actuals astate
       else
         begin
          (* LOCKS *)

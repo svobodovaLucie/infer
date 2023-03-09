@@ -1074,7 +1074,12 @@ let fst_aliasing_snd exp mem_aliased : HilExp.AccessExpression.t =
           (* TODO rekurze!!! *)
           match alias with
           | Some (_, snd) -> snd   (* return alias *)
-          | None -> var    (* the var is not in aliases -> return var (only the second variable will be needed later) *)
+          | None -> (    (* the var is not in aliases -> return var (only the second variable will be needed later) *)
+            F.printf "BLAAAAAAAAAAAAAAAH tady bych mela provest heap_aliases projduti a vraceni seznamu vsech ae, ke kterym se pristupuje\n";
+            (* jenze tahle funkce vraci jenom jeden vyraz, ale ja potrebuju list *)
+            var
+            (*pouzit new_astate = add_accesses_with_aliases_or_heap_aliases *)
+          )
 (*        end*)
 (*      else*)
 (*        begin*)
@@ -1121,56 +1126,6 @@ let fst_aliasing_snd_with_dereference_counter exp mem_aliased : HilExp.AccessExp
       match exp with
       | HilExp.AccessExpression.Dereference _ -> HilExp.AccessExpression.dereference res
       | _ -> res
-
-let load id_ae e_ae e (_typ: Typ.t) loc astate =
-  (* save alias to the load_aliases set *)
-(*  let _print_typ =*)
-(*    match typ.desc with*)
-(*    | Typ.Tint _ -> F.printf "Tint\n";*)
-(*    | _ -> F.printf "other\n";*)
-(*  in*)
-  F.printf "load_aliases before:\n";
-  _print_load_aliases_list astate;
-  (* TODO TADY JSEM SKONCILA !!! ALIASING SE PROVADI POUZE V PRIPADE, ZE E JE VAR -> JE TO PRAVDA VZDY? + neni vyresena rekurze! *)
-  (* TODO:
-     - rekurze
-     - STORE
-     - neukladat do aliases int j = 0
-  *)
-  (* dealiasing se provadi pouze v pripade, ze rhs je Var a ne Pvar *)
-  let e_to_add =
-  match e with
-  | Exp.Var _ -> (
-    F.printf "Var\n";
-    (* DEALIASING *)
-    (* find e in load_aliases jako fst -> return snd -> ale rekurzivne!!! *)
-      let e_aliased = fst_aliasing_snd e_ae astate.load_aliases in
-      F.printf "e_aliased: %a\n" HilExp.AccessExpression.pp e_aliased;
-      (* find e_alised in aliases *)
-      F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
-      let e_aliased_final = replace_var_with_aliases_without_address_of e_aliased (AliasesSet.elements astate.aliases) in
-      F.printf "e_aliased_final: %a\n" HilExp.AccessExpression.pp e_aliased_final;
-      (* save alias to the load_aliases set *)
-      e_aliased_final
-(*      e_ae*)
-  )
-  | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> (
-    F.printf "Lvar or Lfield or Lindex\n";
-    e_ae
-  )
-  | _ -> (
-    F.printf "other e, nemelo by nastat\n";
-    e_ae
-  )
-  in
-  let new_mem_alias = (id_ae, e_to_add, e) in
-  let load_aliases = new_mem_alias :: astate.load_aliases in
-  let astate = { astate with load_aliases } in
-  F.printf "load_aliases after:\n";
-  _print_load_aliases_list astate;
-  (* add read access *)
-  let astate_with_new_read_access = add_access_to_astate e_to_add ReadWriteModels.Read astate loc in
-  astate_with_new_read_access
 
 let store_with_alias e1 e2 loc astate =
   F.printf "store_with_alias---\n";
@@ -1350,7 +1305,8 @@ let get_list_of_heap_aliases_with_same_loc_as_var var (astate : t) =
     go astate.heap_aliases []
   )
 
-let add_accesses_to_astate_with_aliases_or_heap_aliases e1_ae e1_aliased_final _access_type astate loc =
+
+let add_accesses_to_astate_with_aliases_or_heap_aliases e1_ae e1_aliased_final access_type astate loc =
   if (HilExp.AccessExpression.equal e1_ae e1_aliased_final) then
     begin
       F.printf "add_accesses_to_astate_with_aliases_or_heap_aliases: if, e1_ea: %a, e1_aliased_final: %a\n" HilExp.AccessExpression.pp e1_ae HilExp.AccessExpression.pp e1_aliased_final;
@@ -1359,7 +1315,7 @@ let add_accesses_to_astate_with_aliases_or_heap_aliases e1_ae e1_aliased_final _
       match list_of_new_accesses_from_heap_aliases with
       | [] -> (
         (* var was not in heap aliases -> add access to var *)
-        add_access_to_astate e1_aliased_final ReadWriteModels.Write astate loc (* returns astate *)
+        add_access_to_astate e1_aliased_final access_type astate loc (* returns astate *)
       )
       | _ -> (
         (* recursively add access to the next var *)
@@ -1369,7 +1325,7 @@ let add_accesses_to_astate_with_aliases_or_heap_aliases e1_ae e1_aliased_final _
           | var_heap :: t -> (
             (* add access to var *)
             (* check if there is the dereference!!! or double dereference etc. *)
-            let new_astate = add_access_to_astate var_heap ReadWriteModels.Write astate loc (* returns astate *) in
+            let new_astate = add_access_to_astate var_heap access_type astate loc (* returns astate *) in
             add_heap_accesses t new_astate
           )
         in
@@ -1380,8 +1336,70 @@ let add_accesses_to_astate_with_aliases_or_heap_aliases e1_ae e1_aliased_final _
     begin
       F.printf "add_accesses_to_astate_with_aliases_or_heap_aliases: else, e1_ea: %a, e1_aliased_final: %a\n" HilExp.AccessExpression.pp e1_ae HilExp.AccessExpression.pp e1_aliased_final;
       (* add access to aliased var to accesses *)
-      add_access_to_astate e1_aliased_final ReadWriteModels.Write astate loc (* returns astate *)
+      add_access_to_astate e1_aliased_final access_type astate loc (* returns astate *)
     end
+
+let load id_ae e_ae e (_typ: Typ.t) loc astate =
+  (* save alias to the load_aliases set *)
+(*  let _print_typ =*)
+(*    match typ.desc with*)
+(*    | Typ.Tint _ -> F.printf "Tint\n";*)
+(*    | _ -> F.printf "other\n";*)
+(*  in*)
+  F.printf "load_aliases before:\n";
+  _print_load_aliases_list astate;
+  (* TODO TADY JSEM SKONCILA !!! ALIASING SE PROVADI POUZE V PRIPADE, ZE E JE VAR -> JE TO PRAVDA VZDY? + neni vyresena rekurze! *)
+  (* TODO:
+     - rekurze
+     - STORE
+     - neukladat do aliases int j = 0
+  *)
+  (* dealiasing se provadi pouze v pripade, ze rhs je Var a ne Pvar *)
+  match e with
+  | Exp.Var _ -> (
+    F.printf "Var\n";
+    (* DEALIASING *)
+    (* find e in load_aliases jako fst -> return snd -> ale rekurzivne!!! *)
+    (* TODO zakomponovat heap_aliases!!! *)
+      let e_aliased = fst_aliasing_snd e_ae astate.load_aliases in
+      F.printf "e_aliased: %a\n" HilExp.AccessExpression.pp e_aliased;
+      (* find e_alised in aliases *)
+      F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
+      let e_aliased_final = replace_var_with_aliases_without_address_of e_aliased (AliasesSet.elements astate.aliases) in
+      F.printf "e_aliased_final: %a\n" HilExp.AccessExpression.pp e_aliased_final;
+      (* save alias to the load_aliases set *)
+      let e_to_add = e_aliased_final in
+      let new_mem_alias = (id_ae, e_to_add, e) in
+        let load_aliases = new_mem_alias :: astate.load_aliases in
+        let astate = { astate with load_aliases } in
+        F.printf "load_aliases after:\n";
+        _print_load_aliases_list astate;
+        (* add all read access (if it is access to heap allocated variable with alias, there could be more accesses) *)
+        let astate_with_new_read_accesses = add_accesses_to_astate_with_aliases_or_heap_aliases e_aliased e_aliased_final ReadWriteModels.Read astate loc in
+        astate_with_new_read_accesses
+  )
+  | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> (
+    F.printf "Lvar or Lfield or Lindex\n";
+    let new_mem_alias = (id_ae, e_ae, e) in
+      let load_aliases = new_mem_alias :: astate.load_aliases in
+      let astate = { astate with load_aliases } in
+      F.printf "load_aliases after:\n";
+      _print_load_aliases_list astate;
+      (* add read access *)
+      let astate_with_new_read_access = add_access_to_astate e_ae ReadWriteModels.Read astate loc in
+      astate_with_new_read_access
+  )
+  | _ -> (
+    F.printf "other e, nemelo by nastat\n";
+    let new_mem_alias = (id_ae, e_ae, e) in
+      let load_aliases = new_mem_alias :: astate.load_aliases in
+      let astate = { astate with load_aliases } in
+      F.printf "load_aliases after:\n";
+      _print_load_aliases_list astate;
+      (* add read access *)
+      let astate_with_new_read_access = add_access_to_astate e_ae ReadWriteModels.Read astate loc in
+      astate_with_new_read_access
+  )
 
 let store_vol2 e1 typ e2 loc astate _pname =
   F.printf "handle_store_vol2 -------------\n";

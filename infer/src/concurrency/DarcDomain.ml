@@ -511,7 +511,10 @@ let rec check_lhs lhs lhs_current var aliases =
       let alias = find_alias var aliases in (* e.g. None | Some (y, &k) *)
       match alias with
       | Some alias -> Some alias   (* return alias *)
-      | None -> Some (var, var)    (* the var is not in aliases -> return var (only the second variable will be needed later) *)
+      | None -> (
+(*        Some (var, var)    (* the var is not in aliases -> return var (only the second variable will be needed later) *)*)
+        None (* TODO after the heap aliases are prohledane *)
+      )
     end
   else
     begin
@@ -623,12 +626,18 @@ let remove_heap_aliases_by_loc loc astate =
 
 let rec find_heap_alias_by_var var heap_aliases =
   match heap_aliases with
-  | [] -> None
+  | [] -> (F.printf "find_heap_alias_by_var: None\n"; None)
   | (fst, loc) :: t -> (
     if HilExp.AccessExpression.equal var fst then
-      Some loc
+      begin
+        F.printf "find_heap_alias_by_var: loc:%a\n" Location.pp loc;
+        Some loc
+      end
     else
-      find_heap_alias_by_var var t
+      begin
+        F.printf "find_heap_alias_by_var: var: %a, fst: %a - else\n" HilExp.AccessExpression.pp var HilExp.AccessExpression.pp fst;
+        find_heap_alias_by_var var t
+      end
   )
 
 let rec _find_load_alias_by_var var load_aliases =
@@ -784,32 +793,97 @@ let update_aliases lhs rhs astate =
  let lhs_alias_fst = get_option_fst lhs lhs_alias in
  (* rhs *)
  F.printf "rhs_alias_snd:\n";
- let rhs_alias_snd = (
-   match rhs with
+ match rhs with
    | HilExp.AccessExpression.AddressOf _ae -> (
      F.printf "rhs_alias_snd: addressOf: rhs: %a\n" HilExp.AccessExpression.pp rhs;
-     Some rhs
+     let rhs_alias_snd = Some rhs in
+     F.printf "new_alias:\n";
+             let new_alias = create_new_alias lhs_alias_fst rhs_alias_snd in (* Some (y, &z) *)
+             F.printf "new_alias: ";
+             _print_alias new_alias;
+             F.printf "remove_alias_from_aliases:\n";
+            F.printf "aliases: %a\n" AliasesSet.pp astate.aliases;
+            F.printf "alias to be removed: \n";
+            _print_alias lhs_alias;
+             let astate_alias_removed = remove_alias_from_aliases lhs_alias astate in (* astate *)
+             F.printf "aliases_removed: %a\n" AliasesSet.pp astate_alias_removed.aliases;
+             F.printf "final_astate:\n";
+             let final_astate = add_new_alias_no_option astate_alias_removed new_alias in (* astate *)
+             F.printf "final_astate: %a\n" AliasesSet.pp final_astate.aliases;
+             final_astate
    )
    | _ -> (  (* base, dereference etc. *)
      let rhs_alias = get_base_alias rhs aliases in (* *q -> Some (x, &z) *)
-     get_option_snd rhs_alias (* Some (x, &z) -> Some &z *)
+     match rhs_alias with
+     | Some _alias -> (
+       let rhs_alias_snd = get_option_snd rhs_alias (* Some (x, &z) -> Some &z *) in
+       (* TODO rovnou tady pridat do aliases a vratit novy astate *)
+        F.printf "new_alias:\n";
+        let new_alias = create_new_alias lhs_alias_fst rhs_alias_snd in (* Some (y, &z) *)
+        F.printf "new_alias: ";
+        _print_alias new_alias;
+        F.printf "remove_alias_from_aliases:\n";
+       F.printf "aliases: %a\n" AliasesSet.pp astate.aliases;
+       F.printf "alias to be removed: \n";
+       _print_alias lhs_alias;
+        let astate_alias_removed = remove_alias_from_aliases lhs_alias astate in (* astate *)
+        F.printf "aliases_removed: %a\n" AliasesSet.pp astate_alias_removed.aliases;
+        F.printf "final_astate:\n";
+        let final_astate = add_new_alias_no_option astate_alias_removed new_alias in (* astate *)
+        F.printf "final_astate: %a\n" AliasesSet.pp final_astate.aliases;
+        final_astate
+     )
+     | None -> (
+       (* TODO find in heap aliases, pokud je v heap aliases, pak pridat i lhs do heap aliases, jinak netusim, asi nic, nemelo by nastat *)
+       (* ma to vracet access_expression - pozor, zaridit, at se dale neprida hlavne do nejakych normalnich aliases! *)
+       (* TODO rovnou pak heap alias pridat do heap aliases a vratit novy astate *)
+       (* find rhs in heap aliases *)
+       let rhs_heap_alias_loc = find_heap_alias_by_var rhs astate.heap_aliases in
+       let new_astate =
+         match rhs_heap_alias_loc with
+         | None -> (
+           (* FIXME muze nastat? a co s tim? *)
+           F.printf "rhs_heap_alias_loc was not found\n";
+           astate
+         )
+         | Some loc -> (
+           F.printf "alias found: (%a, %a), lhs: %a\n" HilExp.AccessExpression.pp rhs Location.pp loc HilExp.AccessExpression.pp lhs;
+           (* add lhs - ne rhs?? with loc to heap aliases *)
+           (* add new heap aliases to astate *)
+           let astate_with_new_heap_alias = add_heap_alias lhs loc astate in
+           (* remove lhs alias from aliases, TODO: pripadne from heap aliases, pokud uz tam byl *)
+           let astate_alias_removed = remove_alias_from_aliases lhs_alias astate_with_new_heap_alias in (* astate *)
+           (* return new astate *)
+           astate_alias_removed
+         )
+       in
+       (* return new astate *)
+       new_astate
+     )
    )
- )
- in
- F.printf "new_alias:\n";
- let new_alias = create_new_alias lhs_alias_fst rhs_alias_snd in (* Some (y, &z) *)
- F.printf "new_alias: ";
- _print_alias new_alias;
- F.printf "remove_alias_from_aliases:\n";
-F.printf "aliases: %a\n" AliasesSet.pp astate.aliases;
-F.printf "alias to be removed: \n";
-_print_alias lhs_alias;
- let astate_alias_removed = remove_alias_from_aliases lhs_alias astate in (* astate *)
- F.printf "aliases_removed: %a\n" AliasesSet.pp astate_alias_removed.aliases;
- F.printf "final_astate:\n";
- let final_astate = add_new_alias_no_option astate_alias_removed new_alias in (* astate *)
- F.printf "final_astate: %a\n" AliasesSet.pp final_astate.aliases;
- final_astate
+
+(* in*)
+(* F.printf "new_alias:\n";*)
+(* let new_alias = create_new_alias lhs_alias_fst rhs_alias_snd in (* Some (y, &z) *)*)
+(* F.printf "new_alias: ";*)
+(* _print_alias new_alias;*)
+(* F.printf "remove_alias_from_aliases:\n";*)
+(*F.printf "aliases: %a\n" AliasesSet.pp astate.aliases;*)
+(*F.printf "alias to be removed: \n";*)
+(*_print_alias lhs_alias;*)
+(* let astate_alias_removed = remove_alias_from_aliases lhs_alias astate in (* astate *)*)
+(* F.printf "aliases_removed: %a\n" AliasesSet.pp astate_alias_removed.aliases;*)
+(* F.printf "final_astate:\n";*)
+(* let final_astate = add_new_alias_no_option astate_alias_removed new_alias in (* astate *)*)
+(* F.printf "final_astate: %a\n" AliasesSet.pp final_astate.aliases;*)
+(* final_astate*)
+ (*
+ FIXME malloc extension:
+ ...lhs alias najit a ulozit si, prootze pokud bude nalezen  rhs v heap_aliases, musi byt lhs alias odstranen
+ ...rhs alias zkontrolovat, pokud je po get_base_alias None, tak prohledat heap_aliases
+ a pokud byl nejaky heap_alias nalezen, pak odstranit lhs alias a pridat rhs do heap_aliases
+
+ *)
 
 (* TODO *)
 let add_thread th astate =
@@ -1001,6 +1075,7 @@ let _load_first id e typ loc astate =
   )
 
 let fst_aliasing_snd exp mem_aliased : HilExp.AccessExpression.t =
+  F.printf "fst_aliasing_snd:\n";
 (*  let rec find e list = *)
 (*    match list with *)
 (*    | [] -> *)
@@ -1038,6 +1113,7 @@ let fst_aliasing_snd exp mem_aliased : HilExp.AccessExpression.t =
       | _ -> res
 
 let fst_aliasing_snd_with_dereference_counter exp mem_aliased : HilExp.AccessExpression.t =
+  F.printf "fst_aliasing_snd_with_dereference_counter\n";
   let exp_base = HilExp.AccessExpression.get_base exp in
   let exp_base_ae = HilExp.AccessExpression.base exp_base in
     let (* rec *) check_lhs lhs lhs_current var aliases =
@@ -1046,8 +1122,15 @@ let fst_aliasing_snd_with_dereference_counter exp mem_aliased : HilExp.AccessExp
           let alias = find_mem_alias var aliases in (* e.g. None | Some (y, &k) *)
           (* TODO rekurze!!! *)
           match alias with
-          | Some (_, snd) -> HilExp.AccessExpression.dereference snd   (* return alias *)
-          | None -> var    (* the var is not in aliases -> return var (only the second variable will be needed later) *)
+          | Some (_, snd) -> HilExp.AccessExpression.dereference snd   (* var was found in aliases -> return alias *)
+          | None -> ( (* the var is not in aliases *)
+            (* try to find the var in heap_aliases *)
+(*            let _loc_opt = find_heap_alias_by_var var astate in *)
+            (* if exists, then projdi heap_aliases a pridej pristup ke kazdemu aliasu se stejnou loc *)
+            (* if doesn't exist, nepridavej nic *)
+            (* FIXME return var (only the second variable will be needed later) *)
+            var
+          )
       in
       let res = check_lhs exp exp_base_ae exp_base_ae mem_aliased in
       F.printf "exp: %a, res: %a\n" HilExp.AccessExpression.pp exp HilExp.AccessExpression.pp res;
@@ -1246,6 +1329,76 @@ let store_with_heap_alloc _e1 _typ _e2 _loc astate _pname _heap_tmp_list =
   astate
   *)
 
+(* go through aliases and add to acc every var with the same loc *)
+let get_list_of_heap_aliases_with_same_loc_as_var var (astate : t) =
+  (* find var in aliases *)
+  let var_base = HilExp.AccessExpression.get_base var in
+  let var_base_ae = HilExp.AccessExpression.base var_base in
+  F.printf "get_list_of_heap_aliases_with_same_loc_as_var: heap_aliases: \n";
+  _print_heap_aliases_list astate;
+  let loc_opt = find_heap_alias_by_var var_base_ae astate.heap_aliases in
+  match loc_opt with
+  | None -> []
+  | Some loc -> (
+    let rec go (heap_aliases : (HilExp.access_expression * Location.t) list) acc =
+      match heap_aliases with
+      | [] -> acc
+      | (var_found, loc_found) :: tail -> (
+        F.printf "something was found, var_found: %a\n" HilExp.AccessExpression.pp var_found;
+        if (Location.equal loc loc_found) then
+          begin
+            (* vratit var_base_ae zpatky na podobu var - pokud to byla dereference, vratit dereferenci napr. *)
+            match var with
+            | HilExp.AccessExpression.Dereference _ -> (
+              let var_found_dereference = HilExp.AccessExpression.dereference var_found in
+              F.printf "+++++++++Deref: %a\n" HilExp.AccessExpression.pp var_found_dereference;
+              go tail (var_found_dereference :: acc)
+            )
+            | _ -> (* TODO neco dalsiho vratit + rekurze na dereferenci ? *) (
+              F.printf "+++++++++Not Deref\n";
+              go tail (var_found :: acc)
+            )
+          end
+        else
+          go tail acc
+      )
+    in
+    go astate.heap_aliases []
+  )
+
+let add_accesses_to_astate_with_aliases_or_heap_aliases e1_ae e1_aliased_final _access_type astate loc =
+  if (HilExp.AccessExpression.equal e1_ae e1_aliased_final) then
+    begin
+      F.printf "add_accesses_to_astate_with_aliases_or_heap_aliases: if, e1_ea: %a, e1_aliased_final: %a\n" HilExp.AccessExpression.pp e1_ae HilExp.AccessExpression.pp e1_aliased_final;
+      (* var was not aliased - maybe it is in heap aliases and if not, add access to var *)
+      let list_of_new_accesses_from_heap_aliases = get_list_of_heap_aliases_with_same_loc_as_var e1_ae astate in
+      match list_of_new_accesses_from_heap_aliases with
+      | [] -> (
+        (* var was not in heap aliases -> add access to var *)
+        add_access_to_astate e1_aliased_final ReadWriteModels.Write astate loc (* returns astate *)
+      )
+      | _ -> (
+        (* recursively add access to the next var *)
+        let rec add_heap_accesses accesses_to_add_list astate = (* returns astate *)
+          match accesses_to_add_list with
+          | [] -> astate
+          | var_heap :: t -> (
+            (* add access to var *)
+            (* check if there is the dereference!!! or double dereference etc. *)
+            let new_astate = add_access_to_astate var_heap ReadWriteModels.Write astate loc (* returns astate *) in
+            add_heap_accesses t new_astate
+          )
+        in
+        add_heap_accesses list_of_new_accesses_from_heap_aliases astate
+      )
+    end
+  else
+    begin
+      F.printf "add_accesses_to_astate_with_aliases_or_heap_aliases: else, e1_ea: %a, e1_aliased_final: %a\n" HilExp.AccessExpression.pp e1_ae HilExp.AccessExpression.pp e1_aliased_final;
+      (* add access to aliased var to accesses *)
+      add_access_to_astate e1_aliased_final ReadWriteModels.Write astate loc (* returns astate *)
+    end
+
 let store_vol2 e1 typ e2 loc astate _pname =
   F.printf "handle_store_vol2 -------------\n";
   let add_deref =
@@ -1266,8 +1419,11 @@ let store_vol2 e1 typ e2 loc astate _pname =
       F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
       let e1_aliased_final = replace_var_with_aliases_without_address_of e1_aliased (AliasesSet.elements astate.aliases) in
       F.printf "e1_aliased_final: %a\n" HilExp.AccessExpression.pp e1_aliased_final;
+      (* TODO nerozbije vec napsana na radku niz cele pristupy k nepointerovskym promennym? ty totiz nebudou v zadnem aliasu a var muze se rovnat var *)
+      (* astate vytvorit na zaklade toho, zda se var == e1_ae nebo ne - pokud rovna, find in heap_aliases, pokud nerovna, pridat normalni pristup *)
+      let astate = add_accesses_to_astate_with_aliases_or_heap_aliases e1_aliased e1_aliased_final ReadWriteModels.Write astate loc in
       (* save alias to the load_aliases set *)
-      let astate = add_access_to_astate e1_aliased_final ReadWriteModels.Write astate loc in
+(*      let astate = add_access_to_astate e1_aliased_final ReadWriteModels.Write astate loc in*)
       if (Typ.is_pointer typ) then (* TODO pridat alias, pokud typ je pointer *) (* nebo pridat malloc *)
         begin
         (* add alias *)

@@ -92,3 +92,5 @@ val compute_data_races : summary -> unit
 val astate_with_clear_load_aliases : t -> t
 
 val remove_local_accesses : summary option -> summary option
+
+val add_heap_aliases_to_astate : t -> (HilExp.AccessExpression.t * Location.t) list -> t

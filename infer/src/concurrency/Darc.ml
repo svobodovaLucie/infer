@@ -391,17 +391,37 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
       F.printf "ahojky\n";
       result
     )
-    | Prune  (_exp, loc, then_branch, _if_kind) -> (
+    | Prune  (_exp, _loc, _then_branch, _if_kind) -> (
+      (* TODO
       (* check if loc is larger than last_loc -> if true, clear load_aliases set *)
       let astate = clear_load_aliases_if_new_loc astate !(analysis_data.extras).last_loc loc in
       (* compute whatever you need to compute *)
-      F.printf "Prune";
-      let _print_if_then = if (then_branch) then F.printf " if " else F.printf " then " in
-      F.printf "on %a...\n" Location.pp loc;
-      let result = astate in
+      (* what exp is? *)
+      F.printf "hil_exp: ";
+      let hil_exp = Domain.transform_sil_expr_to_hil exp StdTyp.boolean false in
+      F.printf "\n";
+      F.printf "prune hil_exp:%a\n" HilExp.pp hil_exp;
       (* update last_loc *)
       analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
+      let result =
+        if (then_branch) then
+          begin
+            F.printf "Prune if on %a...\n" Location.pp loc;
+            (* compute astate for if branch TODO *)
+            astate
+          end
+        else
+          begin
+            F.printf "Prune then on %a...\n" Location.pp loc;
+            (* compute astate for else branch TODO *)
+            astate
+          end
+      in
+      F.printf "PRUNE ASTATE: \n";
+      Domain.print_astate result;
       result
+      *)
+      astate
     )
     | Call ((ret_id, ret_typ), Const (Cfun callee_pname), sil_actuals, loc, call_flags) -> (
       (* check if loc is larger than last_loc -> if true, clear load_aliases set *)
@@ -551,7 +571,28 @@ let remove_locals_from_summary summary_opt =
     summary_without_locals
   )
 
+let add_formal_to_heap_aliases formal heap_aliases pname =
+  (* (Mangled.t * Typ.t) -> HilExp.AccessExpression.t formal *)
+  let formal_pvar = Pvar.mk (fst formal) pname in
+  let formal_access_path_base = AccessPath.base_of_pvar formal_pvar (snd formal) in
+  let formal_ae = HilExp.AccessExpression.base formal_access_path_base in
+  (* make dummy Location *)
+  let loc_dummy = Location.dummy in
+  (* add formal to the list *)
+  let new_heap_aliases = (formal_ae, loc_dummy) :: heap_aliases in
+  new_heap_aliases
 
+let add_formals_to_heap_aliases astate formals pname =
+  let rec add_each_formal_to_heap_aliases formals_lst heap_aliases_lst =
+    match formals_lst with
+    | [] -> heap_aliases_lst
+    | formal :: t -> (
+      let updated_heap_aliases_lst = add_formal_to_heap_aliases formal heap_aliases_lst pname in
+      add_each_formal_to_heap_aliases t updated_heap_aliases_lst
+    )
+  in
+  let heap_aliases_with_formals = add_each_formal_to_heap_aliases formals [] in
+  Domain.add_heap_aliases_to_astate astate heap_aliases_with_formals
 
 (** Main function into the checker--registered in RegisterCheckers *)
 let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc) =
@@ -578,7 +619,17 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc
         DarcDomain.empty_with_locals !locals
       end
     in
+    (* add formals to heap_aliases *)
+    let init_astate = add_formals_to_heap_aliases init_astate formals pname in
+    (* compute function summary *)
     let result = Analyzer.compute_post data ~initial:init_astate proc_desc in
+    F.printf "Domain.print_astate:\n";
+    let _print_result =
+      match result with
+      | None -> F.printf "None\n"
+      | Some res -> Domain.print_astate res
+    in
+    (* compute data races *)
     if (phys_equal (String.compare (Procname.to_string (Procdesc.get_proc_name proc_desc)) "main") 0) then
       begin
         (* maybe this is not okay *)

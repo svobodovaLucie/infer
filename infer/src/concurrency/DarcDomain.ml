@@ -212,11 +212,27 @@ let rec replace_inner_var var actual =
   let predicate_loc (a1, a2) =
     if Location.compare a1.loc a2.loc <= 0 then true else false
 
+  let print_lockset access =
+    let locked_list = Lockset.elements access.locked in
+    F.printf " {";
+    let rec print_list lst =
+      match lst with
+      | [] -> F.printf "} "
+      | lock :: t -> (
+        F.printf "%a " AccessPath.pp (fst lock);
+        print_list t
+      )
+    in
+    print_list locked_list
+
   let print_access_pair (t1, t2) =
     let t1_access_string = ReadWriteModels.access_to_string t1.access_type in
-    F.printf "(%a, %a, %s |" HilExp.AccessExpression.pp t1.var Location.pp t1.loc t1_access_string;
+    F.printf "(%a, %a, %s, " HilExp.AccessExpression.pp t1.var Location.pp t1.loc t1_access_string;
+    print_lockset t1;
     let t2_access_string = ReadWriteModels.access_to_string t2.access_type in
-    F.printf " %a, %a, %s)\n" HilExp.AccessExpression.pp t2.var Location.pp t2.loc t2_access_string
+    F.printf "| %a, %a, %s, " HilExp.AccessExpression.pp t2.var Location.pp t2.loc t2_access_string;
+    print_lockset t2;
+    F.printf ")\n"
 
   (* pp with all information *)
   (*
@@ -265,11 +281,11 @@ let rec replace_inner_var var actual =
     if len < 2 then false else true
 
   let predicate_locksets (a1, a2) = (* intersect ls1 ls2 == {} -> false *) (* TODO nestaci aby aspon lockset alespon jednoho pristupu byla prazdna? *)
-    let both_empty = 
+    let _both_empty =
       if ((phys_equal a1.locked Lockset.empty) && (phys_equal a2.locked Lockset.empty)) 
         then true else false in
     let intersect = Lockset.inter a1.locked a2.locked in
-    if Lockset.equal intersect Lockset.empty || not both_empty then true else false (* TODO wtf to nejak neodpovida *)
+    if Lockset.equal intersect Lockset.empty (* && not both_empty *) then true else false (* TODO wtf to nejak neodpovida *)
     (* proc tu vubec je to not both_empty, vsak intersect bude empty, i kdyz bude oboji empty -> proc to mam rozdelene wtf? *)
     (* prece kdyz maji obe both lockset, tak tam normalne data race byt muze *)
 
@@ -603,12 +619,13 @@ let replace_var_with_aliases_without_address_of var aliases = (* if alias is not
 (* TODO add when malloc *)
 let add_heap_alias var loc astate =
   let new_heap_alias = (var, loc) in
-(*  F.printf "add_heap_alias before:\n";*)
-(*  _print_heap_aliases_list astate;*)
+  F.printf "add_heap_alias: (%a, %a)\n" HilExp.AccessExpression.pp var Location.pp loc;
+  F.printf "add_heap_alias before:\n";
+  _print_heap_aliases_list astate;
   let new_heap_aliases = new_heap_alias :: astate.heap_aliases in
   let new_astate = {astate with heap_aliases = new_heap_aliases} in
-(*  F.printf "add_heap_alias after:\n";*)
-(*  _print_heap_aliases_list new_astate;*)
+  F.printf "add_heap_alias after:\n";
+  _print_heap_aliases_list new_astate;
   new_astate
 
 (* TODO remove when free (and aliasing to other variable?) *)
@@ -1461,9 +1478,14 @@ let store_vol2 e1 typ e2 loc astate _pname =
             false (* TODO right? *)
           )
         in
-        let e2_hil = transform_sil_expr_to_hil e2 typ add_deref in
+        let e2_exp =
+          match e2 with
+          | Exp.Cast (_, cast_exp) -> cast_exp (* handle Cast *)
+          | _ -> e2
+        in
+        let e2_hil = transform_sil_expr_to_hil e2_exp typ add_deref in
         F.printf "\n";
-        match e2_hil with
+        match e2_hil with(* TODO LOVE *)
         | AccessExpression e2_ae -> (
           (* dealiasing *)
           (* FIXME zatim nebudu delat dealiasing - potreba zachovat addressOf *)
@@ -1671,10 +1693,12 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
   F.printf "integrate_pthread_summary: callee_pname=%a on %a\n" Procname.pp callee_pname Location.pp loc;
   F.printf "summary of caller_pname=%a before --------" Procname.pp caller_pname;
   print_astate astate (* loc caller_pname *);
+  F.printf "\nsummary of callee_pname=%a before --------" Procname.pp callee_pname;
+  print_astate callee_summary (* loc caller_pname *);
   (* edit information about each access - thread, threads_active, lockset, unlockset *)
   let edited_accesses_from_callee = AccessSet.map (AccessEvent.edit_accesses astate.threads_active astate.lockset astate.unlockset thread) callee_summary.accesses in
   (* replace actuals with formals *)
-  F.printf "formals of callee: %a: \n" Procname.pp callee_pname;
+  F.printf "\nformals of callee: %a: \n" Procname.pp callee_pname;
   _print_formals callee_formals;
   (* callee formal je jenom jeden: void *arg - normalne vzit ten prvni a pretypovat na ae (muze jich nejakym zpusobem byt vic?) *)
   let callee_formal =
@@ -1890,9 +1914,16 @@ let join astate1 astate2 =
     let locals = [] in (* TODO *)
     { threads_active; accesses; lockset; unlockset; aliases; load_aliases; heap_aliases; locals }
   in
+  F.printf "JOIN: new_astate after join:\n";
+  print_astate new_astate;
   new_astate
 
 let widen ~prev ~next ~num_iters:_ =
+  F.printf "WIDEN\n";
+  F.printf "prev\n";
+  print_astate prev;
+  F.printf "next\n";
+  print_astate next;
   join prev next
 
 let pp : F.formatter -> t -> unit =
@@ -2020,3 +2051,7 @@ let remove_local_accesses summary_option =
     let accesses_without_locals = go_through_accesses_and_remove_locals summary in
     Some {summary with accesses=accesses_without_locals}
   )
+
+let add_heap_aliases_to_astate astate heap_aliases =
+  let heap_aliases_joined = astate.heap_aliases @ heap_aliases in
+  {astate with heap_aliases=heap_aliases_joined}

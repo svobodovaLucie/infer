@@ -130,6 +130,9 @@ module AccessEvent = struct
   let _equal t1 t2 = Int.equal 0 (compare t1 t2)
   let _hash t1 = Hashtbl.hash t1.loc
 
+  let get_var access =
+    access.var
+
   let edit_accesses threads_active lockset unlockset thread access = 
     (* create new access and use information from astate (sth like union access.lockset & astate.lockset etc.) *)
     let locked = Lockset.diff (Lockset.union lockset access.locked) access.unlocked in
@@ -298,7 +301,8 @@ type t =
   aliases: AliasesSet.t;
   load_aliases: (HilExp.AccessExpression.t * HilExp.AccessExpression.t * Exp.t) list;
   heap_aliases: (HilExp.AccessExpression.t * Location.t) list;
-  locals: (Mangled.t * Typ.t) list; (* TODO maybe use HilExp.AccessExpression.t? *)
+(*  locals: (Mangled.t * Typ.t) list; (* TODO maybe use HilExp.AccessExpression.t? *)*)
+  locals: HilExp.AccessExpression.t list;
 }
 
 let empty =
@@ -1070,15 +1074,20 @@ let fst_aliasing_snd exp mem_aliased : HilExp.AccessExpression.t =
 (*      if (HilExp.AccessExpression.equal lhs lhs_current) then*)
 (*        begin*)
           F.printf "mem_aliased:check_lhs: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;
-          let alias = find_mem_alias var aliases in (* e.g. None | Some (y, &k) *)
-          (* TODO rekurze!!! *)
-          match alias with
-          | Some (_, snd) -> snd   (* return alias *)
-          | None -> (    (* the var is not in aliases -> return var (only the second variable will be needed later) *)
-            F.printf "BLAAAAAAAAAAAAAAAH tady bych mela provest heap_aliases projduti a vraceni seznamu vsech ae, ke kterym se pristupuje\n";
-            (* jenze tahle funkce vraci jenom jeden vyraz, ale ja potrebuju list *)
-            var
-            (*pouzit new_astate = add_accesses_with_aliases_or_heap_aliases *)
+          match lhs with
+          | HilExp.AccessExpression.AddressOf _addressOf -> lhs
+          | _ -> (
+            let alias = find_mem_alias var aliases in (* e.g. None | Some (y, &k) *)
+            (* TODO rekurze!!! *)
+            match alias with
+            | Some (_, snd) -> snd   (* return alias *)
+            | None -> (    (* the var is not in aliases -> return var (only the second variable will be needed later) *)
+              F.printf "BLAAAAAAAAAAAAAAAH tady bych mela provest heap_aliases projduti a vraceni seznamu vsech ae, ke kterym se pristupuje\n";
+              (* jenze tahle funkce vraci jenom jeden vyraz, ale ja potrebuju list *)
+              var
+              (*pouzit new_astate = add_accesses_with_aliases_or_heap_aliases *)
+              (* pokud puvodni lhs byla addressOf -> vratit zase addressOf! *)
+            )
           )
 (*        end*)
 (*      else*)
@@ -1599,10 +1608,10 @@ let print_locals astate =
   F.printf "locals: {";
   let rec print_vars = function
     | [] -> F.printf "}\n"
-    (* | hd :: tl -> F.printf "%a, " HilExp.AccessExpression.pp hd; print_vars tl *)
-    | hd :: tl ->
-      let typ_string = Typ.to_string (snd hd) in
-      F.printf "|(%a, %s)|" Mangled.pp (fst hd) typ_string; print_vars tl
+    | hd :: tl -> F.printf "%a, " HilExp.AccessExpression.pp hd; print_vars tl
+(*    | hd :: tl ->*)
+(*      let typ_string = Typ.to_string (snd hd) in*)
+(*      F.printf "|(%a, %s)|" Mangled.pp (fst hd) typ_string; print_vars tl*)
   in
   print_vars astate.locals
 
@@ -1711,7 +1720,33 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
          let actual =
            match actual_opt with
            | None -> assert false (* TODO *)
-           | Some opt -> opt
+           | Some HilExp.AccessExpression actual_load -> (
+             (* replace load alias *)
+             (* find actual_load in load_aliases *)
+             (* find in heap aliases? *)
+             (* return aliased var *)
+             let e_ae = actual_load in
+             let e_aliased = fst_aliasing_snd e_ae astate.load_aliases in
+                   F.printf "e_aliased: %a\n" HilExp.AccessExpression.pp e_aliased;
+                   (* find e_alised in aliases *)
+                   F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
+                   let e_aliased_final = replace_var_with_aliases_without_address_of e_aliased (AliasesSet.elements astate.aliases) in
+                   F.printf "e_aliased_final: %a\n" HilExp.AccessExpression.pp e_aliased_final;
+                   HilExp.AccessExpression e_aliased_final
+                   (* save alias to the load_aliases set *)
+                   (*
+                   let e_to_add = e_aliased_final in
+                   let new_mem_alias = (id_ae, e_to_add, e) in
+                     let load_aliases = new_mem_alias :: astate.load_aliases in
+                     let astate = { astate with load_aliases } in
+                     F.printf "load_aliases after:\n";
+                     _print_load_aliases_list astate;
+                     (* add all read access (if it is access to heap allocated variable with alias, there could be more accesses) *)
+                     let astate_with_new_read_accesses = add_accesses_to_astate_with_aliases_or_heap_aliases e_aliased e_aliased_final ReadWriteModels.Read astate loc in
+                     astate_with_new_read_accesses
+                     *)
+           )
+           | Some actual -> actual (* TODO *)
          in
          F.printf "|A: %a on %d |" HilExp.pp actual !cnt;
          (* TODO create correct access expression - dereference etc. *)
@@ -1892,7 +1927,8 @@ let compute_data_races post =
 (*  print_pairs_list threads_intersection_checked;*)
 (*  F.printf "locksets_checked:\n";*)
   let locksets_checked = List.filter ~f:AccessEvent.predicate_locksets threads_intersection_checked in
-(*  print_pairs_list locksets_checked;*)
+  F.printf "pairs with data races:\n";
+  _print_pairs_list locksets_checked;
   let has_data_race = List.length locksets_checked in
   if phys_equal has_data_race 0 then
     F.printf "\nTHERE IS NO DATA RACE.\n"
@@ -1900,6 +1936,61 @@ let compute_data_races post =
     F.printf "\nTHERE IS A DATA RACE.\n"  
 
 let astate_with_clear_load_aliases astate =
-(*F.printf "load_aliases before clear: \n";*)
-(*_print_load_aliases_list astate;*)
-{astate with load_aliases=[]}
+  (*F.printf "load_aliases before clear: \n";*)
+  (*_print_load_aliases_list astate;*)
+  {astate with load_aliases=[]}
+
+let find_in_list var locals =
+  let rec go lst =
+    match lst with
+    | [] -> None
+    | h :: t ->
+      if (HilExp.AccessExpression.equal var h) then Some h else go t
+  in go locals
+
+let go_through_accesses_and_remove_locals summary =
+  F.printf "locals:\n";
+  print_locals summary;
+  let list_of_accesses = AccessSet.elements summary.accesses in
+  let rec go accesses_to_be_checked _locals new_accesses =
+    match accesses_to_be_checked with
+    | [] -> new_accesses
+    | access :: t -> (
+      let var = AccessEvent.get_var access in
+      let var_base = HilExp.AccessExpression.get_base var in
+      let var_base_ae = HilExp.AccessExpression.base var_base in
+(*      let (found : bool) = List.member var new_accesses in*)
+(*      F.printf "found: %b\n" found;*)
+      F.printf "var: %a\n" HilExp.AccessExpression.pp (AccessEvent.get_var access);
+      F.printf "var_base: %a\n" HilExp.AccessExpression.pp var_base_ae;
+      match (find_in_list var_base_ae _locals) with
+      | None -> go t _locals (access :: new_accesses)
+      | Some _ -> go t _locals new_accesses
+(*      if (HilExp.AccessExpression.equal var )*)
+      (* check if any local is equal to var *)
+    )
+(*    if (AccessSet.equal accesses_to_be_checked AccessSet.empty) then *)
+(*      begin *)
+(*        new_accesses *)
+(*      end  *)
+(*    else *)
+(*      begin *)
+(*        (* jeste tam neco je v tech accesses *)*)
+(*      end*)
+  in
+  let new_accesses_list = go list_of_accesses summary.locals [] in
+  (* list to AccessSet *)
+  let new_accesses_set = AccessSet.of_list new_accesses_list in
+  F.printf "new_accesses_after_remove:\n";
+  print_accesses new_accesses_set;
+  new_accesses_set
+
+let remove_local_accesses summary_option =
+  F.printf "remove_local_accesses --- \n";
+  match summary_option with
+  | None -> None
+  | Some summary -> (
+    (*  *)
+    let accesses_without_locals = go_through_accesses_and_remove_locals summary in
+    Some {summary with accesses=accesses_without_locals}
+  )

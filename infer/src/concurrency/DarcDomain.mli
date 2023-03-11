@@ -37,9 +37,11 @@ val update_aliases : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> t
 
 val empty : t
 
-val empty_with_locals : (Mangled.t * Typ.t) list -> t
+(*val empty_with_locals : (Mangled.t * Typ.t) list -> t*)
+val empty_with_locals : HilExp.AccessExpression.t list -> t
 
-val initial_main : (Mangled.t * Typ.t) list -> t
+(*val initial_main : (Mangled.t * Typ.t) list -> t*)
+val initial_main : HilExp.AccessExpression.t list -> t
 
 val acquire : AccessPath.t -> t -> Location.t -> Procname.t -> t
 
@@ -88,3 +90,5 @@ type summary = t
 val compute_data_races : summary -> unit
 
 val astate_with_clear_load_aliases : t -> t
+
+val remove_local_accesses : summary option -> summary option

@@ -501,43 +501,71 @@ let report {InterproceduralAnalysis.proc_desc; err_log; _} post =
   Reporting.log_issue proc_desc err_log ~loc:last_loc DarcChecker IssueType.darc_error message;;
 
 (* function adds all locals to the locals list *)
-let add_locals_to_list locals lst_ref =
+let add_locals_to_list locals lst_ref pname =
   F.printf "locals...\n";
   let rec loop : ProcAttributes.var_data list -> unit = function
     | [] -> ()
     | var :: tl ->
       (* add the variable to the locals list *)
-      lst_ref := (var.name, var.typ) :: !lst_ref;
       F.printf "%a | \n" Mangled.pp (var.name);
+      let pvar_mk = Pvar.mk var.name pname in
+      let access_path_base = AccessPath.base_of_pvar pvar_mk var.typ in
+      let ae = HilExp.AccessExpression.base access_path_base in
+      F.printf "ae: %a\n" HilExp.AccessExpression.pp ae;
+      lst_ref := ae :: !lst_ref;
       loop tl
   in
   loop locals
 
 (* function adds non-pointer formals to the locals list *)
-let add_nonpointer_formals_to_list formals lst_ref =
+let add_nonpointer_formals_to_list formals lst_ref pname =
+  (* TODO predelat na access_expressions!!! *)
   F.printf "formals...\n";
   let rec loop : (Mangled.t * Typ.t) list -> unit = function
     | [] -> ()
     | var :: tl ->
+      (* create access expression from var *)
+      let var_pvar = Pvar.mk (fst var) pname in
+      let var_base = AccessPath.base_of_pvar var_pvar (snd var) in
+      let var_base_ae = HilExp.AccessExpression.base var_base in
       (* if typ is not a pointer, add the variable to locals list *)
-      if not (Typ.is_pointer (snd var)) then lst_ref := var :: !lst_ref;
+      if not (Typ.is_pointer (snd var)) then
+        lst_ref := var_base_ae :: !lst_ref;
+
       F.printf "%a | \n" Mangled.pp (fst var);
       loop tl
   in
   loop formals
 
+let remove_locals_from_summary summary_opt =
+  match summary_opt with
+  | None -> (
+    F.printf "remove_locals_from_summary: None\n";
+    summary_opt
+  )
+  | Some summary -> (
+    F.printf "remove_locals_from_summary:\n";
+    Domain.print_astate summary;
+    (* TODO remove locals from summary *)
+    let summary_without_locals = Domain.remove_local_accesses summary_opt in
+    summary_without_locals
+  )
+
+
+
 (** Main function into the checker--registered in RegisterCheckers *)
 let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc) =
   let data = {interproc; extras = ref initial_extras} in
+  let pname = Procdesc.get_proc_name proc_desc in
   F.printf "Hello from Darc Checker.\n";
   F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s START >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
 
   (* create a list of locals and add all the locals and non-pointer formals to the list *)
   let locals = ref [] in
   let proc_desc_locals = Procdesc.get_locals proc_desc in   (* locals declared in the function *)
-  add_locals_to_list proc_desc_locals locals;
+  add_locals_to_list proc_desc_locals locals pname;
   let formals = Procdesc.get_formals proc_desc in (* formals of the function *)
-  add_nonpointer_formals_to_list formals locals;
+  add_nonpointer_formals_to_list formals locals pname;
 
   (* If the analysed function is main -> we need to do few changes -> add main thread to threads... *)
   let init_astate : DarcDomain.t =
@@ -552,9 +580,22 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc
     in
     let result = Analyzer.compute_post data ~initial:init_astate proc_desc in
     if (phys_equal (String.compare (Procname.to_string (Procdesc.get_proc_name proc_desc)) "main") 0) then
-      (* maybe this is not okay *)
-      (* computing the result *)
-      (* Option.iter result ~f:(fun post -> report_if_printf interproc post); *)
-      Option.iter result ~f:(fun post -> report interproc post);
-      F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
-      result
+      begin
+        (* maybe this is not okay *)
+        (* computing the result *)
+        (* Option.iter result ~f:(fun post -> report_if_printf interproc post); *)
+        F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
+        Option.iter result ~f:(fun post -> report interproc post);
+        result
+      end
+    else
+      begin
+        (* remove local accesses from summary *)
+        let summary_without_locals = remove_locals_from_summary result in
+        F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
+        summary_without_locals
+      end
+(*    F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));*)
+    (* remove accesses to local variables *)
+(*    let summary_without_locals = remove_locals_from_summary result in*)
+(*    summary_without_locals*)

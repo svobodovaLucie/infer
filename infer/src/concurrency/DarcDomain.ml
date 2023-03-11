@@ -1634,23 +1634,6 @@ let _print_summary_accesses astate pname =
   F.printf "%a\n" AccessSet.pp astate;
   F.printf "--------------------------------------\n"
 *)
-
-let integrate_pthread_summary astate thread callee_pname _loc callee_summary _callee_formals _actuals _caller_pname =
-  F.printf "integrate_pthread_summary: callee_pname=%a\n" Procname.pp callee_pname;
-  F.printf "summary before --------";
-  print_astate astate (* loc caller_pname *);
-  (* edit information about each access - thread, threads_aactive, lockset, unlockset *)
-  let edited_accesses_from_callee = AccessSet.map (AccessEvent.edit_accesses astate.threads_active astate.lockset astate.unlockset thread) callee_summary.accesses in
-  let accesses_joined = AccessSet.join astate.accesses edited_accesses_from_callee in
-  { astate with accesses=accesses_joined }
-
-let _print_actuals actuals =
-  F.printf "print_actuals: \n";
-  let rec loop = function
-    | [] -> F.printf "\n"
-    | hd :: tl -> F.printf "| %a |" HilExp.pp hd; loop tl
-  in loop actuals
-
 let _print_formals formals =
   F.printf "print_formals: \n";
   let rec loop = function
@@ -1676,6 +1659,49 @@ let _print_formals formals =
       in
       F.printf "| (%a," IR.Mangled.pp mangled; F.printf " %s) |" typ_string; loop tl
   in loop formals
+
+let _print_actuals actuals =
+  F.printf "print_actuals: \n";
+  let rec loop = function
+    | [] -> F.printf "\n"
+    | hd :: tl -> F.printf "| %a |" HilExp.pp hd; loop tl
+  in loop actuals
+
+let integrate_pthread_summary astate thread callee_pname loc callee_summary callee_formals actuals caller_pname =
+  F.printf "integrate_pthread_summary: callee_pname=%a on %a\n" Procname.pp callee_pname Location.pp loc;
+  F.printf "summary of caller_pname=%a before --------" Procname.pp caller_pname;
+  print_astate astate (* loc caller_pname *);
+  (* edit information about each access - thread, threads_active, lockset, unlockset *)
+  let edited_accesses_from_callee = AccessSet.map (AccessEvent.edit_accesses astate.threads_active astate.lockset astate.unlockset thread) callee_summary.accesses in
+  (* replace actuals with formals *)
+  F.printf "formals of callee: %a: \n" Procname.pp callee_pname;
+  _print_formals callee_formals;
+  (* callee formal je jenom jeden: void *arg - normalne vzit ten prvni a pretypovat na ae (muze jich nejakym zpusobem byt vic?) *)
+  let callee_formal =
+    match callee_formals with
+    | (var, typ) :: [] -> (
+      let formal_pvar = Pvar.mk (var) callee_pname in
+      let formal_access_path_base = AccessPath.base_of_pvar formal_pvar typ in
+      let formal_access_expression = HilExp.AccessExpression.base formal_access_path_base in
+      formal_access_expression
+    )
+    | _ -> assert false (*TODO*)
+  in
+  F.printf "actuals: \n";
+  _print_actuals actuals;
+  let actual_passed_to_function = List.nth actuals 3 in (* fourth argument of pthread_create function *)
+  match actual_passed_to_function with
+  | Some (* HilExp.AccessExpression *) actual -> (
+    F.printf "actual: %a\n" HilExp.pp actual;
+    (* zde nejsou load aliases asi... *)
+    let edited_accesses = AccessSet.map (AccessEvent.edit_accesses_with_actuals callee_formal actual) edited_accesses_from_callee in
+    let accesses_joined = AccessSet.join astate.accesses edited_accesses in
+    { astate with accesses=accesses_joined }
+  )
+  | None -> (
+    let accesses_joined = AccessSet.join astate.accesses edited_accesses_from_callee in
+    { astate with accesses=accesses_joined }
+  )
 
 (* myslim, ze integrate_summary je stejna jako uintegrate_pthread_summary, akorat se nepridava aktualne nove vlakno,
    takze nevim, jake vlakno k tem pristupum pridat -> TODO vymyslet!! *)

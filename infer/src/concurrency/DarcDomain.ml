@@ -61,9 +61,10 @@ module ThreadEvent = struct
   type t = (AccessPath.t * Location.t)
 
   (* 0 -> the threads are the same, 1 -> false *)
-  let compare ((base, aclist) as th, loc) ((base', aclist') as th', loc') =
+  let compare ((base, aclist) as th, _loc) ((base', aclist') as th', _loc') =
+    F.printf "comparing threads: %a and %a\n" AccessPath.pp th AccessPath.pp th';
     let result_th =
-      if phys_equal th th' then 0
+      if (Int.equal (AccessPath.compare th th') 0) then 0
       else begin
         let res = AccessPath.compare_base base base' in
         if not (Int.equal res 0) then res
@@ -71,10 +72,15 @@ module ThreadEvent = struct
           List.compare AccessPath.compare_access aclist aclist'
       end
     in
-    let result_loc = Location.compare loc loc' in
-    let compare_result = if (result_th + result_loc > 0) then 1 else 0 in
-    (* F.printf "compare ThreadEvent: %d\n" compare_result; *)
-    compare_result
+    F.printf "result_th: %d\n" result_th;
+    result_th
+    (* TODO compare loc? *)
+(*    if (Int.equal result_th 0) then 0*)
+(*    else*)
+(*      let result_loc = Location.compare loc loc' in*)
+(*      let compare_result = if (result_th + result_loc > 0) then 1 else 0 in*)
+(*      (* F.printf "compare ThreadEvent: %d\n" compare_result; *)*)
+(*      compare_result*)
 
   let pp fmt (th, loc) =
     F.fprintf fmt "%a on %a" AccessPath.pp th Location.pp loc;
@@ -958,12 +964,14 @@ let add_thread th astate =
    it is necessary to just look at the AccessPath to know if it should be removed or not. *)
 let remove_thread th astate = 
   match th with
-  | Some th -> 
-    (* F.printf "Removing the thread...\n"; *)
+  | Some th ->
+    F.printf "Removing thread: %a \nthreads_active before:\n" ThreadEvent.pp th;
+    F.printf "====== threads_active=%a\n" ThreadSet.pp astate.threads_active;
+    F.printf "Removing the thread...\n";
     let threads_active = ThreadSet.remove th astate.threads_active in
-    (* F.printf "====== threads_active=%a\n" ThreadSet.pp threads_active; *)
+    F.printf "====== threads_active=%a\n" ThreadSet.pp threads_active;
     {astate with threads_active;}
-  | None -> assert false
+  | None -> astate
 
 let create_main_thread = 
   let pname = Procname.from_string_c_fun "main" in

@@ -18,6 +18,12 @@ module ReadWriteModels = struct
     (*| NoEffect
     *)
 
+  let compare at1 at2 =
+    if phys_equal at1 Write && phys_equal at2 Write then 0
+    else if phys_equal at1 Read && phys_equal at2 Read then 0
+    else if phys_equal at1 Write && phys_equal at2 Read then 1
+    else -1
+
   let read_functions = 
     [ "printf"
     ; "sprintf" ]
@@ -54,8 +60,7 @@ end
 module ThreadEvent = struct
   type t = (AccessPath.t * Location.t)
 
-  (* FIXME how to compare threads *)
-  (*
+  (* 0 -> the threads are the same, 1 -> false *)
   let compare ((base, aclist) as th, loc) ((base', aclist') as th', loc') =
     let result_th =
       if phys_equal th th' then 0
@@ -66,21 +71,10 @@ module ThreadEvent = struct
           List.compare AccessPath.compare_access aclist aclist'
       end
     in
-    let result_loc = Location.compare loc loc'
-    in
-    if (result_th + result_loc > 0) then 1 else 0
-    *)
-
-  (* TODO FIXME is it necessary to also compare locations? *)
-  (* 0 -> the threads are the same, 1 -> false *)
-  let compare ((base, aclist) as th, _loc) ((base', aclist') as th', _sloc') =
-    if phys_equal th th' then 0
-    else begin
-      let res = AccessPath.compare_base base base' in
-      if not (Int.equal res 0) then res
-      else
-        List.compare AccessPath.compare_access aclist aclist'
-    end
+    let result_loc = Location.compare loc loc' in
+    let compare_result = if (result_th + result_loc > 0) then 1 else 0 in
+    (* F.printf "compare ThreadEvent: %d\n" compare_result; *)
+    compare_result
 
   let pp fmt (th, loc) =
     F.fprintf fmt "%a on %a" AccessPath.pp th Location.pp loc;
@@ -93,9 +87,17 @@ module Aliases = struct
   type t = (HilExp.AccessExpression.t * HilExp.AccessExpression.t)
 
   (* TODO *)
-  let compare t1 t2 = 
-    HilExp.AccessExpression.compare (fst t1) (fst t2)
-    (* somehow add HilExp.AccessExpression.compare (snd t1) (snd t2) *)
+  let compare t1 t2 =
+    let fst_compare = HilExp.AccessExpression.compare (fst t1) (fst t2) in
+    let snd_compare = HilExp.AccessExpression.compare (snd t1) (snd t2) in
+    let compare_result =
+      if not (Int.equal fst_compare 0) then
+        fst_compare
+      else
+        snd_compare
+    in
+    (* F.printf "compare Aliases: %d, fst_compare: %d, snd_compare: %d\n" compare_result fst_compare snd_compare; *)
+    compare_result
 
   let _equal t1 t2 = 
     HilExp.AccessExpression.equal (fst t1) (fst t2) &&
@@ -125,8 +127,78 @@ module AccessEvent = struct
     thread: ThreadEvent.t option;
   }
 
-  (* TODO how to compare accesses? is it necessary? *)
-  let compare _t1 _t2 = 1
+  let print_lockset access =
+      let locked_list = Lockset.elements access.locked in
+      F.printf " {";
+      let rec print_list lst =
+        match lst with
+        | [] -> F.printf "} "
+        | lock :: t -> (
+          F.printf "%a " AccessPath.pp (fst lock);
+          print_list t
+        )
+      in
+      print_list locked_list
+
+  let print_access_pair (t1, t2) =
+    let t1_access_string = ReadWriteModels.access_to_string t1.access_type in
+    F.printf "(%a, %a, %s, " HilExp.AccessExpression.pp t1.var Location.pp t1.loc t1_access_string;
+    print_lockset t1;
+    let t2_access_string = ReadWriteModels.access_to_string t2.access_type in
+    F.printf "| %a, %a, %s, " HilExp.AccessExpression.pp t2.var Location.pp t2.loc t2_access_string;
+    print_lockset t2;
+    F.printf ")\n"
+
+  let compare a1 a2 =
+    (* F.printf "comparing accesses: \n";
+    print_access_pair (a1, a2); *)
+    let compare_result =
+      let var_cmp = HilExp.AccessExpression.compare a1.var a2.var in
+      let loc_cmp = Location.compare a1.loc a2.loc in
+      let access_type_cmp = ReadWriteModels.compare a1.access_type a2.access_type in
+      let locked_cmp = Lockset.compare a1.locked a2.locked in
+      let unlocked_cmp = Lockset.compare a1.unlocked a2.unlocked in
+      let threads_active_cmp = ThreadSet.compare a1.threads_active a2.threads_active in
+      let thread_cmp =
+        match a1.thread with
+        | Some thread1 -> (
+          match a2.thread with
+          | Some thread2 -> ThreadEvent.compare thread1 thread2
+          | None -> 1
+        )
+        | None -> (
+          match a2.thread with
+          | Some _ -> -1
+          | None -> 0
+        )
+      in
+      (*
+      F.printf "compare AccessEvent var_cmp: %d\n" var_cmp;
+      F.printf "compare AccessEvent loc_cmp: %d\n" loc_cmp;
+      F.printf "compare AccessEvent access_type_cmp: %d\n" access_type_cmp;
+      F.printf "compare AccessEvent locked: %d\n" locked_cmp;
+      F.printf "compare AccessEvent unlocked: %d\n" unlocked_cmp;
+      F.printf "compare AccessEvent threads_active_cmp: %d\n" threads_active_cmp;
+      F.printf "compare AccessEvent thread_cmp: %d\n" thread_cmp;
+      *)
+      if not (Int.equal var_cmp 0) then
+        var_cmp
+      else if not (Int.equal access_type_cmp 0) then
+        access_type_cmp
+      else if not (Int.equal thread_cmp 0) then
+        thread_cmp
+      else if not (Int.equal threads_active_cmp 0) then
+        threads_active_cmp
+      else if not (Int.equal locked_cmp 0) then
+        locked_cmp
+      else if not (Int.equal unlocked_cmp 0) then
+        unlocked_cmp
+      else
+        loc_cmp
+    in
+    (* F.printf "compare AccessEvent: %d\n" compare_result; *)
+    compare_result
+
   let _equal t1 t2 = Int.equal 0 (compare t1 t2)
   let _hash t1 = Hashtbl.hash t1.loc
 
@@ -212,27 +284,7 @@ let rec replace_inner_var var actual =
   let predicate_loc (a1, a2) =
     if Location.compare a1.loc a2.loc <= 0 then true else false
 
-  let print_lockset access =
-    let locked_list = Lockset.elements access.locked in
-    F.printf " {";
-    let rec print_list lst =
-      match lst with
-      | [] -> F.printf "} "
-      | lock :: t -> (
-        F.printf "%a " AccessPath.pp (fst lock);
-        print_list t
-      )
-    in
-    print_list locked_list
 
-  let print_access_pair (t1, t2) =
-    let t1_access_string = ReadWriteModels.access_to_string t1.access_type in
-    F.printf "(%a, %a, %s, " HilExp.AccessExpression.pp t1.var Location.pp t1.loc t1_access_string;
-    print_lockset t1;
-    let t2_access_string = ReadWriteModels.access_to_string t2.access_type in
-    F.printf "| %a, %a, %s, " HilExp.AccessExpression.pp t2.var Location.pp t2.loc t2_access_string;
-    print_lockset t2;
-    F.printf ")\n"
 
   (* pp with all information *)
   (*
@@ -1895,10 +1947,28 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
   F.printf "============================================================\n";
   { astate with accesses=accesses_joined }
 
+(* pokud se spravne naprogramuje porovnavani accessu a tim padem abstraktnich stavu,
+   tak se po prvnim pridani accessu v cyklu uz pri druhem loopu zadny access neprida
+   a ty dva stavy uz se vyhodnoti jako equal a mohly by se vyhodnotit na true *)
+
+(* *)
 
 let ( <= ) ~lhs ~rhs =
-  Lockset.leq ~lhs:lhs.lockset ~rhs:rhs.lockset &&
-  Lockset.leq ~lhs:lhs.unlockset ~rhs:rhs.unlockset
+  F.printf "leq\n";
+  let accesses_leq = AccessSet.leq ~lhs:lhs.accesses ~rhs:rhs.accesses in
+  let threads_leq = ThreadSet.leq ~lhs:lhs.threads_active ~rhs:rhs.threads_active in
+  let lockset_leq = Lockset.leq ~lhs:lhs.lockset ~rhs:rhs.lockset in
+  let unlockset_leq = Lockset.leq ~lhs:lhs.unlockset ~rhs:rhs.unlockset in
+  (* aliases, load_aliases, heap_aliases, locals? *)
+  (*
+  F.printf "accesses_leq: %b\n" accesses_leq;
+  F.printf "lockset_leq: %b\n" lockset_leq;
+  F.printf "unlockset_leq: %b\n" unlockset_leq;
+  F.printf "threads_leq: %b\n" threads_leq;
+  *)
+  let leq = accesses_leq && threads_leq && lockset_leq && unlockset_leq in
+  (* F.printf "final leq: %b\n" leq; *)
+  leq
 
 let leq ~lhs ~rhs = (<=) ~lhs ~rhs
 

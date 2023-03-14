@@ -391,8 +391,7 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
       F.printf "ahojky\n";
       result
     )
-    | Prune  (_exp, _loc, _then_branch, _if_kind) -> (
-      (* TODO
+    | Prune  (exp, loc, then_branch, _if_kind) -> (
       (* check if loc is larger than last_loc -> if true, clear load_aliases set *)
       let astate = clear_load_aliases_if_new_loc astate !(analysis_data.extras).last_loc loc in
       (* compute whatever you need to compute *)
@@ -420,8 +419,6 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
       F.printf "PRUNE ASTATE: \n";
       Domain.print_astate result;
       result
-      *)
-      astate
     )
     | Call ((ret_id, ret_typ), Const (Cfun callee_pname), sil_actuals, loc, call_flags) -> (
       (* check if loc is larger than last_loc -> if true, clear load_aliases set *)

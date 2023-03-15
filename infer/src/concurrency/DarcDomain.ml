@@ -1781,6 +1781,35 @@ let _print_actuals actuals =
     | hd :: tl -> F.printf "| %a |" HilExp.pp hd; loop tl
   in loop actuals
 
+let remove_accesses_to_formal formal accesses : AccessSet.t =
+  F.printf "remove_accesses_to_formal\n";
+  (* create base of formal *)
+  let formal_base = HilExp.AccessExpression.get_base formal in
+  (* create list from set *)
+  let accesses_list = AccessSet.elements accesses in
+  (* if access.var == formal.base then don't add it to the list of accesses *)
+  let rec remove_formal lst acc =
+    match lst with
+    | [] -> acc
+    | access :: t -> (
+      (* get access.var and create base from it *)
+      let access_var = AccessEvent.get_var access in
+      let access_var_base = HilExp.AccessExpression.get_base access_var in
+      (* check if the base of formal equals the base of access.var *)
+      if (AccessPath.equal_base access_var_base formal_base) then
+        (* dont add the access to the list *)
+        remove_formal t acc
+      else
+        (* add the access to the list *)
+        remove_formal t (access :: acc)
+    )
+  in
+  (* remove formals from accesses *)
+  let accesses_list_with_removed_accesses = remove_formal accesses_list [] in
+  (* create set from list *)
+  AccessSet.of_list accesses_list_with_removed_accesses
+
+(* TODO if argument funkce je null, pak nepredelavat formals na actuals a nepridavat ty pristupy k formals! *)
 let integrate_pthread_summary astate thread callee_pname loc callee_summary callee_formals actuals caller_pname =
   F.printf "integrate_pthread_summary: callee_pname=%a on %a\n" Procname.pp callee_pname Location.pp loc;
   F.printf "summary of caller_pname=%a before --------" Procname.pp caller_pname;
@@ -1808,13 +1837,25 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
   let actual_passed_to_function = List.nth actuals 3 in (* fourth argument of pthread_create function *)
   match actual_passed_to_function with
   | Some (* HilExp.AccessExpression *) actual -> (
+    F.printf "NOT NULL\n";
     F.printf "actual: %a\n" HilExp.pp actual;
-    (* zde nejsou load aliases asi... *)
-    let edited_accesses = AccessSet.map (AccessEvent.edit_accesses_with_actuals callee_formal actual) edited_accesses_from_callee in
+    (* if the argument is NULL, don't add accesses to formal in callee summary *)
+    let is_null = HilExp.is_null_literal actual in
+    F.printf "is_null: %b\n" is_null;
+    let edited_accesses =
+      if is_null then
+          (* remove all accesses to formal in callee summary *)
+          remove_accesses_to_formal callee_formal edited_accesses_from_callee
+      else
+        (* edit accesses in callee_summary with actual *)
+        AccessSet.map (AccessEvent.edit_accesses_with_actuals callee_formal actual) edited_accesses_from_callee
+    in
+    (* join callee and caller accesses *)
     let accesses_joined = AccessSet.join astate.accesses edited_accesses in
     { astate with accesses=accesses_joined }
   )
   | None -> (
+    (* TODO should be astate or edited astate? *)
     let accesses_joined = AccessSet.join astate.accesses edited_accesses_from_callee in
     { astate with accesses=accesses_joined }
   )

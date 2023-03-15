@@ -61,7 +61,7 @@ module ThreadEvent = struct
   type t = (AccessPath.t * Location.t)
 
   (* 0 -> the threads are the same, 1 -> false *)
-  let compare ((base, aclist) as th, _loc) ((base', aclist') as th', _loc') =
+  let compare ((base, aclist) as th, loc) ((base', aclist') as th', loc') =
     (* F.printf "comparing threads: %a and %a\n" AccessPath.pp th AccessPath.pp th'; *)
     let result_th =
       if (Int.equal (AccessPath.compare th th') 0) then 0
@@ -72,17 +72,11 @@ module ThreadEvent = struct
           List.compare AccessPath.compare_access aclist aclist'
       end
     in
-    (* F.printf "result_th: %d\n" result_th; *)
-    result_th
-    (* TODO compare loc? *)
-    (*
-    if (Int.equal result_th 0) then 0
+    if (Int.equal result_th 0) then
+      Location.compare loc loc'
     else
-      let result_loc = Location.compare loc loc' in
-      let compare_result = if (result_th + result_loc > 0) then 1 else 0 in
-      (* F.printf "compare ThreadEvent: %d\n" compare_result; *)
-      compare_result
-    *)
+      result_th
+
 
   let pp fmt (th, loc) =
     F.fprintf fmt "%a on %a" AccessPath.pp th Location.pp loc;

@@ -198,93 +198,41 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
    )
 
   let handle_pthread_create callee_pname pname loc actuals analyze_dependency astate =
-    F.printf "pthread_create\n";
-    begin
-            F.printf "DarcChecker: Pthread_create function call %s at %a\n" (Procname.to_string callee_pname) Location.pp loc;
-            (* print actuals function *)
-            let print_raw num : unit = (
-              match List.nth actuals num with
-              | Some arg -> (
-                F.printf "DarcChecker: arg %d %a at %a\n" num HilExp.pp arg Location.pp loc;
-                ()
-              )
-              | None -> (
-                F.printf "None\n";
-                ()
-              )
-            )
-            in
-            (* print raw actuals *)
-            print_raw 0;
-            print_raw 1;
-            print_raw 2;
-            print_raw 3;
-            (* TODO add thread to the astate.thread and to threads_active *)
-            (* returns new thread *)
-            (* let lock : LockEvent.t = (lockid, loc) in *)
-            let new_thread : Domain.ThreadEvent.t option = (
-              match List.nth actuals 0 with
-              | Some th -> (
-                match th with
-                | HilExp.AccessExpression ae ->
-                  let th_access_path : AccessPath.t = HilExp.AccessExpression.to_access_path ae in
-                  Some (th_access_path, loc)
-                | _ -> assert false
-              )
-              | None -> assert false
-            )
-            in
-            (* TODO: add thread to threads_active *)
-            let new_astate = Domain.add_thread new_thread astate in
-            (* analyze dependency - 3rd argument *)
-            match List.nth actuals 2 with
-            | Some pname_act -> (
-              match pname_act with
-              | HilExp.Constant c -> (
-                match c with
-                | Cfun f ->
-                  F.printf "-----> function call %a at %a\n" Procname.pp f Location.pp loc;
-                  (* analyze the dependency on demand *)
-                  analyze_dependency f
+    F.printf "DarcChecker: Pthread_create function call %s at %a\n" (Procname.to_string callee_pname) Location.pp loc;
+    (* get first argument - the thread to be added *)
+    match List.nth actuals 0 with
+    | Some HilExp.AccessExpression th_load_ae -> (
+      (* create new thread *)
+      let new_thread = (Domain.create_thread_from_load_ae th_load_ae loc astate) in
+      (* add the thread to astate *)
+      let astate_with_new_thread = Domain.add_thread new_thread astate in
+      (* add summary of the callback function (third argument) *)
+      match List.nth actuals 2 with
+      | Some HilExp.Constant Cfun f -> (
+        (* analyze the dependency on demand *)
+        analyze_dependency f
+        |> Option.value_map ~default:(astate_with_new_thread) ~f: (
+        fun (_, summary) ->
+          (* get callee formals *)
+          let callee_formals =
+            match AnalysisCallbacks.proc_resolve_attributes f with
+            | Some callee_attr -> callee_attr.ProcAttributes.formals
+            | None -> []
+          in
+          (* update callee accesses and add them to astate *)
+          Domain.integrate_pthread_summary astate_with_new_thread new_thread f loc summary callee_formals actuals pname
+        )
+      )
+      | _ -> astate
+    )
+    | _ -> astate
 
-                  (* converting actuals to formals - FIXME will be different in this case - argument is the 4th param of pthread_create() *)
-                  (* TODO add new_thread to the thread in each record in callee_summary.accesses *)
-                  |> Option.value_map ~default:(astate) ~f: (
-                    fun (_, summary) ->
-                      let callee_formals =
-                        match AnalysisCallbacks.proc_resolve_attributes f with
-                        | Some callee_attr -> callee_attr.ProcAttributes.formals
-                        | None -> []
-                      in
-                      Domain.integrate_pthread_summary new_astate new_thread f loc summary callee_formals actuals pname
-                   )
-                | _ -> astate
-              )
-             | _ -> astate
-            )
-            | None -> astate
-            (* pthread_join() -> remove thread *)
-          end
-
+(* TODO handle also return expression *)
   let handle_pthread_join callee_pname loc actuals astate =
-    F.printf "pthread_join\n";
-    begin
-            let new_thread : Domain.ThreadEvent.t option = (
-              match List.nth actuals 0 with
-              | Some th -> (
-                match th with
-                | HilExp.AccessExpression ae ->
-                  let th_access_path : AccessPath.t = HilExp.AccessExpression.to_access_path ae in
-                  Some (th_access_path, loc)
-                | _ -> assert false
-              )
-              | None -> assert false
-            )
-            in
-            F.printf "DarcChecker: pthread_join function call %s at %a\n" (Procname.to_string callee_pname) Location.pp loc;
-            Domain.remove_thread new_thread astate (* arg 2 -> the thread to be removed *)
-            (* read or write effect*)
-          end
+    F.printf "DarcChecker: pthread_join function call %s at %a\n" (Procname.to_string callee_pname) Location.pp loc;
+    match List.nth actuals 0 with
+    | Some HilExp.AccessExpression th_ae -> Domain.remove_thread th_ae astate
+    | _ -> astate
 
   let clear_load_aliases_if_new_loc astate (last_loc : Location.t) (loc : Location.t) =
     if (loc.line > last_loc.line) then

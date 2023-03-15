@@ -62,7 +62,7 @@ module ThreadEvent = struct
 
   (* 0 -> the threads are the same, 1 -> false *)
   let compare ((base, aclist) as th, _loc) ((base', aclist') as th', _loc') =
-    F.printf "comparing threads: %a and %a\n" AccessPath.pp th AccessPath.pp th';
+    (* F.printf "comparing threads: %a and %a\n" AccessPath.pp th AccessPath.pp th'; *)
     let result_th =
       if (Int.equal (AccessPath.compare th th') 0) then 0
       else begin
@@ -72,15 +72,17 @@ module ThreadEvent = struct
           List.compare AccessPath.compare_access aclist aclist'
       end
     in
-    F.printf "result_th: %d\n" result_th;
+    (* F.printf "result_th: %d\n" result_th; *)
     result_th
     (* TODO compare loc? *)
-(*    if (Int.equal result_th 0) then 0*)
-(*    else*)
-(*      let result_loc = Location.compare loc loc' in*)
-(*      let compare_result = if (result_th + result_loc > 0) then 1 else 0 in*)
-(*      (* F.printf "compare ThreadEvent: %d\n" compare_result; *)*)
-(*      compare_result*)
+    (*
+    if (Int.equal result_th 0) then 0
+    else
+      let result_loc = Location.compare loc loc' in
+      let compare_result = if (result_th + result_loc > 0) then 1 else 0 in
+      (* F.printf "compare ThreadEvent: %d\n" compare_result; *)
+      compare_result
+    *)
 
   let pp fmt (th, loc) =
     F.fprintf fmt "%a on %a" AccessPath.pp th Location.pp loc;
@@ -948,30 +950,56 @@ let update_aliases lhs rhs astate =
 
  *)
 
-(* TODO *)
-let add_thread th astate =
-  (* F.printf "Adding the thread...\n"; *)
-  match th with
-  | Some th ->
-    let threads_active = ThreadSet.add th astate.threads_active in
-    (* F.printf "====== threads_active=%a\n" ThreadSet.pp threads_active; *)
-    {astate with threads_active;}
-  | None -> assert false
+(* function returns None or Some (thread, loc) *)
+let create_thread_from_load_ae load loc astate =
+    let thread_load_alias = find_load_alias_by_var load astate.load_aliases in
+    match thread_load_alias with
+    | None -> (
+      let load_ap = HilExp.AccessExpression.to_access_path load in
+      (load_ap, loc)
+    )
+    | Some (_, final_thread) -> (
+      (* create new thread *)
+      let final_thread_ap = HilExp.AccessExpression.to_access_path final_thread in
+      (final_thread_ap, loc)
+    )
 
-(* TODO add thread to be removed *)
-(* TODO can't do simply ThreadSet.remove, bcs now the thread is joining at different location
-   that it was added... these threads are not the same bcs of the different location-> 
-   it is necessary to just look at the AccessPath to know if it should be removed or not. *)
-let remove_thread th astate = 
-  match th with
-  | Some th ->
-    F.printf "Removing thread: %a \nthreads_active before:\n" ThreadEvent.pp th;
-    F.printf "====== threads_active=%a\n" ThreadSet.pp astate.threads_active;
-    F.printf "Removing the thread...\n";
-    let threads_active = ThreadSet.remove th astate.threads_active in
-    F.printf "====== threads_active=%a\n" ThreadSet.pp threads_active;
-    {astate with threads_active;}
+let add_thread thread astate =
+  let threads_active = ThreadSet.add thread astate.threads_active in
+  { astate with threads_active }
+
+(* return None or Some (thread_ae, thread_loc) *)
+let find_thread_in_threads_active thread_name threads =
+  let threads_list : (AccessPath.t * Location.t) list = ThreadSet.elements threads in
+  let rec find lst =
+    match lst with
+    | [] -> None
+    | (th_ap, _) as th :: t -> (
+      if (AccessPath.equal th_ap thread_name) then
+        Some th
+      else
+        find t
+    )
+  in
+  find threads_list
+
+let remove_thread load astate =
+  (* find thread by its name in threads *)
+  let thread_load_alias = find_load_alias_by_var load astate.load_aliases in
+  match thread_load_alias with
   | None -> astate
+  | Some (_, thread_ae) -> (
+    let thread_name = HilExp.AccessExpression.to_access_path thread_ae in
+    (* find the thread in threads_active *)
+    let thread = find_thread_in_threads_active thread_name astate.threads_active in
+    match thread with
+    | Some th ->
+      F.printf "Removing thread: %a \n" ThreadEvent.pp th;
+      (* remove the thread *)
+      let threads_active = ThreadSet.remove th astate.threads_active in
+      { astate with threads_active }
+    | None -> astate
+  )
 
 let create_main_thread = 
   let pname = Procname.from_string_c_fun "main" in
@@ -982,12 +1010,16 @@ let create_main_thread =
   Some (acc_path_from_pvar, Location.dummy)
 
 let initial_main locals =
+  (* create empty astate *)
+  let empty_astate = empty_with_locals locals in
   (* create main thread *)
-  let main_thread = create_main_thread in
-  (* add the main thread to an empty astate *)
-  (* let initial_astate = empty in *)
-  let initial_astate = empty_with_locals locals in
-  add_thread main_thread initial_astate
+  let main_thread_option = create_main_thread in
+  match main_thread_option with
+  | None -> empty_astate
+  | Some main_thread ->
+    (* add the main thread to an empty astate *)
+    let threads_active = ThreadSet.add main_thread empty_astate.threads_active in
+    { empty_astate with threads_active }
 
 let acquire lockid astate loc pname =
   F.printf "acquire: pname = %a in Darc\n" Procname.pp pname;
@@ -1756,7 +1788,7 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
   F.printf "\nsummary of callee_pname=%a before --------" Procname.pp callee_pname;
   print_astate callee_summary (* loc caller_pname *);
   (* edit information about each access - thread, threads_active, lockset, unlockset *)
-  let edited_accesses_from_callee = AccessSet.map (AccessEvent.edit_accesses astate.threads_active astate.lockset astate.unlockset thread) callee_summary.accesses in
+  let edited_accesses_from_callee = AccessSet.map (AccessEvent.edit_accesses astate.threads_active astate.lockset astate.unlockset (Some thread)) callee_summary.accesses in
   (* replace actuals with formals *)
   F.printf "\nformals of callee: %a: \n" Procname.pp callee_pname;
   _print_formals callee_formals;

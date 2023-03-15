@@ -2056,7 +2056,7 @@ let join astate1 astate2 =
     let aliases = AliasesSet.union astate1.aliases astate2.aliases in  (* TODO FIXME how to join aliases*)
     let load_aliases = astate1.load_aliases @ astate2.load_aliases in (* TODO fix and check *)
     let heap_aliases = astate1.heap_aliases @ astate2.heap_aliases in (* TODO fix and check *)
-    let locals = [] in (* TODO *)
+    let locals = astate1.locals @ astate2.locals in (* TODO *)
     { threads_active; accesses; lockset; unlockset; aliases; load_aliases; heap_aliases; locals }
   in
   F.printf "JOIN: new_astate after join:\n";

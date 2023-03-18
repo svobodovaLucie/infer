@@ -333,12 +333,8 @@ let rec replace_inner_var var actual =
     if len < 2 then false else true
 
   let predicate_read_write (a1, a2) = (* a1 == rd and a2 == rd -> false *)
-    match a1.access_type with
-    | ReadWriteModels.Read -> (
-      match a2.access_type with
-      | ReadWriteModels.Read -> false
-      | _ -> true
-    )
+    match (a1.access_type, a2.access_type) with
+    | (ReadWriteModels.Read, ReadWriteModels.Read) -> false
     | _ -> true
 
   let predicate_threads_intersection (a1, a2) = (* length(intersect ts1 ts2) < 2 -> false *)

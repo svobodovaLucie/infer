@@ -212,6 +212,11 @@ module AccessEvent = struct
     let locked = Lockset.diff (Lockset.union lockset access.locked) access.unlocked in
     let unlocked = Lockset.union (Lockset.diff unlockset access.locked) access.unlocked in
     let threads_active = ThreadSet.union threads_active access.threads_active in
+    let thread =
+      match access.thread with
+      | None -> thread
+      | Some th -> Some th
+    in
     { var=access.var; loc=access.loc; access_type=access.access_type; locked; unlocked; threads_active; thread }
 
   let edit_var_in_access new_var access access_type =

@@ -129,7 +129,7 @@ module AccessEvent = struct
     thread: ThreadEvent.t option;
   }
 
-  let print_lockset access =
+  let _print_lockset access =
       let locked_list = Lockset.elements access.locked in
       F.printf " {";
       let rec print_list lst =
@@ -142,14 +142,22 @@ module AccessEvent = struct
       in
       print_list locked_list
 
+  let print_thread thread_opt =
+    match thread_opt with
+    | None -> F.printf "on thread None"
+    | Some thread -> F.printf "on thread %a" ThreadEvent.pp thread
+
   let print_access_pair (t1, t2) =
     let t1_access_string = ReadWriteModels.access_to_string t1.access_type in
-    F.printf "(%a, %a, %s, " HilExp.AccessExpression.pp t1.var Location.pp t1.loc t1_access_string;
-    print_lockset t1;
+    F.printf "(%a, %a, %s, %a " HilExp.AccessExpression.pp t1.var Location.pp t1.loc t1_access_string ThreadSet.pp t1.threads_active;
+    print_thread t1.thread;
+    (* print_lockset t1; *)
+    F.printf "\n";
     let t2_access_string = ReadWriteModels.access_to_string t2.access_type in
-    F.printf "| %a, %a, %s, " HilExp.AccessExpression.pp t2.var Location.pp t2.loc t2_access_string;
-    print_lockset t2;
-    F.printf ")\n"
+    F.printf "| %a, %a, %s, %a " HilExp.AccessExpression.pp t2.var Location.pp t2.loc t2_access_string ThreadSet.pp t2.threads_active;
+    print_thread t2.thread;
+    (* print_lockset t2; *)
+    F.printf ")\n-----\n"
 
   let compare a1 a2 =
     (* F.printf "comparing accesses: \n";
@@ -337,10 +345,15 @@ let rec replace_inner_var var actual =
     | (ReadWriteModels.Read, ReadWriteModels.Read) -> false
     | _ -> true
 
-  let predicate_threads_intersection (a1, a2) = (* length(intersect ts1 ts2) < 2 -> false *)
-    let intersect = ThreadSet.inter a1.threads_active a2.threads_active in
-    let len = ThreadSet.cardinal intersect in
-    if len < 2 then false else true
+  let predicate_threads_intersection (a1, a2) = (* a1.thread E a2.threads_active && a2.thread E a1.threads_active *)
+    match (a1.thread, a2.thread) with
+    | (Some a1_thread, Some a2_thread) -> (
+      let a1_in_a2 = ThreadSet.mem a1_thread a2.threads_active in
+      let a2_in_a1 = ThreadSet.mem a2_thread a1.threads_active in
+      a1_in_a2 && a2_in_a1
+    )
+    | _ -> assert false (* TODO probably return false (assert is only for debug) *)
+
 
   let predicate_locksets (a1, a2) = (* intersect ls1 ls2 == {} -> false *) (* TODO nestaci aby aspon lockset alespon jednoho pristupu byla prazdna? *)
     let _both_empty =
@@ -2149,10 +2162,10 @@ let pp : F.formatter -> t -> unit =
 type summary = t
 
 let compute_data_races post = 
-  let rec _print_pairs_list lst =
+  let rec print_pairs_list lst =
     match lst with
     | [] -> F.printf "\n"
-    | h::t -> AccessEvent.print_access_pair h; _print_pairs_list t in
+    | h::t -> AccessEvent.print_access_pair h; print_pairs_list t in
   
   F.printf "DATA RACES COMPUTATION\n\n";
 
@@ -2187,16 +2200,16 @@ let compute_data_races post =
 (*  F.printf "read_write_checked:\n";*)
   let read_write_checked = List.filter ~f:AccessEvent.predicate_read_write vars_checked in
 (*  print_pairs_list read_write_checked;*)
-(*  F.printf "threads_checked:\n";*)
+  F.printf "threads_checked:\n";
   let threads_checked = List.filter ~f:AccessEvent.predicate_thread read_write_checked in
-(*  print_pairs_list threads_checked;*)
-(*  F.printf "threads_intersection_checked:\n";*)
+  print_pairs_list threads_checked;
+  F.printf "threads_intersection_checked:\n";
   let threads_intersection_checked = List.filter ~f:AccessEvent.predicate_threads_intersection threads_checked in
-(*  print_pairs_list threads_intersection_checked;*)
-(*  F.printf "locksets_checked:\n";*)
+  print_pairs_list threads_intersection_checked;
+  F.printf "locksets_checked:\n";
   let locksets_checked = List.filter ~f:AccessEvent.predicate_locksets threads_intersection_checked in
   F.printf "pairs with data races:\n";
-  _print_pairs_list locksets_checked;
+  print_pairs_list locksets_checked;
   let has_data_race = List.length locksets_checked in
   if phys_equal has_data_race 0 then
     F.printf "\nTHERE IS NO DATA RACE.\n"

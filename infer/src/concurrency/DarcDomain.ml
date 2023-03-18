@@ -1803,6 +1803,29 @@ let remove_accesses_to_formal formal accesses : AccessSet.t =
   (* create set from list *)
   AccessSet.of_list accesses_list_with_removed_accesses
 
+let rec remove_from_locals var locals acc =
+  match locals with
+  | [] -> acc
+  | h :: t -> (
+    if (HilExp.AccessExpression.equal h var) then (
+      acc @ t
+    )
+    else
+      remove_from_locals var t (h :: acc)
+  )
+
+let remove_var_from_locals actual locals =
+  match actual with
+  | HilExp.AccessExpression actual_ae -> (
+    let actual_base = HilExp.AccessExpression.get_base actual_ae in
+    let actual_base_ae = HilExp.AccessExpression.base actual_base in
+    let is_in_locals = List.mem locals actual_base_ae ~equal:HilExp.AccessExpression.equal in
+    match is_in_locals with
+    | true -> remove_from_locals actual_base_ae locals []
+    | false -> locals
+  )
+  | _ -> locals
+
 (* TODO if argument funkce je null, pak nepredelavat formals na actuals a nepridavat ty pristupy k formals! *)
 let integrate_pthread_summary astate thread callee_pname loc callee_summary callee_formals actuals caller_pname =
   F.printf "integrate_pthread_summary: callee_pname=%a on %a\n" Procname.pp callee_pname Location.pp loc;
@@ -1836,6 +1859,23 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
     (* if the argument is NULL, don't add accesses to formal in callee summary *)
     let is_null = HilExp.is_null_literal actual in
     F.printf "is_null: %b\n" is_null;
+    (* TODO actual dealiasing *)
+    let actual_dealiased_hilexp =
+      match actual with
+      | HilExp.AccessExpression e_ae -> (
+        let e_aliased = fst_aliasing_snd e_ae astate.load_aliases in
+        F.printf "e_aliased: %a\n" HilExp.AccessExpression.pp e_aliased;
+        (* find e_alised in aliases *)
+        F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
+        let e_aliased_final = replace_var_with_aliases_without_address_of e_aliased (AliasesSet.elements astate.aliases) in
+        F.printf "e_aliased_final: %a\n" HilExp.AccessExpression.pp e_aliased_final;
+        HilExp.AccessExpression e_aliased_final
+      )
+      | _ -> actual
+    in
+    F.printf "actual_dealiased_hilexp: %a\n" HilExp.pp actual_dealiased_hilexp;
+    let actual = actual_dealiased_hilexp in
+    (* edit accesses - formal to actual *)
     let edited_accesses =
       if is_null then
           (* remove all accesses to formal in callee summary *)
@@ -1846,7 +1886,14 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
     in
     (* join callee and caller accesses *)
     let accesses_joined = AccessSet.join astate.accesses edited_accesses in
-    { astate with accesses=accesses_joined }
+    let astate = { astate with accesses=accesses_joined } in
+    (* remove the variable from locals - remove base? *)
+    let updated_locals = remove_var_from_locals actual astate.locals in
+    let astate = { astate with locals=updated_locals } in
+    F.printf "locals after removing actual:\n";
+    print_locals astate;
+    (* return new astate *)
+    astate
   )
   | None -> (
     (* TODO should be astate or edited astate? *)
@@ -2047,16 +2094,27 @@ let ( <= ) ~lhs ~rhs =
 
 let leq ~lhs ~rhs = (<=) ~lhs ~rhs
 
+let rec list_union lst1 lst2 =
+  match lst1 with
+  | [] -> lst2
+  | hd :: tl -> (
+    let list_mem_opt = List.mem lst2 hd ~equal:phys_equal in
+    F.printf "%b" list_mem_opt;
+    match list_mem_opt with
+    | true -> list_union tl lst2
+    | false -> hd :: list_union tl lst2
+  )
+
 let join astate1 astate2 =
   let new_astate : t =
     let threads_active = ThreadSet.union astate1.threads_active astate2.threads_active in
     let accesses = AccessSet.union astate1.accesses astate2.accesses in
     let lockset = Lockset.union astate1.lockset astate2.lockset in
     let unlockset = Lockset.union astate1.unlockset astate2.unlockset in
-    let aliases = AliasesSet.union astate1.aliases astate2.aliases in  (* TODO FIXME how to join aliases*)
-    let load_aliases = astate1.load_aliases @ astate2.load_aliases in (* TODO fix and check *)
-    let heap_aliases = astate1.heap_aliases @ astate2.heap_aliases in (* TODO fix and check *)
-    let locals = astate1.locals @ astate2.locals in (* TODO *)
+    let aliases = AliasesSet.union astate1.aliases astate2.aliases in  (* TODO FIXME how to join aliases *)
+    let load_aliases = list_union astate1.load_aliases astate2.load_aliases in
+    let heap_aliases = list_union astate1.heap_aliases astate2.heap_aliases in
+    let locals = list_union astate1.locals astate2.locals in
     { threads_active; accesses; lockset; unlockset; aliases; load_aliases; heap_aliases; locals }
   in
   F.printf "JOIN: new_astate after join:\n";

@@ -556,13 +556,9 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc
   (* If the analysed function is main -> we need to do few changes -> add main thread to threads... *)
   let init_astate : DarcDomain.t =
     if (phys_equal (String.compare (Procname.to_string (Procdesc.get_proc_name proc_desc)) "main") 0) then
-      begin
-        DarcDomain.initial_main !locals
-      end
+      DarcDomain.initial_main !locals
     else
-      begin
-        DarcDomain.empty_with_locals !locals
-      end
+      DarcDomain.empty_with_locals !locals
     in
     (* add formals to heap_aliases *)
     let init_astate = add_formals_to_heap_aliases init_astate formals pname in
@@ -574,24 +570,11 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc
       | None -> F.printf "None\n"
       | Some res -> Domain.print_astate res
     in
-    (* compute data races *)
+    (* remove local accesses from summary *)
+    let summary_without_locals = remove_locals_from_summary result in
+    F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
+    (* compute data races in main *)
     if (phys_equal (String.compare (Procname.to_string (Procdesc.get_proc_name proc_desc)) "main") 0) then
-      begin
-        (* maybe this is not okay *)
-        (* computing the result *)
-        (* Option.iter result ~f:(fun post -> report_if_printf interproc post); *)
-        F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
-        Option.iter result ~f:(fun post -> report interproc post);
-        result
-      end
-    else
-      begin
-        (* remove local accesses from summary *)
-        let summary_without_locals = remove_locals_from_summary result in
-        F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
-        summary_without_locals
-      end
-(*    F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));*)
-    (* remove accesses to local variables *)
-(*    let summary_without_locals = remove_locals_from_summary result in*)
-(*    summary_without_locals*)
+      Option.iter summary_without_locals ~f:(fun post -> report interproc post);
+    (* final summary *)
+    summary_without_locals

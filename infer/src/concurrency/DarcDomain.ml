@@ -346,13 +346,18 @@ let rec replace_inner_var var actual =
     | _ -> true
 
   let predicate_threads_intersection (a1, a2) = (* a1.thread E a2.threads_active && a2.thread E a1.threads_active *)
+    (* TODO FIXME
     match (a1.thread, a2.thread) with
     | (Some a1_thread, Some a2_thread) -> (
       let a1_in_a2 = ThreadSet.mem a1_thread a2.threads_active in
       let a2_in_a1 = ThreadSet.mem a2_thread a1.threads_active in
-      a1_in_a2 && a2_in_a1
+      a1_in_a2 || a2_in_a1
     )
     | _ -> assert false (* TODO probably return false (assert is only for debug) *)
+    *)
+    let intersect = ThreadSet.inter a1.threads_active a2.threads_active in
+        let len = ThreadSet.cardinal intersect in
+        if len < 2 then false else true
 
 
   let predicate_locksets (a1, a2) = (* intersect ls1 ls2 == {} -> false *) (* TODO nestaci aby aspon lockset alespon jednoho pristupu byla prazdna? *)

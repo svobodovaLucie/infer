@@ -203,7 +203,10 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
     match List.nth actuals 0 with
     | Some HilExp.AccessExpression th_load_ae -> (
       (* create new thread *)
-      let new_thread = (Domain.create_thread_from_load_ae th_load_ae loc astate) in
+      let new_thread =
+        (* find the thread in threads_active *)
+        Domain.new_thread th_load_ae loc astate
+      in
       (* add the thread to astate *)
       let astate_with_new_thread = Domain.add_thread new_thread astate in
       (* add summary of the callback function (third argument) *)

@@ -26,7 +26,7 @@ module ReadWriteModels : sig
 end
 
 module ThreadEvent : sig
-  type t = (AccessPath.t * Location.t)
+  type t = (AccessPath.t * Location.t * Bool.t)
 end
 
 module Aliases : sig
@@ -76,6 +76,8 @@ val _add_rhs_expr_to_accesses : HilExp.AccessExpression.t -> t -> Location.t -> 
 val add_access_to_astate : HilExp.AccessExpression.t -> ReadWriteModels.t -> t -> Location.t (* -> Procname.t *) -> t
 
 val create_thread_from_load_ae : HilExp.AccessExpression.t -> Location.t -> t -> ThreadEvent.t
+
+val new_thread : HilExp.AccessExpression.t -> Location.t -> t -> ThreadEvent.t
 
 val add_thread : ThreadEvent.t -> t -> t
 

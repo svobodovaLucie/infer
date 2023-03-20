@@ -58,10 +58,10 @@ module ReadWriteModels = struct
 end
 
 module ThreadEvent = struct
-  type t = (AccessPath.t * Location.t)
+  type t = (AccessPath.t * Location.t * Bool.t)
 
   (* 0 -> the threads are the same, 1 -> false *)
-  let compare ((base, aclist) as th, loc) ((base', aclist') as th', loc') =
+  let compare ((base, aclist) as th, loc, created_in_loop) ((base', aclist') as th', loc', created_in_loop') =
     (* F.printf "comparing threads: %a and %a\n" AccessPath.pp th AccessPath.pp th'; *)
     let result_th =
       if (Int.equal (AccessPath.compare th th') 0) then 0
@@ -73,13 +73,19 @@ module ThreadEvent = struct
       end
     in
     if (Int.equal result_th 0) then
-      Location.compare loc loc'
+      if (Int.equal (Location.compare loc loc') 0) then
+        match (created_in_loop, created_in_loop') with
+        | (true, false) -> 1
+        | (false, true) -> -1
+        | _ -> 0
+      else
+        Location.compare loc loc'
     else
       result_th
 
 
-  let pp fmt (th, loc) =
-    F.fprintf fmt "%a on %a" AccessPath.pp th Location.pp loc;
+  let pp fmt (th, loc, created_in_loop) =
+    F.fprintf fmt "%a on %a, in_loop=%b" AccessPath.pp th Location.pp loc created_in_loop;
 
 end
 
@@ -976,26 +982,59 @@ let create_thread_from_load_ae load loc astate =
     match thread_load_alias with
     | None -> (
       let load_ap = HilExp.AccessExpression.to_access_path load in
-      (load_ap, loc)
+      (load_ap, loc, false)
     )
     | Some (_, final_thread) -> (
       (* create new thread *)
       let final_thread_ap = HilExp.AccessExpression.to_access_path final_thread in
-      (final_thread_ap, loc)
+      (final_thread_ap, loc, false)
     )
 
+let new_thread th_load_ae loc astate =
+  (* dealias load expression *)
+  let new_thread_from_load_with_false_flag = create_thread_from_load_ae th_load_ae loc astate in
+  (* find thread (with false flag) in threads_active *)
+  let found_with_false_flag = ThreadSet.mem new_thread_from_load_with_false_flag astate.threads_active in
+  (* if found then find the same thread with true *)
+  match found_with_false_flag with
+  | false -> new_thread_from_load_with_false_flag
+  | true -> (
+      let (th, loc, _) = new_thread_from_load_with_false_flag in
+      let thread_with_true = (th, loc, true) in
+      (* let found_with_true_flag = ThreadSet.mem thread_with_true astate.threads_active in *)
+      thread_with_true
+  )
+
 let add_thread thread astate =
-  let threads_active = ThreadSet.add thread astate.threads_active in
+  (* find thread in threads_active *)
+  let found_with_false_flag = ThreadSet.mem thread astate.threads_active in
+  F.printf "found_with_false_flag: %b\n" found_with_false_flag;
+  (* if found then find the same thread with true *)
+  let threads_active =
+    (* if found then don't add *)
+    match found_with_false_flag with
+    | false -> ThreadSet.add thread astate.threads_active
+    | true -> (
+      let (th, loc, _) = thread in
+      let thread_with_true = (th, loc, true) in
+      let found_with_true_flag = ThreadSet.mem thread_with_true astate.threads_active in
+      F.printf "found_with_true_flag: %b\n" found_with_true_flag;
+      (* else add *)
+      match found_with_true_flag with
+      | false -> ThreadSet.add thread_with_true astate.threads_active
+      | true -> astate.threads_active
+    )
+  in
   { astate with threads_active }
 
 (* return None or Some (thread_ae, thread_loc) *)
-let find_thread_in_threads_active thread_name threads =
-  let threads_list : (AccessPath.t * Location.t) list = ThreadSet.elements threads in
+let find_thread_with_true_flag_in_threads_active thread_name threads =
+  let threads_list : (AccessPath.t * Location.t * Bool.t) list = ThreadSet.elements threads in
   let rec find lst =
     match lst with
     | [] -> None
-    | (th_ap, _) as th :: t -> (
-      if (AccessPath.equal th_ap thread_name) then
+    | (th_ap, _, flag) as th :: t -> (
+      if (AccessPath.equal th_ap thread_name) && flag then
         Some th
       else
         find t
@@ -1003,22 +1042,51 @@ let find_thread_in_threads_active thread_name threads =
   in
   find threads_list
 
+  (* return None or Some (thread_ae, thread_loc) *)
+  let find_thread_with_false_flag_in_threads_active thread_name threads =
+    let threads_list : (AccessPath.t * Location.t * Bool.t) list = ThreadSet.elements threads in
+    let rec find lst =
+      match lst with
+      | [] -> None
+      | (th_ap, _, flag) as th :: t -> (
+        if (AccessPath.equal th_ap thread_name) && (not flag) then
+          Some th
+        else
+          find t
+      )
+    in
+    find threads_list
+
 let remove_thread load astate =
   (* find thread by its name in threads *)
   let thread_load_alias = find_load_alias_by_var load astate.load_aliases in
   match thread_load_alias with
-  | None -> astate
+  | None -> astate (* not found *)
   | Some (_, thread_ae) -> (
     let thread_name = HilExp.AccessExpression.to_access_path thread_ae in
-    (* find the thread in threads_active *)
-    let thread = find_thread_in_threads_active thread_name astate.threads_active in
-    match thread with
-    | Some th ->
+    (* find the thread in threads_active - first find with true flag *)
+    let thread_with_true_flag = find_thread_with_true_flag_in_threads_active thread_name astate.threads_active in
+    (* if found then remove *)
+    match thread_with_true_flag with
+    | Some th -> (
+      (* if found then remove *)
       F.printf "Removing thread: %a \n" ThreadEvent.pp th;
       (* remove the thread *)
       let threads_active = ThreadSet.remove th astate.threads_active in
       { astate with threads_active }
-    | None -> astate
+    )
+    | None -> (
+      (* else find the thread with false flag *)
+      let thread = find_thread_with_false_flag_in_threads_active thread_name astate.threads_active in
+      match thread with
+      | Some th ->
+        (* if found then remove *)
+        F.printf "Removing thread: %a \n" ThreadEvent.pp th;
+        (* remove the thread *)
+        let threads_active = ThreadSet.remove th astate.threads_active in
+        { astate with threads_active }
+      | None -> astate
+    )
   )
 
 let create_main_thread = 
@@ -1027,7 +1095,7 @@ let create_main_thread =
   let tvar_name = Typ.TVar "thread" in
   let typ_main_thread = Typ.mk tvar_name in
   let acc_path_from_pvar : AccessPath.t = AccessPath.of_pvar pvar_from_pname typ_main_thread in
-  Some (acc_path_from_pvar, Location.dummy)
+  Some (acc_path_from_pvar, Location.dummy, false)
 
 let initial_main locals =
   (* create empty astate *)

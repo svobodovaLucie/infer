@@ -83,9 +83,27 @@ module ThreadEvent = struct
     else
       result_th
 
+  let get_main_thread =
+  let pname = Procname.from_string_c_fun "main" in
+  let pvar_from_pname : Pvar.t = Pvar.mk_tmp "'main_thread'" pname in
+  let tvar_name = Typ.TVar "thread" in
+  let typ_main_thread = Typ.mk tvar_name in
+  let acc_path_from_pvar : AccessPath.t = AccessPath.of_pvar pvar_from_pname typ_main_thread in
+  (acc_path_from_pvar, Location.dummy, false)
 
   let pp fmt (th, loc, created_in_loop) =
-    F.fprintf fmt "%a on %a, in_loop=%b" AccessPath.pp th Location.pp loc created_in_loop;
+    F.fprintf fmt "%a on %a, in_loop=%b" AccessPath.pp th Location.pp loc created_in_loop
+
+  let pp_short fmt ((th, loc, bool) as thread) =
+    let main_thread = get_main_thread in
+    if (Int.equal (compare main_thread thread) 0) then
+      F.fprintf fmt "main thread"
+    else
+      begin
+        match bool with
+        | true -> F.fprintf fmt "thread %a created on %a in loop" AccessPath.pp th Location.pp_line loc
+        | false -> F.fprintf fmt "thread %a created on %a" AccessPath.pp th Location.pp_line loc
+      end
 
 end
 
@@ -321,10 +339,16 @@ let rec replace_inner_var var actual =
   *)
   (* pp short version  - accesses only *)
   let pp fmt t1 =
-    F.fprintf fmt "{%a, %s, %a, " HilExp.AccessExpression.pp t1.var (ReadWriteModels.access_to_string t1.access_type) Location.pp t1.loc;
+    F.fprintf fmt "{%a, %s, %a, " HilExp.AccessExpression.pp t1.var (ReadWriteModels.access_to_string t1.access_type) Location.pp_line t1.loc;
     match t1.thread with
-    | Some t -> F.fprintf fmt "thread %a}" ThreadEvent.pp t
+    | Some t -> F.fprintf fmt "thread %a}" ThreadEvent.pp_short t
     | None -> F.fprintf fmt "None thread}"
+
+  let pp_report_short fmt t1 =
+    F.fprintf fmt "%s %a on %a on " (ReadWriteModels.access_to_string t1.access_type) HilExp.AccessExpression.pp t1.var Location.pp_line t1.loc;
+    match t1.thread with
+    | Some t -> F.fprintf fmt "%a" ThreadEvent.pp_short t
+    | None -> F.fprintf fmt " unknown thread"
 
   let predicate_var (a1, a2) = (* var1 != var2 -> true *)
     if phys_equal (HilExp.AccessExpression.compare a1.var a2.var) 0 then true else false
@@ -382,6 +406,9 @@ let rec replace_inner_var var actual =
     | Some t -> F.fprintf fmt "thread %a}\n" ThreadEvent.pp t
     | None -> F.fprintf fmt "None thread}\n"
   *)
+
+  let get_loc access = access.loc
+
 end
 
 module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
@@ -1090,12 +1117,8 @@ let remove_thread load astate =
   )
 
 let create_main_thread = 
-  let pname = Procname.from_string_c_fun "main" in
-  let pvar_from_pname : Pvar.t = Pvar.mk_tmp "'main_thread'" pname in
-  let tvar_name = Typ.TVar "thread" in
-  let typ_main_thread = Typ.mk tvar_name in
-  let acc_path_from_pvar : AccessPath.t = AccessPath.of_pvar pvar_from_pname typ_main_thread in
-  Some (acc_path_from_pvar, Location.dummy, false)
+  let main_thread = ThreadEvent.get_main_thread in
+  Some main_thread
 
 let initial_main locals =
   (* create empty astate *)
@@ -2281,13 +2304,17 @@ let compute_data_races post =
   print_pairs_list threads_intersection_checked;
   F.printf "locksets_checked:\n";
   let locksets_checked = List.filter ~f:AccessEvent.predicate_locksets threads_intersection_checked in
-  F.printf "pairs with data races:\n";
   print_pairs_list locksets_checked;
+  (* F.printf "pairs with data races:\n"; *)
+(*  let list_removed_duplicates = filter_tuples locksets_checked in*)
+(*  print_pairs_list list_removed_duplicates;*)
   let has_data_race = List.length locksets_checked in
-  if phys_equal has_data_race 0 then
+  let _print = if phys_equal has_data_race 0 then
     F.printf "\nTHERE IS NO DATA RACE.\n"
   else
-    F.printf "\nTHERE IS A DATA RACE.\n"  
+    F.printf "\nTHERE IS A DATA RACE.\n"
+  in
+  locksets_checked
 
 let astate_with_clear_load_aliases astate =
   (*F.printf "load_aliases before clear: \n";*)

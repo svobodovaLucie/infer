@@ -25,6 +25,14 @@ module ReadWriteModels : sig
 
 end
 
+module AccessEvent : sig
+  type t
+
+  val get_loc : t -> Location.t
+
+  val pp_report_short : Format.formatter -> t -> unit
+end
+
 module ThreadEvent : sig
   type t = (AccessPath.t * Location.t * Bool.t)
 end
@@ -91,7 +99,7 @@ val print_astate : t (* -> Location.t -> Procname.t *) -> unit
 
 type summary = t
 
-val compute_data_races : summary -> unit
+val compute_data_races : summary -> (AccessEvent.t * AccessEvent.t) list
 
 val astate_with_clear_load_aliases : t -> t
 

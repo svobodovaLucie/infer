@@ -453,20 +453,6 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
   let pp_session_name _node fmt = F.pp_print_string fmt "darc" (* checker name in the debug html *)
 end
 
-(** 5(a) Type of CFG to analyze--Exceptional to follow exceptional control-flow edges, Normal to ignore them *)
-(*module CFG = ProcCfg.Normal*)
-
-(* Create an intraprocedural abstract interpreter from the transfer functions we defined *)
-(*module Analyzer = LowerHil.MakeAbstractInterpreter (TransferFunctions (CFG))*)
-module Analyzer = AbstractInterpreter.MakeRPO (TransferFunctions (ProcCfg.Normal))
-
-(* COMPUTE THE RESULT AND REPORT ERRORS *)
-let report {InterproceduralAnalysis.proc_desc; err_log; _} post =
-  F.printf "REPORTING AND COMPUTING??? ----------------------------------------";
-  let _idk = Domain.compute_data_races post in
-  let last_loc = Procdesc.Node.get_loc (Procdesc.get_exit_node proc_desc) in
-  let message = F.asprintf "Number of printf: %a in Data Race Checker\n" DarcDomain.pp post in
-  Reporting.log_issue proc_desc err_log ~loc:last_loc DarcChecker IssueType.darc_error message;;
 
 (* function adds all locals to the locals list *)
 let add_locals_to_list locals lst_ref pname =
@@ -541,6 +527,32 @@ let add_formals_to_heap_aliases astate formals pname =
   in
   let heap_aliases_with_formals = add_each_formal_to_heap_aliases formals [] in
   Domain.add_heap_aliases_to_astate astate heap_aliases_with_formals
+
+(** 5(a) Type of CFG to analyze--Exceptional to follow exceptional control-flow edges, Normal to ignore them *)
+(*module CFG = ProcCfg.Normal*)
+
+(* Create an intraprocedural abstract interpreter from the transfer functions we defined *)
+(*module Analyzer = LowerHil.MakeAbstractInterpreter (TransferFunctions (CFG))*)
+module Analyzer = AbstractInterpreter.MakeRPO (TransferFunctions (ProcCfg.Normal))
+
+(* COMPUTE THE RESULT AND REPORT ERRORS *)
+let report {InterproceduralAnalysis.proc_desc; err_log; _} post =
+  F.printf "REPORTING AND COMPUTING ----------------------------------------";
+  let data_races_list = (Domain.compute_data_races post) in
+  let rec report_all_data_races lst =
+    match lst with
+    | [] -> ()
+    | (fst, snd) :: t -> (
+      let fst_message = F.asprintf "Data race between \t%a\n\t\t\t%a\n" DarcDomain.AccessEvent.pp_report_short fst DarcDomain.AccessEvent.pp_report_short snd in
+      (* let snd_message = F.asprintf "Potential data race between \t%a\n\t\t\t%a\n" DarcDomain.AccessEvent.pp_report_short snd DarcDomain.AccessEvent.pp_report_short fst in *)
+      let fst_loc = Domain.AccessEvent.get_loc fst in
+      (* let snd_loc = Domain.AccessEvent.get_loc snd in *)
+      Reporting.log_issue proc_desc err_log ~loc:fst_loc DarcChecker IssueType.darc_error fst_message;
+      (* Reporting.log_issue proc_desc err_log ~loc:snd_loc DarcChecker IssueType.darc_error snd_message *)
+      report_all_data_races t
+    )
+  in
+  report_all_data_races data_races_list
 
 (** Main function into the checker--registered in RegisterCheckers *)
 let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc) =

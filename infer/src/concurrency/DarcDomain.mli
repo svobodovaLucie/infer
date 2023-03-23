@@ -13,32 +13,32 @@ module LockEvent = DeadlockDomain.LockEvent
 module Lockset = DeadlockDomain.Lockset
 
 module ReadWriteModels : sig
-  type t = 
-    | Read
-    | Write
+  (* type of ReadWriteModels *)
+  type t = Read | Write
 
-  val has_effect : String.t -> bool
-
-  val get_read_write_effect : string -> int -> (int * t) list
-
+  (* function returns access type as a string *)
   val access_to_string : t -> string
-
-end
-
-module AccessEvent : sig
-  type t
-
-  val get_loc : t -> Location.t
-
-  val pp_report_short : Format.formatter -> t -> unit
 end
 
 module ThreadEvent : sig
-  type t = (AccessPath.t * Location.t * Bool.t)
+  (* type of ThreadEvent *)
+  type t
 end
 
 module Aliases : sig
-  type t = (HilExp.AccessExpression.t * HilExp.AccessExpression.t)
+  (* type of Aliases *)
+  type t
+end
+
+module AccessEvent : sig
+  (* type of AccessEvent *)
+  type t
+
+  (* function returns line of code of an access *)
+  val get_loc : t -> Location.t
+
+  (* pretty print function used for reporting *)
+  val pp_report_short : Format.formatter -> t -> unit
 end
 
 val update_aliases : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> t -> t
@@ -71,13 +71,7 @@ val remove_heap_aliases_when_free : HilExp.AccessExpression.t -> t -> t
 
 val load : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Exp.t -> Typ.t -> Location.t -> t -> t
 
-val store_with_alias : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Location.t -> t -> t
-
-val store_vol2 : Exp.t -> Typ.t -> Exp.t -> Location.t -> t -> Procname.t -> t
-
-val store_with_heap_alloc : Exp.t -> Typ.t -> Exp.t -> Location.t -> t -> Procname.t -> (HilExp.AccessExpression.t * Location.t) list -> t
-
-val store : HilExp.AccessExpression.t -> Location.t -> t -> t
+val store : Exp.t -> Typ.t -> Exp.t -> Location.t -> t -> Procname.t -> t
 
 val _add_rhs_expr_to_accesses : HilExp.AccessExpression.t -> t -> Location.t -> Procname.t -> t
 

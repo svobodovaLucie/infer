@@ -60,41 +60,6 @@ let _assign_expr lhs_access_expr rhs_expr loc (astate : Domain.t) pname =
     new_astate
   )
 
-let _read_write_expr loc pname actuals (astate : Domain.t) =
-  F.printf "Access READ at %a in pname=%a\n" Location.pp loc Procname.pp pname;
-  (* get effect a pak postupne ten list projizdet a podle toho pridavat pristupy *)
-  let pname_string = Procname.to_string pname in
-  let num_of_actuals = List.length actuals in
-  let read_write_effects = Domain.ReadWriteModels.get_read_write_effect pname_string num_of_actuals in
-  (* mame napr. "printf"  -> [(1, Read); (2, Read)] *)
-  let insert_access (nth, effect) astate =
-    let var =
-      match List.nth actuals nth with
-      | Some actual -> ( (* HilExp.t -> AccessPath.t *)
-        match actual with
-        | HilExp.AccessExpression ae ->
-          F.printf "read_write_expr: AccessExpression: %a\n" HilExp.AccessExpression.pp ae;
-          (* HilExp.AccessExpression.to_access_path ae *)
-          ae
-        | _ -> assert false (* TODO check *)
-      )
-      | None ->
-        F.printf "read_write_expr: asserted nth=%d\n" nth;
-        assert false (* TODO check *)
-    in
-    (* return new astate: *)
-    Domain.add_access_to_astate var effect astate loc (* pname *)
-    in
-    (* new access with access_type effect and var List.nth nth actuals *)  
-    let rec list_fold lst astate = 
-      match lst with 
-      | [] -> astate
-      | h::t -> 
-        let new_astate = insert_access h astate in
-        list_fold t new_astate
-    in
-    list_fold read_write_effects astate
-
 let handle_free hil_actuals astate =
   (* get actuals - prvni z nich je LOAD alias toho, co se ma odstranit z heap_aliases *)
   let hil_actuals_first = List.hd hil_actuals in
@@ -138,20 +103,6 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
       astate
     )
 
-  (* WRITE access *)
-  let _handle_store e1 e2 loc astate _pname =
-    (* assign_expr e1 e2 loc astate pname *)
-    match e2 with
-    | HilExp.AccessExpression e2_ae -> (
-      (* will be an alias *)
-      Domain.store_with_alias e1 e2_ae loc astate
-    )
-    | _ -> (
-      F.printf "store: e2 is not an access expression -> handle differently\n";
-      Domain.store e1 loc astate
-    )
-
-
 let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
   F.printf "random_foo\n";
   let add_deref_e1 =
@@ -187,11 +138,11 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
     )
     | _ -> astate (* TODO *)
 
-  let handle_store_vol2 e1 typ e2 loc astate pname (extras : extras_t ref)  =
-   F.printf "handle_store_vol2 -------------\n";
+  let handle_store e1 typ e2 loc astate pname (extras : extras_t ref)  =
+   F.printf "handle_store -------------\n";
    match !(extras).heap_tmp with
    | [] -> (* basic store *)
-     Domain.store_vol2 e1 typ e2 loc astate pname
+     Domain.store e1 typ e2 loc astate pname
    | _ -> ( (* if neco je v extras, then handle heap_store else below *)
 (*     Domain.store_with_heap_alloc e1 typ e2 loc astate pname heap_tmp_list*)
      handle_store_after_malloc e1 typ e2 loc astate extras
@@ -335,7 +286,7 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
 (*      | _ -> astate*)
 
       (* compute the result (add new access, load_aliases etc.) *)
-      let result = handle_store_vol2 e1 typ e2 loc astate pname analysis_data.extras in
+      let result = handle_store e1 typ e2 loc astate pname analysis_data.extras in
       (* update last_loc AND CLEAR HEAP_TMP *)
       analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = [] };
 (*      let result_malloc = random_foo e1 typ e2 astate analysis_data.extras in*)
@@ -385,7 +336,6 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
         let result = handle_pthread_join callee_pname loc hil_actuals astate in
         analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
         result
-      (* else if (Domain.ReadWriteModels.has_effect (Procname.to_string callee_pname)) then TODO is it still needed? *)
       else if (phys_equal (String.compare (Procname.to_string callee_pname) "malloc") 0)
         || (phys_equal (String.compare (Procname.to_string callee_pname) "calloc") 0) then
         (* TODO nahradit za malloc, calloc, realloc? atd. - neexistuje nejaka funkce is_dynamically_allocated? *)

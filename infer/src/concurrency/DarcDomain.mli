@@ -65,17 +65,13 @@ val transform_sil_exprs_to_hil_list : (Exp.t * Typ.t) list -> bool -> HilExp.t l
 
 (*val load : Ident.t -> Exp.t -> Typ.t -> Location.t -> t -> t*)
 
-val add_heap_alias_when_malloc : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Location.t -> t -> (HilExp.AccessExpression.t * Location.t) list -> (t * (HilExp.AccessExpression.t * Location.t) list)
+val add_heap_alias_when_malloc : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Location.t -> t -> (HilExp.AccessExpression.t * Location.t) list -> Procname.t -> (t * (HilExp.AccessExpression.t * Location.t) list)
 
 val remove_heap_aliases_when_free : HilExp.AccessExpression.t -> t -> t
 
-val load : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Exp.t -> Typ.t -> Location.t -> t -> t
+val load : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Exp.t -> Typ.t -> Location.t -> t -> Procname.t -> t
 
 val store : Exp.t -> Typ.t -> Exp.t -> Location.t -> t -> Procname.t -> t
-
-val _add_rhs_expr_to_accesses : HilExp.AccessExpression.t -> t -> Location.t -> Procname.t -> t
-
-val add_access_to_astate : HilExp.AccessExpression.t -> ReadWriteModels.t -> t -> Location.t (* -> Procname.t *) -> t
 
 val create_thread_from_load_ae : HilExp.AccessExpression.t -> Location.t -> t -> ThreadEvent.t
 

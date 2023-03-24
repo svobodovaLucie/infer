@@ -85,7 +85,7 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
   type nonrec analysis_data = analysis_data
 
   (* READ access handle_load tenv id e typ ~lhs:(Var.of_id id, typ) loc astate *)
-  let handle_load _tenv id e typ ~lhs loc (astate : Domain.t) =
+  let handle_load _tenv id e typ ~lhs loc (astate : Domain.t) pname =
     F.printf "handle_load...\n";
     let lhs_var = fst lhs in
     let add_deref = match (lhs_var : Var.t) with LogicalVar _ -> (F.printf "%a je LogicalVar\n" Var.pp lhs_var; true) | ProgramVar _ -> (F.printf "%a je ProgramVar\n" Var.pp lhs_var; false) in
@@ -96,14 +96,14 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
     | HilExp.AccessExpression e_ae -> (
       F.printf "e_hil_exp: access expression\n";
       let id_ae = HilExp.AccessExpression.of_id id typ in
-      Domain.load id_ae e_ae e typ loc astate
+      Domain.load id_ae e_ae e typ loc astate pname
     )
     | _ -> (
       F.printf "e_hil_exp: other\n";
       astate
     )
 
-let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
+let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname =
   F.printf "random_foo\n";
   let add_deref_e1 =
     match e1 with
@@ -130,7 +130,7 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
       F.printf "\n";
       match e2_hil with
       | AccessExpression e2_ae -> (
-        let (astate_with_new_access_and_heap_alias, updated_heap_tmp) = Domain.add_heap_alias_when_malloc e1_ae e2_ae loc astate !(extras).heap_tmp in
+        let (astate_with_new_access_and_heap_alias, updated_heap_tmp) = Domain.add_heap_alias_when_malloc e1_ae e2_ae loc astate !(extras).heap_tmp pname in
         extras := { !(extras) with heap_tmp=updated_heap_tmp };
         astate_with_new_access_and_heap_alias
       )
@@ -145,7 +145,7 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
      Domain.store e1 typ e2 loc astate pname
    | _ -> ( (* if neco je v extras, then handle heap_store else below *)
 (*     Domain.store_with_heap_alloc e1 typ e2 loc astate pname heap_tmp_list*)
-     handle_store_after_malloc e1 typ e2 loc astate extras
+     handle_store_after_malloc e1 typ e2 loc astate extras pname
    )
 
   let handle_pthread_create callee_pname pname loc actuals sil_actual_argument analyze_dependency astate =
@@ -233,7 +233,7 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
             | Sizeof _ -> F.printf "Sizeof\n" (*  sizeof_data *)
             in
       (* compute the result (add new access, load_aliases etc.) *)
-      let result = handle_load tenv id e typ ~lhs:(Var.of_id id, typ) loc astate in
+      let result = handle_load tenv id e typ ~lhs:(Var.of_id id, typ) loc astate pname in
       (* update last_loc *)
       analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
       result

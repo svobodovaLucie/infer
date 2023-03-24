@@ -148,7 +148,7 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
      handle_store_after_malloc e1 typ e2 loc astate extras
    )
 
-  let handle_pthread_create callee_pname pname loc actuals analyze_dependency astate =
+  let handle_pthread_create callee_pname pname loc actuals sil_actual_argument analyze_dependency astate =
     F.printf "DarcChecker: Pthread_create function call %s at %a\n" (Procname.to_string callee_pname) Location.pp loc;
     (* get first argument - the thread to be added *)
     match List.nth actuals 0 with
@@ -174,7 +174,7 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
             | None -> []
           in
           (* update callee accesses and add them to astate *)
-          Domain.integrate_pthread_summary astate_with_new_thread new_thread f loc summary callee_formals actuals pname
+          Domain.integrate_pthread_summary astate_with_new_thread new_thread f loc summary callee_formals actuals sil_actual_argument pname
         )
       )
       | _ -> astate
@@ -329,9 +329,14 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) =
       F.printf "Call %a on %a: ret_id: %a, ret_typ: %s, call_flags: %a\n" Procname.pp callee_pname Location.pp loc Ident.pp ret_id (Typ.to_string ret_typ) CallFlags.pp call_flags;
       let hil_actuals = Domain.transform_sil_exprs_to_hil_list sil_actuals (* TODO add_deref:false? *) false in
       if (phys_equal (String.compare (Procname.to_string callee_pname) "pthread_create") 0) then
-        let result = handle_pthread_create callee_pname pname loc hil_actuals analyze_dependency astate in
-        analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
-        result
+        let sil_actual_argument = List.nth sil_actuals 3 in (* variable passed to the function *)
+        match sil_actual_argument with
+        | None -> astate
+        | Some sil_actual -> (
+          let result = handle_pthread_create callee_pname pname loc hil_actuals sil_actual analyze_dependency astate in
+          analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
+          result
+        )
       else if (phys_equal (String.compare (Procname.to_string callee_pname) "pthread_join") 0) then
         let result = handle_pthread_join callee_pname loc hil_actuals astate in
         analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
@@ -441,20 +446,6 @@ let add_nonpointer_formals_to_list formals lst_ref pname =
   in
   loop formals
 
-let remove_locals_from_summary summary_opt =
-  match summary_opt with
-  | None -> (
-    F.printf "remove_locals_from_summary: None\n";
-    summary_opt
-  )
-  | Some summary -> (
-    F.printf "remove_locals_from_summary:\n";
-    Domain.print_astate summary;
-    (* TODO remove locals from summary *)
-    let summary_without_locals = Domain.remove_local_accesses summary_opt in
-    summary_without_locals
-  )
-
 let add_formal_to_heap_aliases formal heap_aliases pname =
   (* (Mangled.t * Typ.t) -> HilExp.AccessExpression.t formal *)
   let formal_pvar = Pvar.mk (fst formal) pname in
@@ -535,11 +526,9 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc
       | None -> F.printf "None\n"
       | Some res -> Domain.print_astate res
     in
-    (* remove local accesses from summary *)
-    let summary_without_locals = remove_locals_from_summary result in
     F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s END >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
     (* compute data races in main *)
     if (phys_equal (String.compare (Procname.to_string (Procdesc.get_proc_name proc_desc)) "main") 0) then
-      Option.iter summary_without_locals ~f:(fun post -> report interproc post);
+      Option.iter result ~f:(fun post -> report interproc post);
     (* final summary *)
-    summary_without_locals
+    result

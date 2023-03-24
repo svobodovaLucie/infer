@@ -87,7 +87,7 @@ val remove_thread : HilExp.AccessExpression.t -> t -> t
 
 val integrate_summary : t -> Procname.t -> Location.t -> t -> (Mangled.t * IR.Typ.t) list -> HilExp.t list -> Procname.t -> t
 
-val integrate_pthread_summary : t -> ThreadEvent.t -> Procname.t -> Location.t -> t -> (Mangled.t * IR.Typ.t) list -> HilExp.t list -> Procname.t -> t
+val integrate_pthread_summary : t -> ThreadEvent.t -> Procname.t -> Location.t -> t -> (Mangled.t * IR.Typ.t) list -> HilExp.t list -> (Exp.t * Typ.t) -> Procname.t -> t
 
 val print_astate : t (* -> Location.t -> Procname.t *) -> unit
 
@@ -96,7 +96,5 @@ type summary = t
 val compute_data_races : summary -> (AccessEvent.t * AccessEvent.t) list
 
 val astate_with_clear_load_aliases : t -> t
-
-val remove_local_accesses : summary option -> summary option
 
 val add_heap_aliases_to_astate : t -> (HilExp.AccessExpression.t * Location.t) list -> t

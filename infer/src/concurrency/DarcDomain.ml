@@ -302,7 +302,7 @@ type t =
   lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
   unlockset: Lockset.t;
   aliases: AliasesSet.t;
-  load_aliases: (HilExp.AccessExpression.t * HilExp.AccessExpression.t * Exp.t) list;
+  load_aliases: (HilExp.AccessExpression.t * HilExp.AccessExpression.t) list;
   heap_aliases: (HilExp.AccessExpression.t * Location.t) list;
 (*  locals: (Mangled.t * Typ.t) list; (* TODO maybe use HilExp.AccessExpression.t? *)*)
   locals: HilExp.AccessExpression.t list;
@@ -333,21 +333,8 @@ let empty_with_locals locals =
 }
 
 (* print functions *)
-let print_load_aliases (ae1, ae2, e) =
-  F.printf "(%a, %a, %a), e: " HilExp.AccessExpression.pp ae1 HilExp.AccessExpression.pp ae2 Exp.pp e;
-  match e with
-  | Exp.Var var -> F.printf "Var %a\n" Ident.pp var
-  | Exp.UnOp _ -> F.printf "UnOp\n" (* of Unop.t * t * Typ.t option  (** Unary operator with type of the result if known *) *)
-  | Exp.BinOp _ -> F.printf "BinOp\n" (* of Binop.t * t * t  (** Binary operator *) *)
-  | Exp.Exn _exn -> F.printf "Exn\n" (* of t  (** Exception *) *)
-  | Exp.Closure closure ->  F.printf "Closure %a\n" Exp.pp_closure closure (* of closure  (** Anonymous function *) *)
-  | Exp.Const _const -> F.printf "Const\n" (* Const.pp const  (** Constants *)*)
-  | Exp.Cast _ -> F.printf "Cast\n" (* of Typ.t * t  (** Type cast *) *)
-  | Exp.Lvar lvar -> F.printf "Lvar %a\n" Pvar.pp_value lvar (** The address of a program variable *)
-  | Exp.Lfield (exp, fieldname, _typ) -> F.printf "Lfield exp: %a fieldname: %a\n" Exp.pp exp Fieldname.pp fieldname (* of t * Fieldname.t * Typ.t *)
-                    (** A field offset, the type is the surrounding struct type *)
-  | Exp.Lindex _ -> F.printf "Lindex\n" (* )of t * t  (** An array index offset: [exp1\[exp2\]] *) *)
-  | Exp.Sizeof _ -> F.printf "Sizeof\n" (*  sizeof_data *)
+let print_load_aliases (ae1, ae2) =
+  F.printf "(%a, %a)\n" HilExp.AccessExpression.pp ae1 HilExp.AccessExpression.pp ae2
 
 let _print_load_aliases_list astate =
   let rec print list =
@@ -439,6 +426,16 @@ let _print_actuals actuals =
     | hd :: tl -> F.printf "| %a |" HilExp.pp hd; loop tl
   in loop actuals
 
+let print_astate astate  =
+  (* F.printf "========= printing astate... ==========\n"; *)
+  F.printf "access=%a\n" AccessSet.pp astate.accesses;
+  F.printf "lockset=%a\n" Lockset.pp astate.lockset;
+  F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
+  F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
+  F.printf "aliases=%a\n" AliasesSet.pp astate.aliases
+  (* F.printf "caller_pname=%a\n" Procname.pp caller_pname; *)
+  (* F.printf "loc=%a\n" Location.pp loc *)
+  (* F.printf "=======================================\n" *)
 
 
 
@@ -447,7 +444,7 @@ let _print_actuals actuals =
 let rec find_mem_alias var aliases =  (* return Aliases.t option *)
  match aliases with
  | [] -> F.printf "find_mem_alias: None\n"; None
- | (fst, snd, _)::t -> (
+ | (fst, snd)::t -> (
    F.printf "find_mem_alias: fst: %a, snd: %a, lhs: %a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd HilExp.AccessExpression.pp var;
    if ((HilExp.AccessExpression.equal fst var)) (* || (HilExp.AccessExpression.equal snd var)) *) then (
      F.printf "find_mem_alias: %a, rhs: .a\n" Aliases.pp (fst, snd) (* HilExp.AccessExpression.pp rhs *);
@@ -650,7 +647,7 @@ let rec find_heap_alias_by_var var heap_aliases =
 let rec find_load_alias_by_var var load_aliases =
   match load_aliases with
   | [] -> None
-  | (fst, snd, _) :: t -> (
+  | (fst, snd) :: t -> (
     if HilExp.AccessExpression.equal var fst then
       Some (fst, snd)
     else
@@ -811,6 +808,8 @@ let update_aliases lhs rhs astate =
 
  *)
 
+
+
 (* functions that handle threads *)
 (* function returns None or Some (thread, loc, false) *)
 let create_thread_from_load_ae_with_false_flag load loc astate =
@@ -929,17 +928,6 @@ let initial_main locals =
     let threads_active = ThreadSet.add main_thread empty_astate.threads_active in
     { empty_astate with threads_active }
 
-let print_astate astate  =
-  (* F.printf "========= printing astate... ==========\n"; *)
-  F.printf "access=%a\n" AccessSet.pp astate.accesses;
-  F.printf "lockset=%a\n" Lockset.pp astate.lockset;
-  F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
-  F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
-  F.printf "aliases=%a\n" AliasesSet.pp astate.aliases
-  (* F.printf "caller_pname=%a\n" Procname.pp caller_pname; *)
-  (* F.printf "loc=%a\n" Location.pp loc *)
-  (* F.printf "=======================================\n" *)
-
 (* Function transforms SIL expression to HIL expression *)
 (* TODO handle f_resolve_id, add_deref and include_array_indexes correctly *)
 let transform_sil_expr_to_hil sil_exp sil_typ add_deref =
@@ -1043,6 +1031,9 @@ let fst_aliasing_snd exp mem_aliased ~add_deref : HilExp.AccessExpression.t =
       | HilExp.AccessExpression.Dereference _ -> HilExp.AccessExpression.dereference res
       | _ -> res
 
+
+
+(* functions that handle locks *)
 (* function adds a lock to lockset and removes it from unlockset *)
 let acquire_lock lockid astate loc =
   (* dealiasing *)
@@ -1094,6 +1085,9 @@ let release_lock lockid astate loc =
     new_astate
   )
   | _ -> astate
+
+
+
 
 (*
   malloc:
@@ -1263,7 +1257,7 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
       F.printf "e_aliased_final: %a\n" HilExp.AccessExpression.pp e_aliased_final;
       (* save alias to the load_aliases set *)
       let e_to_add = e_aliased_final in
-      let new_mem_alias = (id_ae, e_to_add, e) in
+      let new_mem_alias = (id_ae, e_to_add) in
         let load_aliases = new_mem_alias :: astate.load_aliases in
         let astate = { astate with load_aliases } in
         F.printf "load_aliases after:\n";
@@ -1275,7 +1269,7 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
   )
   | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> (
     F.printf "Lvar or Lfield or Lindex\n";
-    let new_mem_alias = (id_ae, e_ae, e) in
+    let new_mem_alias = (id_ae, e_ae) in
       let load_aliases = new_mem_alias :: astate.load_aliases in
       let astate = { astate with load_aliases } in
       F.printf "load_aliases after:\n";
@@ -1286,7 +1280,7 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
   )
   | _ -> (
     F.printf "other e, nemelo by nastat\n";
-    let new_mem_alias = (id_ae, e_ae, e) in
+    let new_mem_alias = (id_ae, e_ae) in
       let load_aliases = new_mem_alias :: astate.load_aliases in
       let astate = { astate with load_aliases } in
       F.printf "load_aliases after:\n";

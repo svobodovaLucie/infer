@@ -332,6 +332,7 @@ let empty_with_locals locals =
   locals;
 }
 
+(* print functions *)
 let print_load_aliases (ae1, ae2, e) =
   F.printf "(%a, %a, %a), e: " HilExp.AccessExpression.pp ae1 HilExp.AccessExpression.pp ae2 Exp.pp e;
   match e with
@@ -372,6 +373,76 @@ let _print_alias alias = (
  | None -> F.printf "print_alias: None\n";
  | Some (fst, snd) -> F.printf "print_alias: %a\n" Aliases.pp (fst, snd);
  )
+
+let print_accesses accesses =
+  F.printf "accesses: -----\n%a\n" AccessSet.pp accesses
+
+let _print_alias_opt alias =
+  F.printf "print_alias_opt...\n";
+  match alias with
+  | None -> F.printf "None\n"
+  | Some (fst, snd) -> F.printf "(%a, %a)\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd
+
+let print_locals astate =
+  F.printf "locals: {";
+  let rec print_vars = function
+    | [] -> F.printf "}\n"
+    | hd :: tl -> F.printf "%a, " HilExp.AccessExpression.pp hd; print_vars tl
+(*    | hd :: tl ->*)
+(*      let typ_string = Typ.to_string (snd hd) in*)
+(*      F.printf "|(%a, %s)|" Mangled.pp (fst hd) typ_string; print_vars tl*)
+  in
+  print_vars astate.locals
+
+let _print_astate_all astate loc caller_pname =
+  F.printf "========= printing astate... ==========\n";
+  F.printf "access=%a\n" AccessSet.pp astate.accesses;
+  F.printf "lockset=%a\n" Lockset.pp astate.lockset;
+  F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
+  F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
+  F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
+  F.printf "caller_pname=%a\n" Procname.pp caller_pname;
+  F.printf "loc=%a\n" Location.pp loc;
+  print_locals astate;
+  F.printf "=======================================\n"
+
+let _print_formals formals =
+  F.printf "print_formals: \n";
+  let rec loop = function
+    | [] -> F.printf "\n"
+    | (mangled, typ) :: tl ->
+      (*
+      let print_type typ =
+        match typ with
+        | Tptr -> F.printf "Tptr\n";
+        | Tfun -> F.printf "Tfun\n";
+        | Tvar -> F.printf "Tvar\n";
+        | _ -> F.printf "Tother\n";
+      in
+      print_type typ;
+      *)
+      let typ_string = Typ.to_string typ in
+      (* F.printf "typ: %s\n" (Typ.to_string typ); *)
+      let _is_ptr =
+        if (Typ.is_pointer typ) then
+          F.printf "is pointer\n"
+        else
+          F.printf "isn't pointer\n"
+      in
+      F.printf "| (%a," IR.Mangled.pp mangled; F.printf " %s) |" typ_string; loop tl
+  in loop formals
+
+let _print_actuals actuals =
+  F.printf "print_actuals: \n";
+  let rec loop = function
+    | [] -> F.printf "\n"
+    | hd :: tl -> F.printf "| %a |" HilExp.pp hd; loop tl
+  in loop actuals
+
+
+
+
+
 
 let rec find_mem_alias var aliases =  (* return Aliases.t option *)
  match aliases with
@@ -740,6 +811,7 @@ let update_aliases lhs rhs astate =
 
  *)
 
+(* functions that handle threads *)
 (* function returns None or Some (thread, loc) *)
 let create_thread_from_load_ae load loc astate =
     let thread_load_alias = find_load_alias_by_var load astate.load_aliases in
@@ -791,61 +863,44 @@ let add_thread thread astate =
   in
   { astate with threads_active }
 
-(* return None or Some (thread_ae, thread_loc) *)
-let find_thread_with_true_flag_in_threads_active thread_name threads =
-  let threads_list : (AccessPath.t * Location.t * Bool.t) list = ThreadSet.elements threads in
-  let rec find lst =
-    match lst with
-    | [] -> None
-    | (th_ap, _, flag) as th :: t -> (
-      if (AccessPath.equal th_ap thread_name) && flag then
-        Some th
-      else
-        find t
-    )
-  in
-  find threads_list
-
-  (* return None or Some (thread_ae, thread_loc) *)
-  let find_thread_with_false_flag_in_threads_active thread_name threads =
+  (* function finds thread in threads set and returns None if not found or Some (thread_ae, thread_loc) if found *)
+  let find_thread_in_threads_active thread_name threads ~created_in_loop_flag =
     let threads_list : (AccessPath.t * Location.t * Bool.t) list = ThreadSet.elements threads in
-    let rec find lst =
+    let rec find_thread lst =
       match lst with
       | [] -> None
       | (th_ap, _, flag) as th :: t -> (
-        if (AccessPath.equal th_ap thread_name) && (not flag) then
+        if (AccessPath.equal th_ap thread_name) && (Bool.equal flag created_in_loop_flag) then
           Some th
         else
-          find t
+          find_thread t
       )
     in
-    find threads_list
+    find_thread threads_list
 
-let remove_thread load astate =
+(* function tries to find thread with flag created_in_loop set to true in astate.threads_active,
+   if found then removes it, if not found, tries to find the thread with false flag and removes it *)
+let remove_thread load_ae astate =
   (* find thread by its name in threads *)
-  let thread_load_alias = find_load_alias_by_var load astate.load_aliases in
+  let thread_load_alias = find_load_alias_by_var load_ae astate.load_aliases in
   match thread_load_alias with
   | None -> astate (* not found *)
   | Some (_, thread_ae) -> (
     let thread_name = HilExp.AccessExpression.to_access_path thread_ae in
     (* find the thread in threads_active - first find with true flag *)
-    let thread_with_true_flag = find_thread_with_true_flag_in_threads_active thread_name astate.threads_active in
+    let thread_with_true_flag = find_thread_in_threads_active thread_name astate.threads_active ~created_in_loop_flag:true in
     (* if found then remove *)
     match thread_with_true_flag with
     | Some th -> (
-      (* if found then remove *)
-      F.printf "Removing thread: %a \n" ThreadEvent.pp th;
       (* remove the thread *)
       let threads_active = ThreadSet.remove th astate.threads_active in
       { astate with threads_active }
     )
     | None -> (
       (* else find the thread with false flag *)
-      let thread = find_thread_with_false_flag_in_threads_active thread_name astate.threads_active in
+      let thread = find_thread_in_threads_active thread_name astate.threads_active ~created_in_loop_flag:false in
       match thread with
       | Some th ->
-        (* if found then remove *)
-        F.printf "Removing thread: %a \n" ThreadEvent.pp th;
         (* remove the thread *)
         let threads_active = ThreadSet.remove th astate.threads_active in
         { astate with threads_active }
@@ -853,9 +908,14 @@ let remove_thread load astate =
     )
   )
 
+(* function returns main thread option *)
 let create_main_thread = 
   let main_thread = ThreadEvent.create_main_thread in
   Some main_thread
+
+
+
+
 
 let initial_main locals =
   (* create empty astate *)
@@ -1355,85 +1415,6 @@ let remove_heap_aliases_when_free actual_to_be_removed astate =
     F.printf "Some var=%a, snd=%a\n" HilExp.AccessExpression.pp var HilExp.AccessExpression.pp snd;
   (* remove var and all aliases with the same loc as loc *)
     remove_heap_alias_by_var_name snd astate
-
-let print_accesses accesses =
-  F.printf "accesses: -----\n%a\n" AccessSet.pp accesses
-(*
-let _print_summary_accesses astate pname =
-  F.printf "---- print_summary_accesses of %a ----\n" Procname.pp pname;
-  (* F.printf "%a\n" AccessSet.pp_short astate.accesses; *)
-  F.printf "%a\n" AccessSet.pp astate;
-  F.printf "--------------------------------------\n"
-*)
-
-let _print_alias_opt alias =
-  F.printf "print_alias_opt...\n";
-  match alias with
-  | None -> F.printf "None\n"
-  | Some (fst, snd) -> F.printf "(%a, %a)\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd
-
-let print_locals astate =
-  F.printf "locals: {";
-  let rec print_vars = function
-    | [] -> F.printf "}\n"
-    | hd :: tl -> F.printf "%a, " HilExp.AccessExpression.pp hd; print_vars tl
-(*    | hd :: tl ->*)
-(*      let typ_string = Typ.to_string (snd hd) in*)
-(*      F.printf "|(%a, %s)|" Mangled.pp (fst hd) typ_string; print_vars tl*)
-  in
-  print_vars astate.locals
-
-let _print_astate_all astate loc caller_pname =
-  F.printf "========= printing astate... ==========\n";
-  F.printf "access=%a\n" AccessSet.pp astate.accesses;
-  F.printf "lockset=%a\n" Lockset.pp astate.lockset;
-  F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
-  F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
-  F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
-  F.printf "caller_pname=%a\n" Procname.pp caller_pname;
-  F.printf "loc=%a\n" Location.pp loc;
-  print_locals astate;
-  F.printf "=======================================\n"
-
-(*
-let _print_summary_accesses astate pname =
-  F.printf "---- print_summary_accesses of %a ----\n" Procname.pp pname;
-  (* F.printf "%a\n" AccessSet.pp_short astate.accesses; *)
-  F.printf "%a\n" AccessSet.pp astate;
-  F.printf "--------------------------------------\n"
-*)
-let _print_formals formals =
-  F.printf "print_formals: \n";
-  let rec loop = function
-    | [] -> F.printf "\n"
-    | (mangled, typ) :: tl ->
-      (*
-      let print_type typ =
-        match typ with
-        | Tptr -> F.printf "Tptr\n";
-        | Tfun -> F.printf "Tfun\n";
-        | Tvar -> F.printf "Tvar\n";
-        | _ -> F.printf "Tother\n";
-      in
-      print_type typ;
-      *)
-      let typ_string = Typ.to_string typ in
-      (* F.printf "typ: %s\n" (Typ.to_string typ); *)
-      let _is_ptr =
-        if (Typ.is_pointer typ) then
-          F.printf "is pointer\n"
-        else
-          F.printf "isn't pointer\n"
-      in
-      F.printf "| (%a," IR.Mangled.pp mangled; F.printf " %s) |" typ_string; loop tl
-  in loop formals
-
-let _print_actuals actuals =
-  F.printf "print_actuals: \n";
-  let rec loop = function
-    | [] -> F.printf "\n"
-    | hd :: tl -> F.printf "| %a |" HilExp.pp hd; loop tl
-  in loop actuals
 
 let remove_accesses_to_formal formal accesses : AccessSet.t =
   F.printf "remove_accesses_to_formal\n";

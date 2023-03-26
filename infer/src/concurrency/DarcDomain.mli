@@ -59,7 +59,7 @@ val transform_sil_expr_to_hil : Exp.t -> Typ.t -> bool -> HilExp.t
 
 val transform_sil_exprs_to_hil_list : (Exp.t * Typ.t) list -> bool -> HilExp.t list
 
-val add_heap_alias_when_malloc : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Location.t -> t -> (HilExp.AccessExpression.t * Location.t) list -> Procname.t -> (t * (HilExp.AccessExpression.t * Location.t) list)
+val add_access_with_heap_alias_when_malloc : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Location.t -> t -> (HilExp.AccessExpression.t * Location.t) list -> Procname.t -> (t * (HilExp.AccessExpression.t * Location.t) list)
 
 val remove_heap_aliases_when_free : HilExp.AccessExpression.t -> t -> t
 

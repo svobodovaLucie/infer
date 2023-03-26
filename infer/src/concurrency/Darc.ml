@@ -98,7 +98,7 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
       F.printf "\n";
       match e2_hil with
       | AccessExpression e2_ae -> (
-        let (astate_with_new_access_and_heap_alias, updated_heap_tmp) = Domain.add_heap_alias_when_malloc e1_ae e2_ae loc astate !(extras).heap_tmp pname in
+        let (astate_with_new_access_and_heap_alias, updated_heap_tmp) = Domain.add_access_with_heap_alias_when_malloc e1_ae e2_ae loc astate !(extras).heap_tmp pname in
         extras := { !(extras) with heap_tmp=updated_heap_tmp };
         astate_with_new_access_and_heap_alias
       )

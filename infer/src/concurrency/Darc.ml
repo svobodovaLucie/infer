@@ -28,38 +28,6 @@ let initial_extras =
 
 type analysis_data = {interproc: DarcDomain.summary InterproceduralAnalysis.t; extras : extras_t ref}
 
-let _assign_expr lhs_access_expr rhs_expr loc (astate : Domain.t) pname =
-  F.printf "Access lhs: %a at %a\n" HilExp.AccessExpression.pp lhs_access_expr Location.pp loc;
-  let lhs_access_path = HilExp.AccessExpression.to_access_path lhs_access_expr in
-  F.printf "Access lhs access path: %a at %a\n" AccessPath.pp lhs_access_path Location.pp loc;
-  let get_base (a, _) = a in
-  let get_access_list (_, b) = b in
-  let lhs_base = get_base (lhs_access_path) in
-  let lhs_access_list = get_access_list (lhs_access_path) in
-  let _lhs_accesses = HilExp.AccessExpression.to_accesses lhs_access_expr in
-  F.printf "AccessPath: pp: |%a|, pp_base: |%a|, pp_access: , pp_access_list: |%a|\n" AccessPath.pp lhs_access_path AccessPath.pp_base lhs_base AccessPath.pp_access_list lhs_access_list;
-  (* access expression type: *)
-  let new_astate = Domain.assign_expr lhs_access_expr astate loc pname Domain.ReadWriteModels.Write in
-  let rhs_access_expr = HilExp.get_access_exprs rhs_expr in
-  let rhs_access_expr_first = List.hd rhs_access_expr in
-  match rhs_access_expr_first with
-  | Some rhs_access_expr_some ->
-    (* add rhs expression (transformed with an alias if any) to accesses, then add alias *)
-    (* add rhs expr *)
-      (* find rhs in expr and nahrad ho pokud tam je *)
-    (* let new_astate_with_rhs = Domain.add_rhs_expr_to_accesses rhs_access_expr_some new_astate loc pname in *)
-    let new_astate_with_rhs = Domain.assign_expr rhs_access_expr_some new_astate loc pname Domain.ReadWriteModels.Read in
-    (* update aliases *)
-    let astate_with_updated_aliases = Domain.update_aliases lhs_access_expr rhs_access_expr_some new_astate_with_rhs in
-    (* TODO nepridavam rhs expressions do accesses!!! *)
-    (* add rhs to accesses, implicitly Read, jinak je funkce stejna jako Domain.assign_expr pro lhs! *)
-    F.printf "Some in Darc.assign_expr - rhs_access_expr_some: %a\n" HilExp.AccessExpression.pp rhs_access_expr_some;
-    astate_with_updated_aliases
-  | None -> (
-    F.printf "None in Darc.assign_expr - rhs_access_expr_some\n";
-    new_astate
-  )
-
 let handle_free hil_actuals astate =
   (* get actuals - prvni z nich je LOAD alias toho, co se ma odstranit z heap_aliases *)
   let hil_actuals_first = List.hd hil_actuals in

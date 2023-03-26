@@ -55,15 +55,9 @@ val acquire_lock : HilExp.t -> t -> Location.t -> t
 
 val release_lock : HilExp.t -> t -> Location.t -> t
 
-val assign_expr : HilExp.AccessExpression.t -> t -> Location.t -> Procname.t -> ReadWriteModels.t -> t
-
-(* val store : HilExp.AccessExpression.t -> t -> Location.t -> Procname.t -> ReadWriteModels.t -> t *)
-
 val transform_sil_expr_to_hil : Exp.t -> Typ.t -> bool -> HilExp.t
 
 val transform_sil_exprs_to_hil_list : (Exp.t * Typ.t) list -> bool -> HilExp.t list
-
-(*val load : Ident.t -> Exp.t -> Typ.t -> Location.t -> t -> t*)
 
 val add_heap_alias_when_malloc : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Location.t -> t -> (HilExp.AccessExpression.t * Location.t) list -> Procname.t -> (t * (HilExp.AccessExpression.t * Location.t) list)
 

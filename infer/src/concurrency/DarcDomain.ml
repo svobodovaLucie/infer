@@ -812,50 +812,50 @@ let update_aliases lhs rhs astate =
  *)
 
 (* functions that handle threads *)
-(* function returns None or Some (thread, loc) *)
-let create_thread_from_load_ae load loc astate =
-    let thread_load_alias = find_load_alias_by_var load astate.load_aliases in
-    match thread_load_alias with
-    | None -> (
-      let load_ap = HilExp.AccessExpression.to_access_path load in
-      (load_ap, loc, false)
-    )
-    | Some (_, final_thread) -> (
-      (* create new thread *)
-      let final_thread_ap = HilExp.AccessExpression.to_access_path final_thread in
-      (final_thread_ap, loc, false)
-    )
+(* function returns None or Some (thread, loc, false) *)
+let create_thread_from_load_ae_with_false_flag load loc astate =
+  (* load expression dealiasing *)
+  let thread_load_alias = find_load_alias_by_var load astate.load_aliases in
+  match thread_load_alias with
+  | None -> (
+    let load_ap = HilExp.AccessExpression.to_access_path load in
+    (load_ap, loc, false)
+  )
+  | Some (_, final_thread) -> (
+    (* create new thread from alias *)
+    let final_thread_ap = HilExp.AccessExpression.to_access_path final_thread in
+    (final_thread_ap, loc, false)
+  )
 
+(* function created new thread from load alias *)
 let new_thread th_load_ae loc astate =
-  (* dealias load expression *)
-  let new_thread_from_load_with_false_flag = create_thread_from_load_ae th_load_ae loc astate in
+  (* dealiasing load expression *)
+  let new_thread_from_load_with_false_flag = create_thread_from_load_ae_with_false_flag th_load_ae loc astate in
   (* find thread (with false flag) in threads_active *)
   let found_with_false_flag = ThreadSet.mem new_thread_from_load_with_false_flag astate.threads_active in
-  (* if found then find the same thread with true *)
   match found_with_false_flag with
   | false -> new_thread_from_load_with_false_flag
   | true -> (
+      (* if found then find the same thread with true *)
       let (th, loc, _) = new_thread_from_load_with_false_flag in
-      let thread_with_true = (th, loc, true) in
-      (* let found_with_true_flag = ThreadSet.mem thread_with_true astate.threads_active in *)
-      thread_with_true
+      let thread_with_true_flag = (th, loc, true) in
+      thread_with_true_flag
   )
 
+(* function add thread to astate.threads_active,
+   if there already is the thread with false created_in_loop flag, adds it with true flag *)
 let add_thread thread astate =
   (* find thread in threads_active *)
   let found_with_false_flag = ThreadSet.mem thread astate.threads_active in
-  F.printf "found_with_false_flag: %b\n" found_with_false_flag;
-  (* if found then find the same thread with true *)
   let threads_active =
-    (* if found then don't add *)
     match found_with_false_flag with
     | false -> ThreadSet.add thread astate.threads_active
     | true -> (
+      (* if found then find the same thread with true *)
       let (th, loc, _) = thread in
       let thread_with_true = (th, loc, true) in
       let found_with_true_flag = ThreadSet.mem thread_with_true astate.threads_active in
-      F.printf "found_with_true_flag: %b\n" found_with_true_flag;
-      (* else add *)
+      (* add the thread if it is not already present in astate.threads_active *)
       match found_with_true_flag with
       | false -> ThreadSet.add thread_with_true astate.threads_active
       | true -> astate.threads_active
@@ -863,20 +863,20 @@ let add_thread thread astate =
   in
   { astate with threads_active }
 
-  (* function finds thread in threads set and returns None if not found or Some (thread_ae, thread_loc) if found *)
-  let find_thread_in_threads_active thread_name threads ~created_in_loop_flag =
-    let threads_list : (AccessPath.t * Location.t * Bool.t) list = ThreadSet.elements threads in
-    let rec find_thread lst =
-      match lst with
-      | [] -> None
-      | (th_ap, _, flag) as th :: t -> (
-        if (AccessPath.equal th_ap thread_name) && (Bool.equal flag created_in_loop_flag) then
-          Some th
-        else
-          find_thread t
-      )
-    in
-    find_thread threads_list
+(* function finds thread in threads set and returns None if not found or Some thread if found *)
+let find_thread_in_threads_active thread_name threads ~created_in_loop_flag =
+  let threads_list : (AccessPath.t * Location.t * Bool.t) list = ThreadSet.elements threads in
+  let rec find_thread lst =
+    match lst with
+    | [] -> None
+    | (th_ap, _, flag) as th :: t -> (
+      if (AccessPath.equal th_ap thread_name) && (Bool.equal flag created_in_loop_flag) then
+        Some th
+      else
+        find_thread t
+    )
+  in
+  find_thread threads_list
 
 (* function tries to find thread with flag created_in_loop set to true in astate.threads_active,
    if found then removes it, if not found, tries to find the thread with false flag and removes it *)

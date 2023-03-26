@@ -204,12 +204,6 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
   let exec_instr (astate : Domain.t) ({interproc= {proc_desc; tenv; analyze_dependency}} as analysis_data) _ _ instr =
     F.printf "\n";
     let pname = Procdesc.get_proc_name proc_desc in
-    (*     l1 + l2 / l3 -> [l1] *)
-    let get_path actuals =
-      List.hd actuals |> Option.value_map ~default:[] ~f:HilExp.get_access_exprs |> List.hd
-      |> Option.map ~f:HilExp.AccessExpression.to_access_path
-    in
-    (* F.printf "extras.last_loc: %a =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-= \n" Location.pp !(analysis_data.extras).last_loc; *)
     match (instr : Sil.instr) with
     | Load {id; e; typ; loc} -> (
       (* check if loc is larger than last_loc -> if true, clear load_aliases set *)
@@ -362,8 +356,11 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
                  F.printf "Function %a at %a\n" Procname.pp callee_pname Location.pp loc;
                  F.printf "lock at %a\n" Location.pp loc;
                  Domain.print_astate astate (* loc pname*);
-                 let result = get_path hil_actuals
-                 |> Option.value_map ~default:astate ~f:(fun path -> Domain.acquire path astate loc (* extras *) pname)
+                 let result =
+                   (* pthread_mutex_lock(mutex) - one argument *)
+                   match hil_actuals with
+                   | actual :: [] -> Domain.acquire_lock actual astate loc
+                   | _ -> astate (* FIXME *)
                  in
                  analysis_data.extras := { !(analysis_data.extras) with last_loc = loc };
                  result
@@ -372,8 +369,14 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
                  F.printf "Function %a at %a\n" Procname.pp callee_pname Location.pp loc;
                  F.printf "unlock at %a\n" Location.pp loc;
                  Domain.print_astate astate (* loc pname*);
-                 get_path hil_actuals
-                 |> Option.value_map ~default:astate ~f:(fun path -> Domain.release path astate loc (* extras *) pname)
+                 let result =
+                   (* pthread_mutex_unlock(mutex) - one argument *)
+                   match hil_actuals with
+                   | actual :: [] -> Domain.release_lock actual astate loc
+                   | _ -> astate (* shouldn't happen *)
+                 in
+                 analysis_data.extras := { !(analysis_data.extras) with last_loc = loc };
+                 result
                )
                (* TODO try_lock *)
                | NoEffect -> (

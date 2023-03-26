@@ -51,9 +51,9 @@ val empty_with_locals : HilExp.AccessExpression.t list -> t
 (*val initial_main : (Mangled.t * Typ.t) list -> t*)
 val initial_main : HilExp.AccessExpression.t list -> t
 
-val acquire : AccessPath.t -> t -> Location.t -> Procname.t -> t
+val acquire_lock : HilExp.t -> t -> Location.t -> t
 
-val release : AccessPath.t -> t -> Location.t -> Procname.t -> t
+val release_lock : HilExp.t -> t -> Location.t -> t
 
 val assign_expr : HilExp.AccessExpression.t -> t -> Location.t -> Procname.t -> ReadWriteModels.t -> t
 
@@ -72,8 +72,6 @@ val remove_heap_aliases_when_free : HilExp.AccessExpression.t -> t -> t
 val load : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> Exp.t -> Typ.t -> Location.t -> t -> Procname.t -> t
 
 val store : Exp.t -> Typ.t -> Exp.t -> Location.t -> t -> Procname.t -> t
-
-val create_thread_from_load_ae : HilExp.AccessExpression.t -> Location.t -> t -> ThreadEvent.t
 
 val new_thread : HilExp.AccessExpression.t -> Location.t -> t -> ThreadEvent.t
 

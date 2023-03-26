@@ -545,7 +545,7 @@ let get_base_alias lhs aliases = (* vraci None | Some (m, &y) *)
   let lhs_ae = HilExp.AccessExpression.base lhs_base in
   check_lhs lhs lhs_ae lhs_ae aliases
 
-let replace_var_with_aliases var aliases = (* if alias is not found, var is returned *)
+let _replace_var_with_aliases var aliases = (* if alias is not found, var is returned *)
   let var_base = HilExp.AccessExpression.get_base var in
   let var_ae = HilExp.AccessExpression.base var_base in
   let result_option = check_lhs var var_ae var_ae aliases in
@@ -1009,38 +1009,15 @@ let initial_main locals =
     let threads_active = ThreadSet.add main_thread empty_astate.threads_active in
     { empty_astate with threads_active }
 
-let acquire lockid astate loc pname =
-  F.printf "acquire: pname = %a in Darc\n" Procname.pp pname;
-  let lock : LockEvent.t = (lockid, loc) in
-  let new_astate : t =
-    let lockset = Lockset.add lock astate.lockset in
-    let unlockset = Lockset.remove lock astate.unlockset in
-    { astate with lockset; unlockset }
-  in
-  new_astate
-
-let release lockid astate loc pname =
-  F.printf "release: pname = %a in Darc\n" Procname.pp pname;
-  let lock : LockEvent.t = (lockid, loc) in
-  let new_astate : t =
-    let lockset = Lockset.remove lock astate.lockset in
-    let unlockset = Lockset.add lock astate.unlockset in
-    { astate with lockset; unlockset }
-  in
-  new_astate
-
-
 let print_astate astate  =
   (* F.printf "========= printing astate... ==========\n"; *)
-  F.printf "access=%a\n" AccessSet.pp astate.accesses
-  (*
+  F.printf "access=%a\n" AccessSet.pp astate.accesses;
   F.printf "lockset=%a\n" Lockset.pp astate.lockset;
   F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
   F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
-  F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
-  F.printf "caller_pname=%a\n" Procname.pp caller_pname;
-  F.printf "loc=%a\n" Location.pp loc;
-  *)
+  F.printf "aliases=%a\n" AliasesSet.pp astate.aliases
+  (* F.printf "caller_pname=%a\n" Procname.pp caller_pname; *)
+  (* F.printf "loc=%a\n" Location.pp loc *)
   (* F.printf "=======================================\n" *)
 
 (* Function transforms SIL expression to HIL expression *)
@@ -1186,6 +1163,57 @@ let fst_aliasing_snd_with_dereference_counter exp mem_aliased : HilExp.AccessExp
       | HilExp.AccessExpression.Dereference _ -> HilExp.AccessExpression.dereference res
       | _ -> res
 
+(* function adds a lock to lockset and removes it from unlockset *)
+let acquire_lock lockid astate loc =
+  (* dealiasing *)
+  match lockid with
+  | HilExp.AccessExpression e_ae -> (
+    let actual_dealiased_hilexp =
+      let e_aliased = fst_aliasing_snd_with_dereference_counter e_ae astate.load_aliases in
+      (* find e_alised in aliases *)
+      let e_aliased_final = replace_var_with_aliases_without_address_of e_aliased (AliasesSet.elements astate.aliases) in
+      F.printf "e_aliased_final: %a\n" HilExp.AccessExpression.pp e_aliased_final;
+      e_aliased_final
+    in
+    let lockid = HilExp.AccessExpression.to_access_path actual_dealiased_hilexp in
+    (* add the lock *)
+    let lock : LockEvent.t = (lockid, loc) in
+    F.printf "adding lock: %a\n" LockEvent.pp lock;
+    let new_astate : t =
+      let lockset = Lockset.add lock astate.lockset in
+      let unlockset = Lockset.remove lock astate.unlockset in
+      { astate with lockset; unlockset }
+    in
+    new_astate
+  )
+  | _ -> astate
+
+(* function removes lock from lockset and adds it to unlockset *)
+let release_lock lockid astate loc =
+  (* dealiasing *)
+  match lockid with
+  | HilExp.AccessExpression e_ae -> (
+    let actual_dealiased_hilexp =
+      let e_aliased = fst_aliasing_snd_with_dereference_counter e_ae astate.load_aliases in
+      F.printf "e_aliased: %a\n" HilExp.AccessExpression.pp e_aliased;
+      (* find e_alised in aliases *)
+      F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
+      let e_aliased_final = replace_var_with_aliases_without_address_of e_aliased (AliasesSet.elements astate.aliases) in
+      F.printf "e_aliased_final: %a\n" HilExp.AccessExpression.pp e_aliased_final;
+      e_aliased_final
+    in
+    let lockid = HilExp.AccessExpression.to_access_path actual_dealiased_hilexp in
+    (* remove the lock *)
+    let lock : LockEvent.t = (lockid, loc) in
+    F.printf "removing lock: %a\n" LockEvent.pp lock;
+    let new_astate : t =
+      let lockset = Lockset.remove lock astate.lockset in
+      let unlockset = Lockset.add lock astate.unlockset in
+      { astate with lockset; unlockset }
+    in
+    new_astate
+  )
+  | _ -> astate
 
 (*
   malloc:
@@ -1551,39 +1579,6 @@ let _print_alias_opt alias =
   match alias with
   | None -> F.printf "None\n"
   | Some (fst, snd) -> F.printf "(%a, %a)\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd
-
-(* implicitly Read *)
-let _add_rhs_expr_to_accesses var astate loc pname =
-  F.printf "Inside add_rhs_expr_to_accesses in Domain\n";
-  let new_access : AccessEvent.t =
-    let var_aliased = replace_var_with_aliases var (AliasesSet.elements astate.aliases) in
-    let access_type = ReadWriteModels.Read in (* TODO appropriate access_type*)
-    let locked = astate.lockset in
-    let unlocked = astate.unlockset in
-    let threads_active = astate.threads_active in
-    let thread = if (phys_equal (String.compare (Procname.to_string pname) "main") 0) then create_main_thread else
-      (* if the astate.threads_active contains main thread -> the thread is main, alse None? *)
-      (* or simply if the procedure is main -> main thread *)
-
-        None in (* TODO in the case of main... *) (* TODO create_main_thread *)
-    { var=var_aliased; loc; access_type; locked; unlocked; threads_active; thread }
-  in
-  let accesses = AccessSet.add new_access astate.accesses in
-  F.printf "Accesses old: ------------\n";
-  print_accesses astate.accesses;
-  F.printf "Accesses new: ------------\n";
-  print_accesses accesses;
-  { astate with accesses }
-
-let print_accesses accesses =
-  F.printf "accesses: -----\n%a\n" AccessSet.pp accesses
-(*
-let _print_summary_accesses astate pname =
-  F.printf "---- print_summary_accesses of %a ----\n" Procname.pp pname;
-  (* F.printf "%a\n" AccessSet.pp_short astate.accesses; *)
-  F.printf "%a\n" AccessSet.pp astate;
-  F.printf "--------------------------------------\n"
-*)
 
 let print_locals astate =
   F.printf "locals: {";

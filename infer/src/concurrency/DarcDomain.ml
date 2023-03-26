@@ -442,6 +442,10 @@ let rec _print_ae_list ae_list =
   | [] -> F.printf ".\n"
   | h::t -> F.printf "%a, " Aliases.pp h; _print_ae_list t
 
+let rec print_pairs_list lst =
+  match lst with
+  | [] -> F.printf "\n"
+  | h::t -> AccessEvent.print_access_pair h; print_pairs_list t
 
 (* functions that handle aliases *)
 (* function returns base of var as access expression type *)
@@ -1019,20 +1023,6 @@ let release_lock lockid astate loc =
 
 
 
-
-(*
-  malloc:
-    CALL malloc, ret_id: n$7, loc
-    STORE e1:&n, e2: n$7
-
-    -> malloc: heap_tmp: [(n$7, loc)]
-    -> store:
-         vidim (n$7, loc), mam (&n, n$7)
-         hledam v heap_tmp e2 -> pak ho vezmu, vyrobim (e1, loc) a pridam do heap_aliases
-*)
-
-
-
 let add_accesses_to_astate_with_aliases_or_heap_aliases e1_ae e1_aliased_final access_type astate loc pname =
   if (HilExp.AccessExpression.equal e1_ae e1_aliased_final) then
     begin
@@ -1238,8 +1228,9 @@ let store e1 typ e2 loc astate pname =
     )
     | _ -> astate
 
+(* function removes all accesses to formal parameter of a function
+   (used when the actual parameter is NULL in function call *)
 let remove_accesses_to_formal formal accesses : AccessSet.t =
-  F.printf "remove_accesses_to_formal\n";
   (* create base of formal *)
   let formal_base = HilExp.AccessExpression.get_base formal in
   (* create list from set *)
@@ -1250,15 +1241,12 @@ let remove_accesses_to_formal formal accesses : AccessSet.t =
     | [] -> acc
     | access :: t -> (
       (* get access.var and create base from it *)
-      let access_var = AccessEvent.get_var access in
-      let access_var_base = HilExp.AccessExpression.get_base access_var in
+      let access_var_base = HilExp.AccessExpression.get_base (AccessEvent.get_var access) in
       (* check if the base of formal equals the base of access.var *)
       if (AccessPath.equal_base access_var_base formal_base) then
-        (* dont add the access to the list *)
-        remove_formal t acc
+        remove_formal t acc (* dont add the access to the list *)
       else
-        (* add the access to the list *)
-        remove_formal t (access :: acc)
+        remove_formal t (access :: acc) (* add the access to the list *)
     )
   in
   (* remove formals from accesses *)
@@ -1266,25 +1254,27 @@ let remove_accesses_to_formal formal accesses : AccessSet.t =
   (* create set from list *)
   AccessSet.of_list accesses_list_with_removed_accesses
 
-let rec remove_from_locals var locals acc =
-  match locals with
-  | [] -> acc
-  | h :: t -> (
-    if (HilExp.AccessExpression.equal h var) then (
-      acc @ t
-    )
-    else
-      remove_from_locals var t (h :: acc)
-  )
-
+(* function returns list of locals without var *)
 let remove_var_from_locals actual locals =
   match actual with
   | HilExp.AccessExpression actual_ae -> (
     let actual_base_ae = get_base_as_access_expression actual_ae in
+    (* check if the var is in locals *)
     let is_in_locals = List.mem locals actual_base_ae ~equal:HilExp.AccessExpression.equal in
+    (* remove var from locals *)
+    let rec remove_from_locals var locals acc =
+      match locals with
+      | [] -> acc
+      | h :: t ->
+        if (HilExp.AccessExpression.equal h var) then
+          acc @ t
+        else
+          remove_from_locals var t (h :: acc)
+    in
+    (* if var is in locals, remove it *)
     match is_in_locals with
-    | true -> remove_from_locals actual_base_ae locals []
     | false -> locals
+    | true -> remove_from_locals actual_base_ae locals []
   )
   | _ -> locals
 
@@ -1544,66 +1534,88 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
   (* return updated astate *)
   { astate with accesses=accesses_joined }
 
-(* pokud se spravne naprogramuje porovnavani accessu a tim padem abstraktnich stavu,
-   tak se po prvnim pridani accessu v cyklu uz pri druhem loopu zadny access neprida
-   a ty dva stavy uz se vyhodnoti jako equal a mohly by se vyhodnotit na true *)
+(* function computes if there are any data races in the program,
+   it creates pairs of accesses and checks on which pairs data race could occur *)
+let compute_data_races post =
+  (* create a list of pairs of accesses - [(ac1, ac1); (ac1, ac2)] *)
+  let fold_add_pairs access lst = lst @ [access] in (* val fold : (elt -> 'a -> 'a) -> t -> 'a -> 'a *)
+  (* create list from set *)
+  let lst1 = AccessSet.fold fold_add_pairs post.accesses [] in
+  let lst2 = AccessSet.fold fold_add_pairs post.accesses [] in
+  (* create a cartesian product *)
+  let rec product l1 l2 =
+    match l1, l2 with
+    | [], _ | _, [] -> []
+    | h1::t1, h2::t2 -> (h1,h2)::(product [h1] t2)@(product t1 l2)
+  in
+  let list_of_access_pairs = product lst1 lst2 in
+  (* remove pairs where the first access has higher loc than the second one *)
+  let optimised_list = List.filter ~f:AccessEvent.predicate_loc list_of_access_pairs in
+  (* the final computation*)
+  (* F.printf "cartesian product:\n";
+  print_pairs_list list_of_access_pairs; *)
+  (* F.printf "different pairs:\n";*)
+  (* print_pairs_list optimised_list;*)
+  (* F.printf "vars_checked:\n";*)
+  let vars_checked = List.filter ~f:AccessEvent.predicate_var optimised_list in
+  (* print_pairs_list vars_checked;*)
+  (* F.printf "read_write_checked:\n";*)
+  let read_write_checked = List.filter ~f:AccessEvent.predicate_read_write vars_checked in
+  (* print_pairs_list read_write_checked;*)
+  (* F.printf "threads_checked:\n"; *)
+  let threads_checked = List.filter ~f:AccessEvent.predicate_thread read_write_checked in
+  (* print_pairs_list threads_checked; *)
+  (* F.printf "threads_intersection_checked:\n"; *)
+  let threads_intersection_checked = List.filter ~f:AccessEvent.predicate_threads_intersection threads_checked in
+  (* print_pairs_list threads_intersection_checked; *)
+  F.printf "locksets_checked:\n";
+  let locksets_checked = List.filter ~f:AccessEvent.predicate_locksets threads_intersection_checked in
+  print_pairs_list locksets_checked;
+  locksets_checked
 
-(* *)
 
+
+(* abstract interpretation functions *)
+(* <= function *)
 let ( <= ) ~lhs ~rhs =
-  (* F.printf "leq\n"; *)
   let accesses_leq = AccessSet.leq ~lhs:lhs.accesses ~rhs:rhs.accesses in
   let threads_leq = ThreadSet.leq ~lhs:lhs.threads_active ~rhs:rhs.threads_active in
   let lockset_leq = Lockset.leq ~lhs:lhs.lockset ~rhs:rhs.lockset in
   let unlockset_leq = Lockset.leq ~lhs:lhs.unlockset ~rhs:rhs.unlockset in
   (* aliases, load_aliases, heap_aliases, locals? *)
-  (*
-  F.printf "accesses_leq: %b\n" accesses_leq;
-  F.printf "lockset_leq: %b\n" lockset_leq;
-  F.printf "unlockset_leq: %b\n" unlockset_leq;
-  F.printf "threads_leq: %b\n" threads_leq;
-  *)
-  let leq = accesses_leq && threads_leq && lockset_leq && unlockset_leq in
-  (* F.printf "final leq: %b\n" leq; *)
-  leq
+  accesses_leq && threads_leq && lockset_leq && unlockset_leq
 
+(* leq function *)
 let leq ~lhs ~rhs = (<=) ~lhs ~rhs
 
+(* function returns "union" of two lists *)
 let rec list_union lst1 lst2 =
   match lst1 with
   | [] -> lst2
   | hd :: tl -> (
     let list_mem_opt = List.mem lst2 hd ~equal:phys_equal in
-    F.printf "%b" list_mem_opt;
     match list_mem_opt with
     | true -> list_union tl lst2
     | false -> hd :: list_union tl lst2
   )
 
+(* function joint two astates *)
 let join astate1 astate2 =
-  let new_astate : t =
-    let threads_active = ThreadSet.union astate1.threads_active astate2.threads_active in
-    let accesses = AccessSet.union astate1.accesses astate2.accesses in
-    let lockset = Lockset.union astate1.lockset astate2.lockset in
-    let unlockset = Lockset.union astate1.unlockset astate2.unlockset in
-    let aliases = AliasesSet.union astate1.aliases astate2.aliases in  (* TODO FIXME how to join aliases *)
-    let load_aliases = list_union astate1.load_aliases astate2.load_aliases in
-    let heap_aliases = list_union astate1.heap_aliases astate2.heap_aliases in
-    let locals = list_union astate1.locals astate2.locals in
-    { threads_active; accesses; lockset; unlockset; aliases; load_aliases; heap_aliases; locals }
-  in
-  (* F.printf "JOIN: new_astate after join:\n";
-  print_astate new_astate; *)
-  new_astate
+  let threads_active = ThreadSet.union astate1.threads_active astate2.threads_active in
+  let accesses = AccessSet.union astate1.accesses astate2.accesses in
+  let lockset = Lockset.union astate1.lockset astate2.lockset in
+  let unlockset = Lockset.union astate1.unlockset astate2.unlockset in
+  let aliases = AliasesSet.union astate1.aliases astate2.aliases in  (* TODO FIXME how to join aliases *)
+  let load_aliases = list_union astate1.load_aliases astate2.load_aliases in
+  let heap_aliases = list_union astate1.heap_aliases astate2.heap_aliases in
+  let locals = list_union astate1.locals astate2.locals in
+  { threads_active; accesses; lockset; unlockset; aliases; load_aliases; heap_aliases; locals }
 
+(* widening function *)
 let widen ~prev ~next ~num_iters:_ =
-  (* F.printf "WIDEN\n";
-  F.printf "prev\n";
-  print_astate prev;
-  F.printf "next\n";
-  print_astate next; *)
   join prev next
 
+(* pretty print function *)
 let pp : F.formatter -> t -> unit =
   fun fmt astate ->
     F.fprintf fmt "\nthreads_active=%a" ThreadSet.pp astate.threads_active;
@@ -1612,61 +1624,5 @@ let pp : F.formatter -> t -> unit =
     F.fprintf fmt "\nunlockset=%a" Lockset.pp astate.unlockset;
     F.fprintf fmt "\naliases=%a" AliasesSet.pp astate.aliases;
 
-(* TODO: summary: lockset, unlockset, accesses *)
+(* type of summary *)
 type summary = t
-
-let compute_data_races post = 
-  let rec print_pairs_list lst =
-    match lst with
-    | [] -> F.printf "\n"
-    | h::t -> AccessEvent.print_access_pair h; print_pairs_list t in
-  
-  F.printf "DATA RACES COMPUTATION\n\n";
-
-  (* TODO create a list of accesses - sth like [(ac1, ac1); (ac1, ac2)] *)
-  (* val fold : (elt -> 'a -> 'a) -> t -> 'a -> 'a *)
-  let fold_add_pairs access lst = lst @ [access] in
-  (* create list from set and then create a cartesian product *)
-
-  let rec product l1 l2 = 
-    match l1, l2 with
-    | [], _ | _, [] -> []
-    | h1::t1, h2::t2 -> (h1,h2)::(product [h1] t2)@(product t1 l2) in
-
-  let lst1 = AccessSet.fold fold_add_pairs post.accesses [] in 
-  let lst2 = AccessSet.fold fold_add_pairs post.accesses [] in 
-
-  let list_of_access_pairs = product lst1 lst2 in
-  let optimised_list = (* function removes pairs where the first access has higher loc than the second one *)
-    List.filter ~f:AccessEvent.predicate_loc list_of_access_pairs in
-  
-  (* the final computation*)
-  (* F.printf "cartesian product:\n";
-  print_pairs_list list_of_access_pairs; *)
-(*  F.printf "different pairs:\n";*)
-(*  print_pairs_list optimised_list;*)
-(*  F.printf "vars_checked:\n";*)
-  let vars_checked = List.filter ~f:AccessEvent.predicate_var optimised_list in
-(*  print_pairs_list vars_checked;*)
-(*  F.printf "read_write_checked:\n";*)
-  let read_write_checked = List.filter ~f:AccessEvent.predicate_read_write vars_checked in
-(*  print_pairs_list read_write_checked;*)
-  F.printf "threads_checked:\n";
-  let threads_checked = List.filter ~f:AccessEvent.predicate_thread read_write_checked in
-  print_pairs_list threads_checked;
-  F.printf "threads_intersection_checked:\n";
-  let threads_intersection_checked = List.filter ~f:AccessEvent.predicate_threads_intersection threads_checked in
-  print_pairs_list threads_intersection_checked;
-  F.printf "locksets_checked:\n";
-  let locksets_checked = List.filter ~f:AccessEvent.predicate_locksets threads_intersection_checked in
-  print_pairs_list locksets_checked;
-(*   F.printf "pairs with data races:\n"; *)
-(*  let list_removed_duplicates = filter_tuples locksets_checked in*)
-(*  print_pairs_list list_removed_duplicates;*)
-  let has_data_race = List.length locksets_checked in
-  let _print = if phys_equal has_data_race 0 then
-    F.printf "\nTHERE IS NO DATA RACE.\n"
-  else
-    F.printf "\nTHERE IS A DATA RACE.\n"
-  in
-  locksets_checked

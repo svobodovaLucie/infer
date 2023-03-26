@@ -261,26 +261,18 @@ module AccessEvent = struct
     | (Some t1, Some t2) -> if Int.equal (ThreadEvent.compare t1 t2) 0 then false else true
     | _ -> false
 
-  (* TODO is it needed? *)
-  (* function returns true if the first access of the pair has more than 1 threads in threads_active set *)
-  let predicate_threads_active_length (a1, _) = (* length(t1) < 2 -> false *)
-    let len = ThreadSet.cardinal a1.threads_active in
-    if len < 2 then false else true
-
   (* function returns false if both accesses have read access type *)
   let predicate_read_write (a1, a2) = (* a1 == rd and a2 == rd -> false *)
     match (a1.access_type, a2.access_type) with
     | (ReadWriteModels.Read, ReadWriteModels.Read) -> false
     | _ -> true
 
-  (* function returns true if there are at least two threads in the intersection - needs to be FIXED *)
-  let predicate_threads_intersection (a1, a2) = (* a1.thread E a2.threads_active && a2.thread E a1.threads_active *)
-    (* F.printf "\nchecking access_pair: \n"; *)
-    (* print_access_pair (a1, a2); *)
+  (* FIXME *)
+  (* function returns true if there is at least one thread in the intersection of threads_active,
+     and if at least one of the threads in the intersection is the thread on which an access occurred *)
+  let predicate_threads_intersection (a1, a2) =
     let intersection = ThreadSet.inter a1.threads_active a2.threads_active in
-    (* F.printf "intersection: %a\n" ThreadSet.pp intersection; *)
-    let len = ThreadSet.cardinal intersection in
-    if len > 1 then
+    if (ThreadSet.cardinal intersection) > 1 then
       begin
         match (a1.thread, a2.thread) with
         | (Some a1_thread, Some a2_thread) -> (
@@ -291,11 +283,10 @@ module AccessEvent = struct
           (* F.printf "a2_in_intersection: %b\n" a2_in_intersection; *)
           a1_in_intersection || a2_in_intersection
         )
-        | _ -> false (* at leas one of the threads is None -> FIXME *)
+        | _ -> false (* at least one of the threads is None -> FIXME *)
       end
     else
-      (* the only thread in the intersection is main -> data race cannot occur *)
-      false
+      false (* the only thread in the intersection is main -> data race cannot occur *)
 
 
   (* function returns true if the intersection of locked locks is empty *)
@@ -2064,11 +2055,8 @@ let compute_data_races post =
   print_pairs_list list_of_access_pairs; *)
 (*  F.printf "different pairs:\n";*)
 (*  print_pairs_list optimised_list;*)
-(*  F.printf "threads_active_length_checked:\n";*)
-  let threads_active_length_checked = List.filter ~f:AccessEvent.predicate_threads_active_length optimised_list in
-(*  print_pairs_list threads_active_length_checked;*)
 (*  F.printf "vars_checked:\n";*)
-  let vars_checked = List.filter ~f:AccessEvent.predicate_var threads_active_length_checked in
+  let vars_checked = List.filter ~f:AccessEvent.predicate_var optimised_list in
 (*  print_pairs_list vars_checked;*)
 (*  F.printf "read_write_checked:\n";*)
   let read_write_checked = List.filter ~f:AccessEvent.predicate_read_write vars_checked in

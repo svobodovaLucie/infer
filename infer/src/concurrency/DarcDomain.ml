@@ -366,7 +366,7 @@ let _print_alias alias = (
  | Some (fst, snd) -> F.printf "print_alias: %a\n" Aliases.pp (fst, snd);
  )
 
-let print_accesses accesses =
+let _print_accesses accesses =
   F.printf "accesses: -----\n%a\n" AccessSet.pp accesses
 
 let _print_alias_opt alias =
@@ -1065,7 +1065,7 @@ let store e1 typ e2 loc astate pname =
     let (e1_aliased, e1_aliased_final) = resolve_entire_aliasing_of_var e1_ae astate ~add_deref:true in
     let astate = add_accesses_to_astate_with_aliases_or_heap_aliases e1_aliased e1_aliased_final ReadWriteModels.Write astate loc pname in
     (* if the type is pointer, add aliases to e2 *)
-    if (Typ.is_pointer typ) then 
+    if (Typ.is_pointer typ) then
       begin
         (* add alias *)
         let add_deref = false in
@@ -1167,184 +1167,58 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
       | _ -> astate.locals
     in
     let updated_locals = remove_var_from_locals actual updated_locals1 in
-    let astate = { astate with locals=updated_locals } in
-    F.printf "locals after removing actual:\n";
-    print_locals astate;
-    (* return new astate *)
-    astate
+    { astate with locals=updated_locals }
   )
   | None -> (
-    (* TODO should be astate or edited astate? *)
     let accesses_joined = AccessSet.join astate.accesses edited_accesses_from_callee in
     { astate with accesses=accesses_joined }
   )
 
-(* myslim, ze integrate_summary je stejna jako uintegrate_pthread_summary, akorat se nepridava aktualne nove vlakno,
-   takze nevim, jake vlakno k tem pristupum pridat -> TODO vymyslet!! *)
-(* plus tady se jeste musi nejak integrovat locks, threads atd. -> jeste neni domyslene *)
+(* function integrates summary of callee to the current astate when function call occurs,
+   it replaces all accesses to formals in callee_summary to accesses to actual *)
 let integrate_summary astate callee_pname _loc callee_summary callee_formals actuals caller_pname =
   F.printf "integrate_summary: callee_pname=%a in Darc\n" Procname.pp callee_pname;
-(*  F.printf "astate %a ---------------------------------------\n" Procname.pp caller_pname;*)
-(*  print_astate astate loc caller_pname;*)
-(*  F.printf "summary %a --------------------------------------\n" Procname.pp callee_pname;*)
-(*  print_astate callee_summary loc callee_pname;*)
-(*  F.printf "callee_formals: --------------------------------------\n";*)
-(*  print_formals callee_formals;*)
-(*  F.printf "actuals: --------------------------------------\n";*)
-(*  print_actuals actuals;*)
-(*  F.printf "--------------------------------------\n";*)
-(*  F.printf "locals: --------------------------------\n";*)
-(*  print_locals astate;*)
-  (* TODO important *)
-  (* pridat do accesses vlakno, na kterem prave jsem -> v podstate to bude proste bud main nebo None *)
-  (* FIXME je to pravda? Ze vzdy bude bud main nebo None?!?!?! *)
-  (* podle me by tu melo byt ze se vezme current thread -> pridat do summary? nelze, 
-     protoze kdyz se vytvori thread, muze jich tam byt vic current threads*)
-  let current_thread =
-    (* TODO change to Pname comparision to main *)
-    if (ThreadSet.equal ThreadSet.empty astate.threads_active) then
-      None
+  (* create main thread if the caller function is main *)
+  let current_thread = (* TODO check equality to the entry point (not only main) *)
+    if (Int.equal (String.compare (Procname.to_string caller_pname) "main") 0) then
+      Some (ThreadEvent.create_main_thread)
     else
-      Some (ThreadEvent.create_main_thread) (* false, upravit a zmenit na neco jineho! -> mozna to neni spatne, jen upravit podminku -> main se tam da, pokud uz nam bezi main thread, ne pokud je mnozina threads_active prazdna -> to muze nastat i tehdy, pokud jeste nebezi main, ale uz jsme vytvorili nejake vlakno -> wait ale
-       poradne rozmyslet -> co kdyz v main vytvorim vlakno t1 ktere jde do foo, ve foo vytvorim t2 ktere jde do bar *)
+      None
   in
+  (* update accesses in callee_summary with the current lockset, unlockset, threads_active and thread *)
   let edited_accesses_from_callee = AccessSet.map (AccessEvent.update_accesses_with_locks_and_threads astate.threads_active astate.lockset astate.unlockset current_thread) callee_summary.accesses in
-  (* TODO formals to actuals *)
-   (* snad jsou oba listy (formals i actuals) spravne serazene, ze maji spravne vars na jednotlivych indexech - vyzera, ze hej *)
-   let replace_formals_with_actuals formals actuals accesses =
-     F.printf "replace_formals_with_actuals, caller_pname=%a, callee_pname=%a\n" Procname.pp caller_pname Procname.pp callee_pname;
-     let cnt = ref 0 in
-     let accesses_ref = ref accesses in
-     let rec loop = function
-       | [] -> F.printf " kaniec\n"; !accesses_ref
-       | formal :: tl ->
-         F.printf "|F: %a on %d |" Mangled.pp (fst formal) !cnt;
-         (* edit access *)
-         let actual_opt = List.nth actuals !cnt in
-         let actual =
-           match actual_opt with
-           | None -> assert false (* TODO *)
-           | Some HilExp.AccessExpression actual_load -> (
-             (* replace load alias *)
-             (* find actual_load in load_aliases *)
-             (* find in heap aliases? *)
-             (* return aliased var *)
-                   let (_, e_aliased_final) = resolve_entire_aliasing_of_var actual_load astate ~add_deref:false in
-                   HilExp.AccessExpression e_aliased_final
-                   (* save alias to the load_aliases set *)
-                   (*
-                   let e_to_add = e_aliased_final in
-                   let new_mem_alias = (id_ae, e_to_add, e) in
-                     let load_aliases = new_mem_alias :: astate.load_aliases in
-                     let astate = { astate with load_aliases } in
-                     F.printf "load_aliases after:\n";
-                     _print_load_aliases_list astate;
-                     (* add all read access (if it is access to heap allocated variable with alias, there could be more accesses) *)
-                     let astate_with_new_read_accesses = add_accesses_to_astate_with_aliases_or_heap_aliases e_aliased e_aliased_final ReadWriteModels.Read astate loc in
-                     astate_with_new_read_accesses
-                     *)
-           )
-           | Some actual -> actual (* TODO *)
-         in
-         F.printf "|A: %a on %d |" HilExp.pp actual !cnt;
-         (* TODO create correct access expression - dereference etc. *)
-         (* formal musi mit typ access_expression, aby se dalo porovnat s jednotlivymi var v pristupech
-            nebo var prevest na neco, co se da porovnat s formal - formal je typu (Mangled.t * Typ.t) *)
-            (* if HilExp.AccessExpression.t == Mangled.t *)
-            (* ACCESS_EXPRESSION.TO_ACCESS_PATH -> AccessPath.t nebo .get_base -> AccessPath.base *)
-            (* Mangled.t
-               pvar = Pvar.mk Mangled.t Procname.t
-               access_path = AccessPath.of_pvar pvar typ    nebo base
-               *)
-             let formal_pvar = Pvar.mk (fst formal) callee_pname in
-             let formal_access_path_base = AccessPath.base_of_pvar formal_pvar (snd formal) in
-             (*
-             let actual_pvar = Pvar.mk (fst actual) caller_pname in
-             let actual_access_path_base = AccessPath.base_of_pvar actual_pvar (snd actual) in
-             *)
-             (* HilExp.t list *)
-             let formal_access_expression = HilExp.AccessExpression.base formal_access_path_base in
-         (* let _edited_accesses_from_callee = AccessSet.map (AccessEvent.edit_access_with_actuals formal_access_expression actual) callee_summary.accesses in *)
-         accesses_ref := AccessSet.map (AccessEvent.edit_access_with_actuals formal_access_expression actual) !accesses_ref;
-         cnt := !cnt + 1;
-         loop tl
-     in
-     loop formals
-     (*`
-     let accesses_mutable = ref [] in
-     !accesses_mutable
-     *)
-   in
-    (*  let counter = ref 0 in *)
-     (*
-     )let rec loop = function
-     (* match formals with *)
-     | [] -> !accesses_mutable
-     | hd :: tl ->
-         (* if phys_equal hd (List.nth actuals !counter) then
-           F.printf "counter = %d\n" !counter; *)
-       !accesses_mutable
-*)
-
-   (*
-     postup:
-     1. go through the list of formals
-     2. switch formal to actual - pozor, nahradit pouze base, ale ne nic jineho :shrunk:
-   *)
-   F.printf "before replacement, edited_accesses_from_callee: \n";
-   print_accesses edited_accesses_from_callee;
-   let accesses_with_actuals = replace_formals_with_actuals callee_formals actuals edited_accesses_from_callee in
-   F.printf "after replacement, accesses_with_actuals: \n";
-   print_accesses accesses_with_actuals;
-   (*
-   let formal_to_access_path : Mangled.t * Typ.t -> AccessPath.t = fun (name, typ) ->
-     let pvar = Pvar.mk name callee_pname in
-       AccessPath.base_of_pvar pvar typ, []
-     in
-     let get_corresponding_actual formal =
-       let rec find x lst =
-         match lst with
-         | [] -> -1
-         | h :: t -> if AccessPath.equal x (formal_to_access_path h) then 0 else 1 + find x t
-       in
-       List.nth actuals (find formal callee_formals)
-       |> Option.value_map ~default:[] ~f:HilExp.get_access_exprs
-       |> List.hd |> Option.map ~f:HilExp.AccessExpression.to_access_path
-     in
-     let replace_formals_with_actuals summary_set formal =
-       let replace_basis ((summary_element, loc) as le) =
-           if AccessPath.is_prefix (formal_to_access_path formal) summary_element then begin
-             let actual = get_corresponding_actual (formal_to_access_path formal) in
-             (* create an element with base of actutal and acl of summ_element*)
-             match actual with
-             | Some a ->
-                 let new_element = (AccessPath.append a (snd summary_element), loc) in
-                 new_element
-             | None ->
-                 le
-           end
-           else le
-       in
-       Lockset.map replace_basis summary_set
-     in
-     let summary_lockset =
-       List.fold callee_formals ~init:callee_summary.lockset ~f:replace_formals_with_actuals in
-   let new_lockset =
-     Lockset.fold (fun elem acc -> Lockset.add elem acc) summary_lockset astate.lockset
-   in
-   let _joinos = join astate callee_summary in
-   { astate with lockset=new_lockset}
-   *)
-   (* astate *)
-  (* )let accesses_joined = AccessSet.join astate.accesses edited_accesses_from_callee in *)
+ (* function replaces formal parameters in accesses with actual parameters *)
+  let replace_formals_with_actuals formals actuals accesses =
+    let cnt = ref 0 in
+    let accesses_ref = ref accesses in
+    let rec loop = function
+      | [] -> !accesses_ref
+      | formal :: tl -> (
+        (* edit access *)
+        let actual =
+          match (List.nth actuals !cnt) with
+          | None -> assert false (* TODO *)
+          | Some HilExp.AccessExpression actual_load -> (
+            let (_, e_aliased_final) = resolve_entire_aliasing_of_var actual_load astate ~add_deref:false in
+            HilExp.AccessExpression e_aliased_final
+          )
+          | Some actual -> actual
+        in
+        let formal_pvar = Pvar.mk (fst formal) callee_pname in
+        let formal_access_path_base = AccessPath.base_of_pvar formal_pvar (snd formal) in
+        let formal_access_expression = HilExp.AccessExpression.base formal_access_path_base in
+        (* replace all accesses to formal with actual *)
+        accesses_ref := AccessSet.map (AccessEvent.edit_access_with_actuals formal_access_expression actual) !accesses_ref;
+        cnt := !cnt + 1; (* go to the next parameter *)
+        loop tl
+      )
+    in
+    loop formals
+  in
+  let accesses_with_actuals = replace_formals_with_actuals callee_formals actuals edited_accesses_from_callee in
   let accesses_joined = AccessSet.join astate.accesses accesses_with_actuals in
-  F.printf "integrated summary: ========================================\n";
-  print_astate { astate with accesses=accesses_joined } (* loc caller_pname *);
-  F.printf "============================================================\n";
   (* return updated astate *)
   { astate with accesses=accesses_joined }
-
-
 
 (* function computes if there are any data races in the program,
    it creates pairs of accesses and checks on which pairs data race could occur *)

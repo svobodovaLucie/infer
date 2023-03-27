@@ -1096,44 +1096,29 @@ let store e1 typ e2 loc astate pname =
   )
   | _ -> astate
 
-
-
-(* functions that handle summaries integration *)
-(* TODO if argument funkce je null, pak nepredelavat formals na actuals a nepridavat ty pristupy k formals! *)
-let integrate_pthread_summary astate thread callee_pname loc callee_summary callee_formals actuals sil_actual_argument caller_pname =
+(* function integrates summary of callee to the current astate when function call to pthread_create() occurs,
+   it replaces all accesses to formal in callee_summary to accesses to actual *)
+let integrate_pthread_summary astate thread callee_pname loc callee_summary callee_formals actuals _sil_actual_argument _caller_pname =
   F.printf "integrate_pthread_summary: callee_pname=%a on %a\n" Procname.pp callee_pname Location.pp loc;
-  F.printf "summary of caller_pname=%a before --------" Procname.pp caller_pname;
-  print_astate astate (* loc caller_pname *);
-  F.printf "\nsummary of callee_pname=%a before --------" Procname.pp callee_pname;
-  print_astate callee_summary (* loc caller_pname *);
   (* edit information about each access - thread, threads_active, lockset, unlockset *)
   let edited_accesses_from_callee = AccessSet.map (AccessEvent.update_accesses_with_locks_and_threads astate.threads_active astate.lockset astate.unlockset (Some thread)) callee_summary.accesses in
   (* replace actuals with formals *)
-  F.printf "\nformals of callee: %a: \n" Procname.pp callee_pname;
-  _print_formals callee_formals;
-  (* callee formal je jenom jeden: void *arg - normalne vzit ten prvni a pretypovat na ae (muze jich nejakym zpusobem byt vic?) *)
-  let callee_formal =
+  let callee_formal = (* callee formal is the same every time: pthread_create(void *arg) *)
     match callee_formals with
     | (var, typ) :: [] -> (
       let formal_pvar = Pvar.mk (var) callee_pname in
       let formal_access_path_base = AccessPath.base_of_pvar formal_pvar typ in
-      let formal_access_expression = HilExp.AccessExpression.base formal_access_path_base in
-      formal_access_expression
+      HilExp.AccessExpression.base formal_access_path_base
     )
     | _ -> assert false (*TODO*)
   in
-  F.printf "actuals: \n";
-  _print_actuals actuals;
-  let actual_passed_to_function = List.nth actuals 3 in (* fourth argument of pthread_create function *)
+  let actual_passed_to_function = (List.nth actuals 3) in (* fourth argument of pthread_create function *)
   match actual_passed_to_function with
-  | Some (* HilExp.AccessExpression *) actual -> (
-    F.printf "NOT NULL\n";
-    F.printf "actual: %a\n" HilExp.pp actual;
+  | Some actual -> (
     (* if the argument is NULL, don't add accesses to formal in callee summary *)
     let is_null = HilExp.is_null_literal actual in
-    F.printf "is_null: %b\n" is_null;
-    (* TODO actual dealiasing *)
-    let actual_dealiased_hilexp =
+    (* resolve aliasing *)
+    let actual =
       match actual with
       | HilExp.AccessExpression e_ae -> (
         let (_, e_aliased_final) = resolve_entire_aliasing_of_var e_ae astate ~add_deref:false in
@@ -1141,12 +1126,9 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
       )
       | _ -> actual
     in
-    F.printf "actual_dealiased_hilexp: %a\n" HilExp.pp actual_dealiased_hilexp;
-    let actual = actual_dealiased_hilexp in
     (* edit accesses - formal to actual *)
     let edited_accesses =
       if is_null then
-          (* remove all accesses to formal in callee summary *)
           remove_accesses_to_formal callee_formal edited_accesses_from_callee
       else
         (* edit accesses in callee_summary with actual *)
@@ -1155,18 +1137,7 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
     (* join callee and caller accesses *)
     let accesses_joined = AccessSet.join astate.accesses edited_accesses in
     let astate = { astate with accesses=accesses_joined } in
-    (* remove the variable from locals - remove base? *)
-    (* TODO continue in the implementation, handle arrays and structs *)
-    let updated_locals1 =
-      F.printf "sil_actual_argument exp: %a, " Exp.pp (fst sil_actual_argument);
-      match (fst sil_actual_argument) with
-      | Exp.Lfield (_t1, _fieldname, _typ) -> (F.printf "Lfield\n"; astate.locals)
-      | Exp.Lindex (_t1, _t2) -> (F.printf "Lindex\n"; astate.locals)
-      | Exp.Lvar _pvar -> (F.printf "Lvar\n"; astate.locals)
-      | Exp.Var ident -> (F.printf "Var %a\n" Ident.pp ident; astate.locals)
-      | _ -> astate.locals
-    in
-    let updated_locals = remove_var_from_locals actual updated_locals1 in
+    let updated_locals = remove_var_from_locals actual astate.locals in
     { astate with locals=updated_locals }
   )
   | None -> (

@@ -218,7 +218,12 @@ module AccessEvent = struct
       HilExp.AccessExpression.dereference actual
     | HilExp.AccessExpression.Dereference ae -> (* *( *v) -> *(...) *)
       HilExp.AccessExpression.dereference (replace_base_inner ae)
-    | HilExp.AccessExpression. AddressOf ae -> ( (* &( *v) -> &(...) *)
+    | HilExp.AccessExpression.AddressOf (Base _) -> ((* &v -> &a *)
+      match HilExp.AccessExpression.address_of actual with
+      | Some address_of -> address_of
+      | None -> actual
+    )
+    | HilExp.AccessExpression.AddressOf ae -> ( (* &( *v) -> &(...) *)
       let address_of_option = HilExp.AccessExpression.address_of (replace_base_inner ae) in
       match address_of_option with
       | Some address_of -> address_of
@@ -852,6 +857,33 @@ let find_var_in_list var locals =
       if (HilExp.AccessExpression.equal var h) then Some h else find_in_list t
   in find_in_list locals
 
+(* function returns list of locals without var *)
+let remove_var_from_locals actual locals =
+  match actual with
+  | HilExp.AccessExpression actual_ae -> (
+    let actual_base_ae = get_base_as_access_expression actual_ae in
+    (* check if the var is in locals *)
+    let is_in_locals = List.mem locals actual_base_ae ~equal:HilExp.AccessExpression.equal in
+    (* remove var from locals *)
+    let rec remove_from_locals var locals acc =
+      match locals with
+      | [] -> acc
+      | h :: t ->
+        if (HilExp.AccessExpression.equal h var) then
+          acc @ t
+        else
+          remove_from_locals var t (h :: acc)
+    in
+    (* if var is in locals, remove it *)
+    match is_in_locals with
+    | false -> locals
+    | true -> remove_from_locals actual_base_ae locals []
+  )
+  | _ -> locals
+
+
+
+(* functions that handle adding/removing accesses *)
 (* function adds new access to var to astate *)
 let add_access_to_astate var access_type astate loc pname =
   let new_access : AccessEvent.t =
@@ -931,40 +963,75 @@ let get_list_of_heap_aliases_with_same_loc_as_var var (astate : t) =
   | None -> [] (* heap alias doesn't exist *)
   | Some loc -> get_list_of_vars_with_loc loc astate.heap_aliases []
 
-
-
-let fst_aliasing_snd exp mem_aliased ~add_deref : HilExp.AccessExpression.t =
-  F.printf "fst_aliasing_snd:\n";
-  let exp_base_ae = get_base_as_access_expression exp in
-    let (* rec *) check_lhs lhs lhs_current var aliases =
-      F.printf "-----------------mem_aliased:check_lhs:------------------\n";
-          F.printf "mem_aliased:check_lhs: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;
-          match lhs with
-          | HilExp.AccessExpression.AddressOf _addressOf -> lhs
-          | _ -> (
-            let alias = find_alias var aliases ~add_deref:false in (* e.g. None | Some (y, &k) *) (* FIXME find only the second member of alias tuple? *)
-            (* TODO rekurze!!! *)
-            match alias with
-            | Some (_, snd) -> ( (* var was found in aliases -> return alias *)
-              if add_deref then
-                HilExp.AccessExpression.dereference snd
-              else
-                snd
-            )
-            | None -> (    (* the var is not in aliases -> return var (only the second variable will be needed later) *)
-              F.printf "BLAAAAAAAAAAAAAAAH tady bych mela provest heap_aliases projduti a vraceni seznamu vsech ae, ke kterym se pristupuje\n";
-              (* jenze tahle funkce vraci jenom jeden vyraz, ale ja potrebuju list *)
-              var
-              (*pouzit new_astate = add_accesses_with_aliases_or_heap_aliases *)
-              (* pokud puvodni lhs byla addressOf -> vratit zase addressOf! *)
-            )
+(* function adds accesses to all aliased vars *)
+let add_accesses_to_astate_with_aliases_or_heap_aliases e1_ae e1_aliased_final access_type astate loc pname =
+  (* check if e1_ae (original var) and a1_aliased_final (var after aliasing) are equal *)
+  if (HilExp.AccessExpression.equal e1_ae e1_aliased_final) then
+    begin
+      (* var was not aliased - try to find the var in heap aliases *)
+      let list_of_new_accesses_from_heap_aliases = get_list_of_heap_aliases_with_same_loc_as_var e1_ae astate in
+      match list_of_new_accesses_from_heap_aliases with
+      | [] -> (* var was not in heap aliases -> add access to var *)
+        add_access_to_astate_with_check e1_aliased_final access_type astate loc pname
+      | _ -> ( (* var was in heap aliases -> add access to each var from list *)
+        let rec add_heap_accesses accesses_to_add_list astate =
+          match accesses_to_add_list with
+          | [] -> astate
+          | var_heap :: t -> (
+            (* add access to var and continue in adding vars from list *)
+            let new_astate = add_access_to_astate_with_check var_heap access_type astate loc pname in
+            add_heap_accesses t new_astate
           )
-      in
-      let res = check_lhs exp exp_base_ae exp_base_ae mem_aliased in
-      F.printf "exp: %a, res: %a\n" HilExp.AccessExpression.pp exp HilExp.AccessExpression.pp res;
-      match exp with
-      | HilExp.AccessExpression.Dereference _ -> HilExp.AccessExpression.dereference res
-      | _ -> res
+        in
+        add_heap_accesses list_of_new_accesses_from_heap_aliases astate
+      )
+    end
+  else
+    (* add access to aliased var to accesses *)
+    add_access_to_astate_with_check e1_aliased_final access_type astate loc pname
+
+(* function removes all accesses to formal parameter of a function
+   (used when the actual parameter is NULL in function call *)
+let remove_accesses_to_formal formal accesses : AccessSet.t =
+  (* create base of formal *)
+  let formal_base = HilExp.AccessExpression.get_base formal in
+  (* create list from set *)
+  let accesses_list = AccessSet.elements accesses in
+  (* if access.var == formal.base then don't add it to the list of accesses *)
+  let rec remove_formal lst acc =
+    match lst with
+    | [] -> acc
+    | access :: t -> (
+      (* get access.var and create base from it *)
+      let access_var_base = HilExp.AccessExpression.get_base (AccessEvent.get_var access) in
+      (* check if the base of formal equals the base of access.var *)
+      if (AccessPath.equal_base access_var_base formal_base) then
+        remove_formal t acc (* dont add the access to the list *)
+      else
+        remove_formal t (access :: acc) (* add the access to the list *)
+    )
+  in
+  (* remove formals from accesses *)
+  let accesses_list_with_removed_accesses = remove_formal accesses_list [] in
+  (* create set from list *)
+  AccessSet.of_list accesses_list_with_removed_accesses
+
+
+
+(* load_dealiasing *)
+let resolve_load_alias exp load_aliases ~add_deref : HilExp.AccessExpression.t =
+  let exp_base_ae = get_base_as_access_expression exp in
+  let res =
+    match exp with
+    | HilExp.AccessExpression.AddressOf _ -> exp
+    | _ -> (
+      let alias = find_alias exp_base_ae load_aliases ~add_deref in
+      match alias with
+      | Some (_, snd) -> snd
+      | None -> exp_base_ae
+    )
+  in
+  AccessEvent.replace_base_of_var_with_another_var exp res
 
 
 
@@ -975,7 +1042,7 @@ let acquire_lock lockid astate loc =
   match lockid with
   | HilExp.AccessExpression e_ae -> (
     let actual_dealiased_hilexp =
-      let e_aliased = fst_aliasing_snd e_ae astate.load_aliases ~add_deref:true in
+      let e_aliased = resolve_load_alias e_ae astate.load_aliases ~add_deref:true in
       (* find e_alised in aliases *)
       let e_aliased_final = replace_var_with_aliases_without_address_of e_aliased (AliasesSet.elements astate.aliases) in
       F.printf "e_aliased_final: %a\n" HilExp.AccessExpression.pp e_aliased_final;
@@ -1000,7 +1067,7 @@ let release_lock lockid astate loc =
   match lockid with
   | HilExp.AccessExpression e_ae -> (
     let actual_dealiased_hilexp =
-      let e_aliased = fst_aliasing_snd e_ae astate.load_aliases ~add_deref:true in
+      let e_aliased = resolve_load_alias e_ae astate.load_aliases ~add_deref:true in
       F.printf "e_aliased: %a\n" HilExp.AccessExpression.pp e_aliased;
       (* find e_alised in aliases *)
       F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
@@ -1023,38 +1090,6 @@ let release_lock lockid astate loc =
 
 
 
-let add_accesses_to_astate_with_aliases_or_heap_aliases e1_ae e1_aliased_final access_type astate loc pname =
-  if (HilExp.AccessExpression.equal e1_ae e1_aliased_final) then
-    begin
-      F.printf "add_accesses_to_astate_with_aliases_or_heap_aliases: if, e1_ea: %a, e1_aliased_final: %a\n" HilExp.AccessExpression.pp e1_ae HilExp.AccessExpression.pp e1_aliased_final;
-      (* var was not aliased - maybe it is in heap aliases and if not, add access to var *)
-      let list_of_new_accesses_from_heap_aliases = get_list_of_heap_aliases_with_same_loc_as_var e1_ae astate in
-      match list_of_new_accesses_from_heap_aliases with
-      | [] -> (
-        (* var was not in heap aliases -> add access to var *)
-        add_access_to_astate_with_check e1_aliased_final access_type astate loc pname(* returns astate *)
-      )
-      | _ -> (
-        (* recursively add access to the next var *)
-        let rec add_heap_accesses accesses_to_add_list astate = (* returns astate *)
-          match accesses_to_add_list with
-          | [] -> astate
-          | var_heap :: t -> (
-            (* add access to var *)
-            (* check if there is the dereference!!! or double dereference etc. *)
-            let new_astate = add_access_to_astate_with_check var_heap access_type astate loc pname(* returns astate *) in
-            add_heap_accesses t new_astate
-          )
-        in
-        add_heap_accesses list_of_new_accesses_from_heap_aliases astate
-      )
-    end
-  else
-    begin
-      F.printf "add_accesses_to_astate_with_aliases_or_heap_aliases: else, e1_ea: %a, e1_aliased_final: %a\n" HilExp.AccessExpression.pp e1_ae HilExp.AccessExpression.pp e1_aliased_final;
-      (* add access to aliased var to accesses *)
-      add_access_to_astate_with_check e1_aliased_final access_type astate loc pname(* returns astate *)
-    end
 
 let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
   (* save alias to the load_aliases set *)
@@ -1078,7 +1113,7 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
     (* DEALIASING *)
     (* find e in load_aliases jako fst -> return snd -> ale rekurzivne!!! *)
     (* TODO zakomponovat heap_aliases!!! *)
-      let e_aliased = fst_aliasing_snd e_ae astate.load_aliases ~add_deref:false in
+      let e_aliased = resolve_load_alias e_ae astate.load_aliases ~add_deref:false in
       F.printf "e_aliased: %a\n" HilExp.AccessExpression.pp e_aliased;
       (* find e_alised in aliases *)
       F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
@@ -1127,13 +1162,11 @@ let store e1 typ e2 loc astate pname =
     | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> true
     | Exp.Var _ | _ -> false
   in
-  F.printf "e1_hil: ";
   let e1_hil = transform_sil_expr_to_hil e1 typ add_deref in
-  F.printf "\n";
     match e1_hil with
     | AccessExpression e1_ae -> (
           (* add write_access *)
-          let e1_aliased = fst_aliasing_snd e1_ae astate.load_aliases ~add_deref:true in
+          let e1_aliased = resolve_load_alias e1_ae astate.load_aliases ~add_deref:true in
           F.printf "e1_aliased: %a\n" HilExp.AccessExpression.pp e1_aliased;
           (* find e_alised in aliases *)
           F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
@@ -1175,7 +1208,6 @@ let store e1 typ e2 loc astate pname =
               | _ -> e2
             in
             let e2_hil = transform_sil_expr_to_hil e2_exp typ add_deref in
-            F.printf "\n";
             match e2_hil with(* TODO *)
             | AccessExpression e2_ae -> (
               (* dealiasing *)
@@ -1190,7 +1222,7 @@ let store e1 typ e2 loc astate pname =
                 | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> e2_ae
                 | Exp.Var _ | _ ->  (
                   F.printf "TODO: dealiasovat\n";
-                  let e2_aliased = fst_aliasing_snd e2_ae astate.load_aliases ~add_deref:false in
+                  let e2_aliased = resolve_load_alias e2_ae astate.load_aliases ~add_deref:false in
                   F.printf "e2_aliased: %a\n" HilExp.AccessExpression.pp e2_aliased;
                   F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
                   let e2_aliased_final = replace_var_with_aliases_without_address_of e2_aliased (AliasesSet.elements astate.aliases) in
@@ -1209,7 +1241,9 @@ let store e1 typ e2 loc astate pname =
               (* save alias to the aliases set *)
               F.printf "aliases before=%a\n" AliasesSet.pp astate.aliases;
               let astate = update_aliases e1_aliased_final e2_final astate in
-              F.printf "aliases after=%a\n" AliasesSet.pp astate.aliases;
+              F.printf "aliases after=%a\nheap_aliases:" AliasesSet.pp astate.aliases;
+              _print_heap_aliases_list astate;
+              F.printf "\n";
               astate
     (*          let alias = (e1_aliased_final, e2_final) in*)
     (*          (* TODO melo by byt rafinovanejsi - pokud uz nejaky alias je, musi se najit a dal aliasovat atd. *)*)
@@ -1228,56 +1262,9 @@ let store e1 typ e2 loc astate pname =
     )
     | _ -> astate
 
-(* function removes all accesses to formal parameter of a function
-   (used when the actual parameter is NULL in function call *)
-let remove_accesses_to_formal formal accesses : AccessSet.t =
-  (* create base of formal *)
-  let formal_base = HilExp.AccessExpression.get_base formal in
-  (* create list from set *)
-  let accesses_list = AccessSet.elements accesses in
-  (* if access.var == formal.base then don't add it to the list of accesses *)
-  let rec remove_formal lst acc =
-    match lst with
-    | [] -> acc
-    | access :: t -> (
-      (* get access.var and create base from it *)
-      let access_var_base = HilExp.AccessExpression.get_base (AccessEvent.get_var access) in
-      (* check if the base of formal equals the base of access.var *)
-      if (AccessPath.equal_base access_var_base formal_base) then
-        remove_formal t acc (* dont add the access to the list *)
-      else
-        remove_formal t (access :: acc) (* add the access to the list *)
-    )
-  in
-  (* remove formals from accesses *)
-  let accesses_list_with_removed_accesses = remove_formal accesses_list [] in
-  (* create set from list *)
-  AccessSet.of_list accesses_list_with_removed_accesses
 
-(* function returns list of locals without var *)
-let remove_var_from_locals actual locals =
-  match actual with
-  | HilExp.AccessExpression actual_ae -> (
-    let actual_base_ae = get_base_as_access_expression actual_ae in
-    (* check if the var is in locals *)
-    let is_in_locals = List.mem locals actual_base_ae ~equal:HilExp.AccessExpression.equal in
-    (* remove var from locals *)
-    let rec remove_from_locals var locals acc =
-      match locals with
-      | [] -> acc
-      | h :: t ->
-        if (HilExp.AccessExpression.equal h var) then
-          acc @ t
-        else
-          remove_from_locals var t (h :: acc)
-    in
-    (* if var is in locals, remove it *)
-    match is_in_locals with
-    | false -> locals
-    | true -> remove_from_locals actual_base_ae locals []
-  )
-  | _ -> locals
 
+(* functions that handle summaries integration *)
 (* TODO if argument funkce je null, pak nepredelavat formals na actuals a nepridavat ty pristupy k formals! *)
 let integrate_pthread_summary astate thread callee_pname loc callee_summary callee_formals actuals sil_actual_argument caller_pname =
   F.printf "integrate_pthread_summary: callee_pname=%a on %a\n" Procname.pp callee_pname Location.pp loc;
@@ -1315,7 +1302,7 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
     let actual_dealiased_hilexp =
       match actual with
       | HilExp.AccessExpression e_ae -> (
-        let e_aliased = fst_aliasing_snd e_ae astate.load_aliases ~add_deref:false in
+        let e_aliased = resolve_load_alias e_ae astate.load_aliases ~add_deref:false in
         F.printf "e_aliased: %a\n" HilExp.AccessExpression.pp e_aliased;
         (* find e_alised in aliases *)
         F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
@@ -1414,7 +1401,7 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
              (* find in heap aliases? *)
              (* return aliased var *)
              let e_ae = actual_load in
-             let e_aliased = fst_aliasing_snd e_ae astate.load_aliases ~add_deref:false in
+             let e_aliased = resolve_load_alias e_ae astate.load_aliases ~add_deref:false in
                    F.printf "e_aliased: %a\n" HilExp.AccessExpression.pp e_aliased;
                    (* find e_alised in aliases *)
                    F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
@@ -1533,6 +1520,8 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
   F.printf "============================================================\n";
   (* return updated astate *)
   { astate with accesses=accesses_joined }
+
+
 
 (* function computes if there are any data races in the program,
    it creates pairs of accesses and checks on which pairs data race could occur *)

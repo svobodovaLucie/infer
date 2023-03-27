@@ -449,7 +449,7 @@ module Analyzer = AbstractInterpreter.MakeRPO (TransferFunctions (ProcCfg.Normal
 
 (* COMPUTE THE RESULT AND REPORT ERRORS *)
 let report {InterproceduralAnalysis.proc_desc; err_log; _} post =
-  F.printf "REPORTING AND COMPUTING ----------------------------------------";
+  F.printf "REPORTING AND COMPUTING ----------------------------------------\n";
   let data_races_list = (Domain.compute_data_races post) in
   let rec report_all_data_races lst =
     match lst with
@@ -470,7 +470,6 @@ let report {InterproceduralAnalysis.proc_desc; err_log; _} post =
 let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc) =
   let data = {interproc; extras = ref initial_extras} in
   let pname = Procdesc.get_proc_name proc_desc in
-  F.printf "Hello from Darc Checker.\n";
   F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s START >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
 
   (* create a list of locals and add all the locals and non-pointer formals to the list *)

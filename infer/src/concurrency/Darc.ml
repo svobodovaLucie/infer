@@ -309,7 +309,8 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
         let heap_tmp = new_heap_tmp :: !(analysis_data.extras).heap_tmp in
         analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp };
         astate
-      else if (phys_equal (String.compare (Procname.to_string callee_pname) "free") 0) then
+      else if (phys_equal (String.compare (Procname.to_string callee_pname) "free") 0)
+              || (phys_equal (String.compare (Procname.to_string callee_pname) "__delete") 0) then
         (* free odstrani z heap_aliases to, co je v argumentu te funkce + vsechno se stejnym loc *)
         handle_free hil_actuals astate
       else

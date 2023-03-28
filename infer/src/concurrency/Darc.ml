@@ -79,9 +79,7 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
     | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> true
     | Exp.Var _ | _ -> false
   in
-  F.printf "e1_hil: ";
   let e1_hil = Domain.transform_sil_expr_to_hil e1 typ add_deref_e1 in
-  F.printf "\n";
     match e1_hil with
     | AccessExpression e1_ae -> (
       (* transform e2 *)
@@ -93,9 +91,7 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
         | Exp.Cast (_, cast_exp) -> cast_exp
         | _ -> e2
       in
-      F.printf "e2_hil: ";
       let e2_hil = Domain.transform_sil_expr_to_hil e2_exp typ add_deref_e2 in
-      F.printf "\n";
       match e2_hil with
       | AccessExpression e2_ae -> (
         let (astate_with_new_access_and_heap_alias, updated_heap_tmp) = Domain.add_access_with_heap_alias_when_malloc e1_ae e2_ae loc astate !(extras).heap_tmp pname in
@@ -250,7 +246,7 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
       (* compute the result (add new access, load_aliases etc.) *)
       let result = handle_store e1 typ e2 loc astate pname analysis_data.extras in
       (* update last_loc AND CLEAR HEAP_TMP *)
-      analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = [] };
+      analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
 (*      let result_malloc = random_foo e1 typ e2 astate analysis_data.extras in*)
       F.printf "ahojky\n";
       result
@@ -304,7 +300,8 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
         analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
         result
       else if (phys_equal (String.compare (Procname.to_string callee_pname) "malloc") 0)
-        || (phys_equal (String.compare (Procname.to_string callee_pname) "calloc") 0) then
+        || (phys_equal (String.compare (Procname.to_string callee_pname) "calloc") 0)
+        || (phys_equal (String.compare (Procname.to_string callee_pname) "__new") 0) then
         (* TODO nahradit za malloc, calloc, realloc? atd. - neexistuje nejaka funkce is_dynamically_allocated? *)
         (* add (ret_id, loc) to extras.heap_tmp *)
         let ret_id_ae = HilExp.AccessExpression.of_id ret_id ret_typ in

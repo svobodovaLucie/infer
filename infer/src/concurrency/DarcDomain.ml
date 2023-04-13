@@ -462,9 +462,11 @@ let get_base_as_access_expression var =
 (* function returns Some alias if var participates in any alias in astate.aliases, or None,
    if add_deref is true, the second var in alias is returned as dereference *)
 let rec find_alias var aliases ~add_deref =
+  F.printf "find_alias of var=%a: " HilExp.AccessExpression.pp var;
   match aliases with
   | [] -> None
   | (fst, snd) :: t ->
+    F.printf "fst=%a, snd=%a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;
     if ((HilExp.AccessExpression.equal fst var) || (HilExp.AccessExpression.equal snd var)) then
       match add_deref with
       | true -> Some (fst, HilExp.AccessExpression.dereference snd)
@@ -472,13 +474,25 @@ let rec find_alias var aliases ~add_deref =
     else
       find_alias var t ~add_deref
 
-(* function removes alias from astate.aliases *)
-let remove_alias_from_aliases alias astate =
-  match alias with
+(* function removes all aliases of var from aliases set *)
+let remove_all_var_aliases_from_aliases var_option astate =
+  match var_option with
   | None -> astate
-  | Some alias -> (
-    let new_aliases = AliasesSet.remove alias astate.aliases in
-    { astate with aliases=new_aliases }
+  | Some var -> (
+    let aliases_list = AliasesSet.elements astate.aliases in
+    let rec remove_var_alias var lst acc =
+      match lst with
+      | [] -> acc
+      | ((fst, _) as alias) :: t -> (
+        if (HilExp.AccessExpression.equal fst var) then
+          remove_var_alias var t acc
+        else
+          remove_var_alias var t (alias :: acc)
+      )
+    in
+    let res_list = remove_var_alias var aliases_list [] in
+    let res_set = AliasesSet.of_list res_list in
+    {astate with aliases=res_set}
   )
 
 (* function adds new alias to astate.aliases *)
@@ -498,6 +512,7 @@ let create_new_alias fst snd =
 
 (* function resolves alias by going through aliases (not heap aliases) *)
 let rec resolve_alias lhs lhs_current var aliases =
+  F.printf "resolve_alias: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;
   (* if lhs matches lhs_current, end the recursion and return final alias/var *)
   if (HilExp.AccessExpression.equal lhs lhs_current) then
     begin
@@ -643,6 +658,7 @@ let get_option_snd alias = (
 
 (* function updates aliases and heap aliases with (lhs = rhs) expression *)
 let update_aliases lhs rhs astate =
+  F.printf "update_aliases: lhs=%a, rhs=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp rhs;
   let aliases = AliasesSet.elements astate.aliases in
   (* lhs *)
   (* find if there exists an alias for lhs variable and get the first var in the alias *)
@@ -654,7 +670,7 @@ let update_aliases lhs rhs astate =
     (* create new alias: Some (lhs_alias_fst, &rhs) *)
     let new_alias = create_new_alias lhs_alias_fst (Some rhs) in
     (* remove existing lhs_alias and add the new alias to astate *)
-    let astate_alias_removed = remove_alias_from_aliases lhs_alias astate in
+    let astate_alias_removed = remove_all_var_aliases_from_aliases lhs_alias_fst astate in
     add_new_alias astate_alias_removed new_alias
   )
   | _ -> (  (* base, dereference etc. *)
@@ -666,7 +682,7 @@ let update_aliases lhs rhs astate =
       let rhs_alias_snd = get_option_snd rhs_alias in (* Some (x, &z) -> Some &z *)
       let new_alias = create_new_alias lhs_alias_fst rhs_alias_snd in
       (* remove existing lhs_alias and add the new alias to astate *)
-      let astate_alias_removed = remove_alias_from_aliases lhs_alias astate in
+      let astate_alias_removed = remove_all_var_aliases_from_aliases lhs_alias_fst astate in
       add_new_alias astate_alias_removed new_alias
     )
     | None -> ( (* alias wasn't found - try to find alias in heap aliases *)
@@ -675,7 +691,7 @@ let update_aliases lhs rhs astate =
       match rhs_heap_alias_loc with
       | Some loc -> (
         (* remove existing alias from aliases and add the new alias to astate *)
-        let astate_alias_removed = remove_alias_from_aliases lhs_alias astate in
+        let astate_alias_removed = remove_all_var_aliases_from_aliases lhs_alias_fst astate in
         add_heap_alias lhs loc astate_alias_removed
         )
       | None -> astate (* alias doesn't exist *)
@@ -1258,6 +1274,7 @@ let rec list_union lst1 lst2 =
 
 (* function joint two astates *)
 let join astate1 astate2 =
+  F.printf "join\n";
   let threads_active = ThreadSet.union astate1.threads_active astate2.threads_active in
   let accesses = AccessSet.union astate1.accesses astate2.accesses in
   let lockset = Lockset.union astate1.lockset astate2.lockset in

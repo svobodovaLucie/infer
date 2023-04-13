@@ -474,6 +474,22 @@ let rec find_alias var aliases ~add_deref =
     else
       find_alias var t ~add_deref
 
+let rec find_alias_list var aliases ~add_deref acc =
+  F.printf "find_alias_list of var=%a: " HilExp.AccessExpression.pp var;
+  match aliases with
+  | [] -> acc
+  | (fst, snd) :: t ->
+    F.printf "fst=%a, snd=%a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;
+    if ((HilExp.AccessExpression.equal fst var) || (HilExp.AccessExpression.equal snd var)) then
+      let alias_to_add =
+        match add_deref with
+        | true -> (fst, HilExp.AccessExpression.dereference snd)
+        | false -> (fst, snd)
+      in
+      find_alias_list var t ~add_deref (alias_to_add :: acc)
+    else
+      find_alias_list var t ~add_deref acc
+
 (* function removes all aliases of var from aliases set *)
 let remove_all_var_aliases_from_aliases var_option astate =
   match var_option with
@@ -510,6 +526,38 @@ let create_new_alias fst snd =
   | (Some f, Some s) -> Some (f, s)
   | _ -> None
 
+let rec resolve_alias_list lhs lhs_current var aliases =
+  F.printf "resolve_alias_list: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;
+  (* if lhs matches lhs_current, end the recursion and return final alias/var *)
+  if (HilExp.AccessExpression.equal lhs lhs_current) then
+    begin
+      (* if lhs is dereference -> find new alias in aliases, else return var *)
+      match lhs with
+      | HilExp.AccessExpression.Dereference lhs_without_dereference ->
+        find_alias_list lhs_without_dereference aliases ~add_deref:true [] (* e.g. None | Some (y, &k) *)
+      | _ -> [(var, var)]
+    end
+  else
+    begin
+      (* find var in aliases and if found, continue recursion with the snd in alias *)
+      let find_current_in_aliases = find_alias_list var aliases ~add_deref:false [] in (* e.g. None | Some (m, &y) *)
+      let lhs_dereference = HilExp.AccessExpression.dereference lhs_current in (* *m *)
+      match find_current_in_aliases with
+      | [] -> []
+      | list -> (
+        let rec resolve lst resolved_acc =
+          match lst with
+          | [] -> resolved_acc
+          | (_, snd) :: t -> (
+            let snd_dereference = HilExp.AccessExpression.dereference snd in
+            let resolved_for_one = resolve_alias_list lhs lhs_dereference snd_dereference aliases in
+            resolve t (resolved_for_one @ resolved_acc)
+          )
+        in
+        resolve list []
+      )
+    end
+
 (* function resolves alias by going through aliases (not heap aliases) *)
 let rec resolve_alias lhs lhs_current var aliases =
   F.printf "resolve_alias: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;
@@ -539,6 +587,23 @@ let rec resolve_alias lhs lhs_current var aliases =
 let get_base_alias lhs aliases =
   let lhs_base_ae = get_base_as_access_expression lhs in
   resolve_alias lhs lhs_base_ae lhs_base_ae aliases
+
+(* function returns alias of var if found in aliases, else returns var *)
+let replace_var_with_its_alias_list var aliases =
+  let var_ae = get_base_as_access_expression var in
+  let result_list = resolve_alias_list var var_ae var_ae aliases in
+  match result_list with
+  | [] -> [var] (* alias not found -> return the original var *)
+  | list -> (
+    let rec get_list_of_snd lst acc =
+      match lst with
+      | [] -> acc
+      | (_, snd) :: t -> (
+        get_list_of_snd t (snd :: acc) (* alias found -> return the alias *)
+      )
+    in
+    get_list_of_snd list []
+  )
 
 (* function returns alias of var if found in aliases, else returns var *)
 let replace_var_with_its_alias var aliases =
@@ -573,6 +638,28 @@ let resolve_load_alias exp load_aliases ~add_deref : HilExp.AccessExpression.t =
   in
   (* transform res to same "format" as exp was (dereference, addressOf etc.) *)
   AccessEvent.replace_base_of_var_with_another_var exp res
+
+let resolve_load_alias_list exp load_aliases ~add_deref : HilExp.AccessExpression.t list =
+  let exp_base_ae = get_base_as_access_expression exp in
+    match exp with
+    | HilExp.AccessExpression.AddressOf _ -> [exp]
+    | _ -> (
+      let load_alias_list = find_alias_list exp_base_ae load_aliases ~add_deref [] in
+      match load_alias_list with
+      | [] -> [exp_base_ae]
+      | list -> (
+        let rec fe lst feacc =
+          match lst with
+          | [] -> feacc
+          | (_, snd) :: t -> (
+            (* transform res to same "format" as exp was (dereference, addressOf etc.) *)
+            let res = AccessEvent.replace_base_of_var_with_another_var exp snd in
+            fe t (res :: feacc)
+          )
+        in
+        fe list []
+      )
+    )
 
 (* function deletes all load_aliases from astate *)
 let astate_with_clear_load_aliases astate = {astate with load_aliases=[]}
@@ -697,6 +784,26 @@ let update_aliases lhs rhs astate =
       | None -> astate (* alias doesn't exist *)
     )
   )
+
+let resolve_entire_aliasing_of_var_list e_ae astate ~add_deref =
+  (* load alias je take potreba vyhledat v celem seznamu (muze tam byt vickrat napr. (n$1, i), (n$1, j)) *)
+  let e_after_resolving_load_alias_list = resolve_load_alias_list e_ae astate.load_aliases ~add_deref in
+  let rec for_each_load_alias lst acc =
+    match lst with
+    | [] -> acc
+    | e_after_resolving_load_alias :: t -> (
+      let e_final_list = replace_var_with_its_alias_list e_after_resolving_load_alias (AliasesSet.elements astate.aliases) in
+  (* vytvorit list dvojic (e_after_resolving_load_alias, e_final) *)
+      let rec create_final_list lst cacc =
+        match lst with
+        | [] -> cacc
+        | var :: t -> create_final_list t ((e_after_resolving_load_alias, var) :: cacc)
+      in
+      let new_acc = create_final_list e_final_list acc in
+      for_each_load_alias t new_acc
+    )
+  in
+  for_each_load_alias e_after_resolving_load_alias_list []
 
 (* function resolves load alias of e_ae and then other aliases (FIXME not heap aliases) *)
 let resolve_entire_aliasing_of_var e_ae astate ~add_deref =
@@ -1036,10 +1143,13 @@ let release_lock lockid astate loc =
 
 (* function handles load expression *)
 let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
+  F.printf "load_aliases: \n";
+  _print_load_aliases_list astate;
   match e with
   | Exp.Var _ -> (
     F.printf "Var\n";
     (* e is Var (e.g. n$0) -> it should already be present in load_aliases -> resolve it *)
+    (*
     let (e_aliased, e_aliased_final) = resolve_entire_aliasing_of_var e_ae astate ~add_deref:false in
     (* add new load alias to load_aliases *)
     let new_load_alias = (id_ae, e_aliased_final) in
@@ -1047,6 +1157,23 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
     let astate = { astate with load_aliases } in
     (* add all read access (if it is access to heap allocated variable with alias, there could be more accesses) *)
     add_accesses_to_astate_with_aliases_or_heap_aliases e_aliased e_aliased_final ReadWriteModels.Read astate loc pname
+    *)
+    let lst = resolve_entire_aliasing_of_var_list e_ae astate ~add_deref:false in (* lst je ve tvaru [(e_aliased, e_aliased_final)] *)
+    (* vsechno udelat stejne jako predtim, akorat rekurzivne pro kazdy prvek v seznamu *)
+    let rec add_load_alias_and_accesses l updated_astate =
+      match l with
+      | [] -> updated_astate
+      | (e_aliased, e_aliased_final) :: t -> (
+        (* add new load alias to load_aliases *)
+        let new_load_alias = (id_ae, e_aliased_final) in
+        let load_aliases = new_load_alias :: updated_astate.load_aliases in
+        let astate = { updated_astate with load_aliases } in
+        (* add all read access (if it is access to heap allocated variable with alias, there could be more accesses) *)
+        let new_updated_astate = add_accesses_to_astate_with_aliases_or_heap_aliases e_aliased e_aliased_final ReadWriteModels.Read astate loc pname in
+        add_load_alias_and_accesses t new_updated_astate
+      )
+    in
+    add_load_alias_and_accesses lst astate
   )
   | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> (
     F.printf "Lvar or Lfield or Lindex\n";

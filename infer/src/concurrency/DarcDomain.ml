@@ -1414,8 +1414,8 @@ let join astate1 astate2 =
   F.printf "join\n";
   let threads_active = ThreadSet.union astate1.threads_active astate2.threads_active in
   let accesses = AccessSet.union astate1.accesses astate2.accesses in
-  let lockset = Lockset.union astate1.lockset astate2.lockset in
-  let unlockset = Lockset.union astate1.unlockset astate2.unlockset in
+  let lockset = Lockset.inter astate1.lockset astate2.lockset in
+  let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in
   let aliases = AliasesSet.union astate1.aliases astate2.aliases in  (* TODO FIXME how to join aliases *)
   let load_aliases = list_union astate1.load_aliases astate2.load_aliases in
   let heap_aliases = list_union astate1.heap_aliases astate2.heap_aliases in

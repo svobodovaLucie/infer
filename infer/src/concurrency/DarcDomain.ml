@@ -703,17 +703,6 @@ let remove_heap_alias_by_var_name var astate =
     { astate with heap_aliases=updated_heap_aliases }
   | None -> astate (* heap alias with var doesn't exist *)
 
-(* actual_to_be_removed is e.g. n$0 *)
-let remove_heap_aliases_when_free actual_to_be_removed astate =
-  (* find actual in load aliases *)
-  let load_alias = find_load_alias_by_var actual_to_be_removed astate.load_aliases in
-  match load_alias with
-  | None -> astate
-  | Some (var, snd) ->
-    F.printf "Some var=%a, snd=%a\n" HilExp.AccessExpression.pp var HilExp.AccessExpression.pp snd;
-  (* remove var and all aliases with the same loc as loc *)
-    remove_heap_alias_by_var_name snd astate
-
 (* function adds new heap alias to astate.heap_aliases,
    if there already is an alias with variable var, the old alias is first removed *)
 let add_heap_alias var loc astate =

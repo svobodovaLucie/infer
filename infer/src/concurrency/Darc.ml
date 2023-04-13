@@ -28,24 +28,6 @@ let initial_extras =
 
 type analysis_data = {interproc: DarcDomain.summary InterproceduralAnalysis.t; extras : extras_t ref}
 
-let handle_free hil_actuals astate =
-  (* get actuals - prvni z nich je LOAD alias toho, co se ma odstranit z heap_aliases *)
-  let hil_actuals_first = List.hd hil_actuals in
-  match hil_actuals_first with
-  | None -> (
-    F.printf "None\n";
-    astate
-  )
-  | Some HilExp.AccessExpression actual -> (
-    F.printf "Some actual=%a\n" HilExp.AccessExpression.pp actual;
-    (* find actual in load aliases *)
-    Domain.remove_heap_aliases_when_free actual astate
-  )
-  | Some _ -> (
-    F.printf "Some actual=other type\n";
-    astate
-  )
-
 module TransferFunctions (CFG : ProcCfg.S) = struct
   module CFG = CFG
   module Domain = Domain
@@ -194,6 +176,8 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
       let result = handle_load tenv id e typ ~lhs:(Var.of_id id, typ) loc astate pname in
       (* update last_loc *)
       analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
+      F.printf "after load:\n";
+      Domain.print_astate result;
       result
     )
     | Store {e1; typ; e2; loc} -> (
@@ -248,7 +232,8 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
       (* update last_loc AND CLEAR HEAP_TMP *)
       analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp = !(analysis_data.extras).heap_tmp };
 (*      let result_malloc = random_foo e1 typ e2 astate analysis_data.extras in*)
-      F.printf "ahojky\n";
+      F.printf "after store:\n";
+      Domain.print_astate result;
       result
     )
     | Prune  (exp, loc, then_branch, _if_kind) -> (
@@ -309,10 +294,6 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
         let heap_tmp = new_heap_tmp :: !(analysis_data.extras).heap_tmp in
         analysis_data.extras := { last_loc = loc; random_int = !(analysis_data.extras).random_int; heap_tmp };
         astate
-      else if (phys_equal (String.compare (Procname.to_string callee_pname) "free") 0)
-              || (phys_equal (String.compare (Procname.to_string callee_pname) "__delete") 0) then
-        (* free odstrani z heap_aliases to, co je v argumentu te funkce + vsechno se stejnym loc *)
-        handle_free hil_actuals astate
       else
         begin
          (* LOCKS *)

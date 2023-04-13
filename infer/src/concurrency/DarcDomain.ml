@@ -437,7 +437,9 @@ let print_astate astate  =
   F.printf "lockset=%a\n" Lockset.pp astate.lockset;
   F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
   F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
-  F.printf "aliases=%a\n" AliasesSet.pp astate.aliases
+  F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
+  F.printf "heap_aliases=";
+  _print_heap_aliases_list astate
   (* F.printf "caller_pname=%a\n" Procname.pp caller_pname; *)
   (* F.printf "loc=%a\n" Location.pp loc *)
   (* F.printf "=======================================\n" *)
@@ -506,9 +508,10 @@ let remove_all_var_aliases_from_aliases var_option astate =
           remove_var_alias var t (alias :: acc)
       )
     in
-    let res_list = remove_var_alias var aliases_list [] in
-    let res_set = AliasesSet.of_list res_list in
-    {astate with aliases=res_set}
+    let aliases_removed_list = remove_var_alias var aliases_list [] in
+    let aliases_removed = AliasesSet.of_list aliases_removed_list in
+    let heap_aliases_removed = remove_var_alias var astate.heap_aliases [] in
+    {astate with aliases=aliases_removed; heap_aliases=heap_aliases_removed}
   )
 
 (* function adds new alias to astate.aliases *)

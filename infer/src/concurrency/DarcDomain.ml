@@ -1158,9 +1158,18 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
       match l with
       | [] -> updated_astate
       | (e_aliased, e_aliased_final) :: t -> (
-        (* add new load alias to load_aliases *)
+        (* create new load alias *)
         let new_load_alias = (id_ae, e_aliased_final) in
-        let load_aliases = new_load_alias :: updated_astate.load_aliases in
+        (* check if the load alias already exist *)
+        let load_alias_eq (a, b) (a', b') =
+          HilExp.AccessExpression.equal a a' && HilExp.AccessExpression.equal b b'
+        in
+        let load_aliases =
+          match List.mem updated_astate.load_aliases new_load_alias ~equal:load_alias_eq with
+          | false -> new_load_alias :: updated_astate.load_aliases
+          | true -> updated_astate.load_aliases
+        in
+        (* add new load alias to load_aliases *)
         let astate = { updated_astate with load_aliases } in
         (* add all read access (if it is access to heap allocated variable with alias, there could be more accesses) *)
         let new_updated_astate = add_accesses_to_astate_with_aliases_or_heap_aliases e_aliased e_aliased_final ReadWriteModels.Read astate loc pname in

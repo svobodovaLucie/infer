@@ -648,16 +648,16 @@ let resolve_load_alias_list exp load_aliases ~add_deref : HilExp.AccessExpressio
       match load_alias_list with
       | [] -> [exp_base_ae]
       | list -> (
-        let rec fe lst feacc =
+        let rec get_list_of_final_vars lst final_list_acc =
           match lst with
-          | [] -> feacc
+          | [] -> final_list_acc
           | (_, snd) :: t -> (
             (* transform res to same "format" as exp was (dereference, addressOf etc.) *)
             let res = AccessEvent.replace_base_of_var_with_another_var exp snd in
-            fe t (res :: feacc)
+            get_list_of_final_vars t (res :: final_list_acc)
           )
         in
-        fe list []
+        get_list_of_final_vars list []
       )
     )
 
@@ -786,20 +786,23 @@ let update_aliases lhs rhs astate =
   )
 
 let resolve_entire_aliasing_of_var_list e_ae astate ~add_deref =
-  (* load alias je take potreba vyhledat v celem seznamu (muze tam byt vickrat napr. (n$1, i), (n$1, j)) *)
+  (* get list of load aliases, e.g. (n$1, i), (n$1, j) *)
   let e_after_resolving_load_alias_list = resolve_load_alias_list e_ae astate.load_aliases ~add_deref in
+  (* for each load alias *)
+
   let rec for_each_load_alias lst acc =
     match lst with
     | [] -> acc
     | e_after_resolving_load_alias :: t -> (
+      (* get list of all aliased variables *)
       let e_final_list = replace_var_with_its_alias_list e_after_resolving_load_alias (AliasesSet.elements astate.aliases) in
-  (* vytvorit list dvojic (e_after_resolving_load_alias, e_final) *)
-      let rec create_final_list lst cacc =
+      (* create list of (e_after_resolving_load_alias, e_final) pairs *)
+      let rec create_list_of_aliased_vars lst cacc =
         match lst with
         | [] -> cacc
-        | var :: t -> create_final_list t ((e_after_resolving_load_alias, var) :: cacc)
+        | var :: t -> create_list_of_aliased_vars t ((e_after_resolving_load_alias, var) :: cacc)
       in
-      let new_acc = create_final_list e_final_list acc in
+      let new_acc = create_list_of_aliased_vars e_final_list acc in
       for_each_load_alias t new_acc
     )
   in
@@ -1149,17 +1152,8 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
   | Exp.Var _ -> (
     F.printf "Var\n";
     (* e is Var (e.g. n$0) -> it should already be present in load_aliases -> resolve it *)
-    (*
-    let (e_aliased, e_aliased_final) = resolve_entire_aliasing_of_var e_ae astate ~add_deref:false in
-    (* add new load alias to load_aliases *)
-    let new_load_alias = (id_ae, e_aliased_final) in
-    let load_aliases = new_load_alias :: astate.load_aliases in
-    let astate = { astate with load_aliases } in
-    (* add all read access (if it is access to heap allocated variable with alias, there could be more accesses) *)
-    add_accesses_to_astate_with_aliases_or_heap_aliases e_aliased e_aliased_final ReadWriteModels.Read astate loc pname
-    *)
     let lst = resolve_entire_aliasing_of_var_list e_ae astate ~add_deref:false in (* lst je ve tvaru [(e_aliased, e_aliased_final)] *)
-    (* vsechno udelat stejne jako predtim, akorat rekurzivne pro kazdy prvek v seznamu *)
+    (* for each load alias *)
     let rec add_load_alias_and_accesses l updated_astate =
       match l with
       | [] -> updated_astate
@@ -1210,29 +1204,36 @@ let store e1 typ e2 loc astate pname =
     (* if the type is pointer, add aliases to e2 *)
     if (Typ.is_pointer typ) then
       begin
-        (* add alias *)
-        let add_deref = false in
-        let e2_exp =
-          match e2 with
-          | Exp.Cast (_, cast_exp) -> cast_exp (* handle Cast *)
-          | _ -> e2
-        in
-        let e2_hil = transform_sil_expr_to_hil e2_exp typ add_deref in
-        match e2_hil with
-        | AccessExpression e2_ae -> (
-          (* handle aliasing of e2 *)
-          let e2_final =
-            match e2 with
-            | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> e2_ae
-            | Exp.Var _ | _ ->  (
-              let (_, e2_aliased_final) = resolve_entire_aliasing_of_var e2_ae astate ~add_deref:false in
-              e2_aliased_final
+        (* check null on the rhs *)
+        if (Exp.is_null_literal e2) then
+          (* remove aliases of e1_aliased_final *)
+          remove_all_var_aliases_from_aliases (Some e1_aliased_final) astate
+        else
+          begin
+            (* add alias *)
+            let add_deref = false in
+            let e2_exp =
+              match e2 with
+              | Exp.Cast (_, cast_exp) -> cast_exp (* handle Cast *)
+              | _ -> e2
+            in
+            let e2_hil = transform_sil_expr_to_hil e2_exp typ add_deref in
+            match e2_hil with
+            | AccessExpression e2_ae -> (
+               (* handle aliasing of e2 *)
+              let e2_final =
+                match e2 with
+                | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> e2_ae
+                | Exp.Var _ | _ ->  (
+                  let (_, e2_aliased_final) = resolve_entire_aliasing_of_var e2_ae astate ~add_deref:false in
+                  e2_aliased_final
+                )
+              in
+              (* save alias to the aliases set *)
+              update_aliases e1_aliased_final e2_final astate
             )
-          in
-          (* save alias to the aliases set *)
-          update_aliases e1_aliased_final e2_final astate
-        )
-        | _ -> astate
+            | _ -> astate
+          end
       end
     else
       astate

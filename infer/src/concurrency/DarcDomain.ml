@@ -1336,11 +1336,33 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
   (* return updated astate *)
   { astate with accesses=accesses_joined }
 
+(* {{x, 2, ...}, {x, 3, ...}, {y, 5, ...}, ...} -> get_list_of_vars: [x, y, ...] *)
+let get_list_of_vars set =
+  AccessSet.fold (fun s acc -> (if List.mem acc s.var ~equal:HilExp.AccessExpression.equal then acc else s.var :: acc)) set []
+
+let rec print_list lst =
+  match lst with
+  | [] -> F.printf "\n"
+  | h :: t -> (
+    F.printf "%a " HilExp.AccessExpression.pp h;
+    print_list t
+  )
+
 (* function computes if there are any data races in the program,
    it creates pairs of accesses and checks on which pairs data race could occur *)
 let compute_data_races post =
   (* create a list of pairs of accesses - [(ac1, ac1); (ac1, ac2)] *)
   let fold_add_pairs access lst = lst @ [access] in (* val fold : (elt -> 'a -> 'a) -> t -> 'a -> 'a *)
+  (*
+    FIXME optimize data race computation:
+    create list of used vars
+    -> create pairs of accesses to those vars
+    -> compute data races
+    -> report only one of them
+   *)
+  let list_of_vars = get_list_of_vars post.accesses in
+  F.printf "list_of_vars: \n";
+  print_list list_of_vars;
   (* create list from set *)
   let lst1 = AccessSet.fold fold_add_pairs post.accesses [] in
   let lst2 = AccessSet.fold fold_add_pairs post.accesses [] in

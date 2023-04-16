@@ -901,12 +901,6 @@ let resolve_entire_aliasing_of_var_list e_ae astate ~add_deref ~return_addressof
   in
   for_each_load_alias e_after_resolving_load_alias_list []
 
-(* function resolves load alias of e_ae and then other aliases (FIXME not heap aliases) *)
-let resolve_entire_aliasing_of_var e_ae astate ~add_deref =
-  let e_after_resolving_load_alias = resolve_load_alias e_ae astate.load_aliases ~add_deref in
-  let e_final = replace_var_with_its_alias e_after_resolving_load_alias (AliasesSet.elements astate.aliases) in
-  (e_after_resolving_load_alias, e_final)
-
 (* functions that handle threads *)
 (* function returns None or Some (thread, loc, false) *)
 let create_thread_from_load_ae_with_false_flag load loc astate =
@@ -1398,7 +1392,6 @@ let store e1 typ e2 loc astate pname =
       match lst with
       | [] -> astate
       | (e1_aliased, e1_aliased_final) :: t -> (
-        (* let (e1_aliased, e1_aliased_final) = resolve_entire_aliasing_of_var e1_ae astate ~add_deref:true in *)
         let astate = add_accesses_to_astate_with_aliases_or_heap_aliases e1_aliased e1_aliased_final ReadWriteModels.Write astate loc pname in
         (* if the type is pointer, add aliases to e2 *)
         if (Typ.is_pointer typ) then
@@ -1419,17 +1412,23 @@ let store e1 typ e2 loc astate pname =
                 let e2_hil = transform_sil_expr_to_hil e2_exp typ add_deref in
                 match e2_hil with
                 | AccessExpression e2_ae -> (
-                   (* handle aliasing of e2 *)
-                  let e2_final =
+                  (* handle aliasing of e2 *)
+                  let astate =
                     match e2 with
-                    | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> e2_ae
+                    | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> update_aliases e1_aliased_final e2_ae astate
                     | Exp.Var _ | _ ->  (
-                      let (_, e2_aliased_final) = resolve_entire_aliasing_of_var e2_ae astate ~add_deref:false in (* TODO _list *)
-                      e2_aliased_final
+                      let lst_e2 = resolve_entire_aliasing_of_var_list e2_ae astate ~add_deref:false ~return_addressof_alias:false in
+                      let rec foreach lst astate =
+                        match lst with
+                        | [] -> astate
+                        | (_, e2_aliased_final) :: t -> (
+                          let astate = update_aliases e1_aliased_final e2_aliased_final astate in
+                          foreach t astate
+                        )
+                      in foreach lst_e2 astate
                     )
                   in
                   (* save alias to the aliases set *)
-                  let astate = update_aliases e1_aliased_final e2_final astate in
                   for_each t astate
                 )
                 | _ -> for_each t astate

@@ -212,6 +212,7 @@ module AccessEvent = struct
   (* function replaces the base in var with actual,
      it must to be recursive to keep the same "format" as the original var was (e.g. **x, *x, &x) *)
   let rec replace_base_of_var_with_another_var var actual =
+    F.printf "replace_base_of_var_with_another_var: var=%a, actual=%a\n" HilExp.AccessExpression.pp var HilExp.AccessExpression.pp actual;
     let replace_base_inner = replace_base_of_var_with_another_var actual in
     match var with
     | HilExp.AccessExpression.Dereference (Base _) -> (* *v -> *a *)
@@ -228,6 +229,15 @@ module AccessEvent = struct
       match address_of_option with
       | Some address_of -> address_of
       | None -> ae
+    )
+    | HilExp.AccessExpression.FieldOffset (ae, fieldname) -> (
+      F.printf "replace_base_of_var_with_another_var2: ae: %a, fieldname: %a\n" HilExp.AccessExpression.pp ae Fieldname.pp fieldname;
+      (* rekurzivne replacnout ae with another var a pridat fieldname *)
+      let final_ae = (replace_base_of_var_with_another_var ae actual) in
+      let final = HilExp.AccessExpression.field_offset final_ae fieldname in
+      F.printf "replace_base_of_var_with_another_var2: ae after: %a\n" HilExp.AccessExpression.pp final;
+      final
+      (* actual *)
     )
     | _ -> actual
 
@@ -664,6 +674,7 @@ let resolve_load_alias exp load_aliases ~add_deref : HilExp.AccessExpression.t =
 
 let resolve_load_alias_list exp load_aliases ~add_deref : HilExp.AccessExpression.t list =
   let exp_base_ae = get_base_as_access_expression exp in
+  F.printf "resolve_load_alias_list -> exp_base_ae: %a\n" HilExp.AccessExpression.pp exp_base_ae;
     match exp with
     | HilExp.AccessExpression.AddressOf _ -> [exp]
     | _ -> (
@@ -825,14 +836,27 @@ let replace_var_with_its_alias_list var aliases (heap_aliases : (HilExp.access_e
   | [] -> (* [var] (* alias not found -> return the original var *) *)
   (
     (* alias not found -> try to find in heap_aliases *)
-    let loc = find_heap_alias_by_var var heap_aliases in
+    (* find heap aliases with the base *)
+    let loc = find_heap_alias_by_var var_ae heap_aliases in
     match loc with
     | Some loc -> (
       (* get list of all aliases with the same loc *)
       let lst = get_heap_aliases_list_by_loc loc heap_aliases in
+      (* get the same format as the first expression (base, *, ** etc.) *)
+      (* if the list is empty then return the original var *)
       match lst with
       | [] -> [var]
-      | _ -> lst
+      | lst -> (
+        let rec for_each_in_list_get_right_format list acc =
+          match list with
+          | [] -> acc
+          | h :: t -> (
+            let right_format_var = AccessEvent.replace_base_of_var_with_another_var var h in
+            for_each_in_list_get_right_format t (right_format_var :: acc)
+          )
+        in
+        for_each_in_list_get_right_format lst []
+      )
     )
     | None -> (
       (* not found -> return original var *)
@@ -1016,14 +1040,14 @@ let transform_sil_exprs_to_hil_list sil_expr_list add_deref = (* list of sil exp
   transform_sil_to_hil_actuals sil_expr_list []
 
 (* f_ae je load expression struktury *)
-let resolve_entire_aliasing_of_var_for_lfield_list e_ae astate =
+let resolve_entire_aliasing_of_var_for_lfield_list e_ae astate  ~add_deref =
   F.printf "resolve_entire_aliasing_of_var_for_lfield_list e_ae=%a\n" HilExp.AccessExpression.pp e_ae;
   let ae_fields_list =
     match e_ae with
     | HilExp.AccessExpression.FieldOffset (fieldoffset_ae, fieldname)-> (
       F.printf "resolve_entire_aliasing_of_var_for_lfield_list-FieldOffset: (%a, %a)\n" HilExp.AccessExpression.pp fieldoffset_ae Fieldname.pp fieldname;
       (* ziskat list aliasu toho fieldoffset_ae *)
-      let lst = resolve_entire_aliasing_of_var_list fieldoffset_ae astate ~add_deref:false in (* lst je ve tvaru [(e_aliased, e_aliased_final)] *)
+      let lst = resolve_entire_aliasing_of_var_list fieldoffset_ae astate ~add_deref in (* lst je ve tvaru [(e_aliased, e_aliased_final)] *)
       (* pro kazdy prvek z listu vytvorit ae s fieldname *)
       let rec for_each_create_fieldname fieldname lst acc =
         match lst with
@@ -1071,10 +1095,12 @@ let remove_var_from_locals actual locals =
   match actual with
   | HilExp.AccessExpression actual_ae -> (
     let actual_base_ae = get_base_as_access_expression actual_ae in
+    F.printf "remove_var_from_locals: actual_base_ae: %a\n" HilExp.AccessExpression.pp actual_base_ae;
     (* check if the var is in locals *)
     let is_in_locals = List.mem locals actual_base_ae ~equal:HilExp.AccessExpression.equal in
     (* remove var from locals *)
     let rec remove_from_locals var locals acc =
+      F.printf "removing from locals: %a\n" HilExp.AccessExpression.pp var;
       match locals with
       | [] -> acc
       | h :: t ->
@@ -1106,6 +1132,7 @@ let add_access_to_astate var access_type astate loc pname =
     in
     { var; loc; access_type; locked; unlocked; threads_active; thread }
   in
+  F.printf "add_access_to_astate: %a\n" AccessEvent.pp new_access;
   let accesses = AccessSet.add new_access astate.accesses in
   { astate with accesses }
 
@@ -1268,6 +1295,8 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
   _print_load_aliases_list astate;
   (* for each load alias *)
       let rec add_load_alias_and_accesses l updated_astate =
+        F.printf "add_load_alias_and_accesses: \n";
+        print_astate updated_astate;
         match l with
         | [] -> updated_astate
         | (e_aliased, e_aliased_final) :: t -> (
@@ -1285,7 +1314,11 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
           (* add new load alias to load_aliases *)
           let astate = { updated_astate with load_aliases } in
           (* add all read access (if it is access to heap allocated variable with alias, there could be more accesses) *)
+          F.printf "load:add_load_alias_and_accesses: e_aliased=%a e_aliased_final=%a\n" HilExp.AccessExpression.pp e_aliased HilExp.AccessExpression.pp e_aliased_final;
           let new_updated_astate = add_accesses_to_astate_with_aliases_or_heap_aliases e_aliased e_aliased_final ReadWriteModels.Read astate loc pname in
+          F.printf "new_updated_astate: \n";
+          print_astate new_updated_astate;
+          F.printf "new_updated_astate end--- \n";
           add_load_alias_and_accesses t new_updated_astate
         )
   in
@@ -1309,7 +1342,7 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
   | Exp.Lfield (exp, fieldname, _lfield_typ) -> (
     F.printf "Lfield exp: %a fieldname: %a\n" Exp.pp exp Fieldname.pp fieldname;
     (* FIXME do it recursively! *)
-    let lst = resolve_entire_aliasing_of_var_for_lfield_list e_ae astate in
+    let lst = resolve_entire_aliasing_of_var_for_lfield_list e_ae astate ~add_deref:true in
     add_load_alias_and_accesses lst astate
   )
   | Exp.Lindex _ -> (
@@ -1340,8 +1373,20 @@ let store e1 typ e2 loc astate pname =
   in
   let e1_hil = transform_sil_expr_to_hil e1 typ add_deref in
   match e1_hil with
+  | HilExp.AccessExpression ((FieldOffset _) as e1_ae ) -> (
+    let lst = resolve_entire_aliasing_of_var_for_lfield_list e1_ae astate ~add_deref:true in
+    let rec add_accesses_for_each_aliased_var lst updated_astate =
+      match lst with
+      | [] -> updated_astate
+      | (e1_aliased, e1_aliased_final) :: t -> (
+        let astate = add_accesses_to_astate_with_aliases_or_heap_aliases e1_aliased e1_aliased_final ReadWriteModels.Write updated_astate loc pname in
+        add_accesses_for_each_aliased_var t astate
+      )
+    in
+    add_accesses_for_each_aliased_var lst astate
+  )
   | AccessExpression e1_ae -> (
-    (* add write_accesses *)
+    (* add write_accesses TODO transform to _list function *)
     let (e1_aliased, e1_aliased_final) = resolve_entire_aliasing_of_var e1_ae astate ~add_deref:true in
     let astate = add_accesses_to_astate_with_aliases_or_heap_aliases e1_aliased e1_aliased_final ReadWriteModels.Write astate loc pname in
     (* if the type is pointer, add aliases to e2 *)
@@ -1389,6 +1434,7 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
   F.printf "integrate_pthread_summary: callee_pname=%a on %a\n" Procname.pp callee_pname Location.pp loc;
   (* edit information about each access - thread, threads_active, lockset, unlockset *)
   let edited_accesses_from_callee = AccessSet.map (AccessEvent.update_accesses_with_locks_and_threads astate.threads_active astate.lockset astate.unlockset (Some thread)) callee_summary.accesses in
+  let callee_summary_edited_accesses = {callee_summary with accesses=edited_accesses_from_callee} in
   (* replace actuals with formals *)
   let callee_formal = (* callee formal is the same every time: pthread_create(void *arg) *)
     match callee_formals with
@@ -1405,30 +1451,59 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
     (* if the argument is NULL, don't add accesses to formal in callee summary *)
     let is_null = HilExp.is_null_literal actual in
     (* resolve aliasing *)
-    let actual =
-      match actual with
-      | HilExp.AccessExpression e_ae -> (
-        let (_, e_aliased_final) = resolve_entire_aliasing_of_var e_ae astate ~add_deref:false in
-        HilExp.AccessExpression e_aliased_final
+    (* returns list of hil expressions (dealiased actuals) *)
+    let rec for_each_var_create_hilexp lst acc =
+      match lst with
+      | [] -> acc
+      | (_, h) :: t -> (
+        let hil = HilExp.AccessExpression h in
+        for_each_var_create_hilexp t (hil :: acc)
       )
-      | _ -> actual
+    in
+    let actual_list =
+      match actual with
+      | HilExp.AccessExpression ((FieldOffset _) as e_ae) -> (
+        let lst = resolve_entire_aliasing_of_var_for_lfield_list e_ae astate ~add_deref:false in
+        for_each_var_create_hilexp lst []
+      )
+      | HilExp.AccessExpression e_ae -> (
+        let lst = resolve_entire_aliasing_of_var_list e_ae astate ~add_deref:false in (* TODO struct dealiasing *)
+        for_each_var_create_hilexp lst []
+      )
+      | _ -> [actual]
     in
     (* edit accesses - formal to actual *)
-    let edited_accesses =
+    let (callee_summary_edited_accesses, astate) =
       if is_null then
-          remove_accesses_to_formal callee_formal edited_accesses_from_callee
+        begin
+          let accesses = remove_accesses_to_formal callee_formal callee_summary_edited_accesses.accesses in
+          ({callee_summary_edited_accesses with accesses}, astate)
+        end
       else
-        (* edit accesses in callee_summary with actual *)
-        AccessSet.map (AccessEvent.edit_access_with_actuals callee_formal actual) edited_accesses_from_callee
+        begin
+          (* edit accesses in callee_summary with actual - for each actual *)
+          let rec for_each_actual_replace_formal_with_actual lst callee_summary astate =
+            match lst with
+            | [] -> (callee_summary, astate)
+            | actual :: t -> (
+              F.printf "updating with %a\n" HilExp.pp actual;
+              let updated_accesses = AccessSet.map (AccessEvent.edit_access_with_actuals callee_formal actual) callee_summary.accesses in
+              let callee_summary = {callee_summary with accesses=updated_accesses} in
+              let updated_locals = remove_var_from_locals actual astate.locals in
+              let astate = { astate with locals=updated_locals } in
+              for_each_actual_replace_formal_with_actual t callee_summary astate
+            )
+          in
+          for_each_actual_replace_formal_with_actual actual_list callee_summary_edited_accesses astate
+        end
     in
     (* join callee and caller accesses *)
-    let accesses_joined = AccessSet.join astate.accesses edited_accesses in
+    let accesses_joined = AccessSet.join astate.accesses callee_summary_edited_accesses.accesses in
     let astate = { astate with accesses=accesses_joined } in
-    let updated_locals = remove_var_from_locals actual astate.locals in
-    { astate with locals=updated_locals }
+    astate
   )
   | None -> (
-    let accesses_joined = AccessSet.join astate.accesses edited_accesses_from_callee in
+    let accesses_joined = AccessSet.join astate.accesses callee_summary_edited_accesses.accesses in
     { astate with accesses=accesses_joined }
   )
 
@@ -1445,7 +1520,39 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
   in
   (* update accesses in callee_summary with the current lockset, unlockset, threads_active and thread *)
   let edited_accesses_from_callee = AccessSet.map (AccessEvent.update_accesses_with_locks_and_threads astate.threads_active astate.lockset astate.unlockset current_thread) callee_summary.accesses in
- (* function replaces formal parameters in accesses with actual parameters *)
+    (* returns list of hil expressions (dealiased actuals) *)
+    let rec for_each_var_create_hilexp lst acc =
+      match lst with
+      | [] -> acc
+      | (_, h) :: t -> (
+        let hil = HilExp.AccessExpression h in
+        for_each_var_create_hilexp t (hil :: acc)
+      )
+    in
+    (* edit accesses - formal to actual *)
+    let for_each_update_accesses formal actuals_list callee_pname edited_accesses_from_callee =
+      (* edit accesses in callee_summary with actual - for each actual *)
+      let rec for_each_actual_replace_formal_with_actual lst accesses =
+        match lst with
+        | [] -> accesses
+        | actual :: t -> (
+          F.printf "updating with %a\n" HilExp.pp actual;
+          let formal_pvar = Pvar.mk (fst formal) callee_pname in
+          let formal_access_path_base = AccessPath.base_of_pvar formal_pvar (snd formal) in
+          let formal_access_expression = HilExp.AccessExpression.base formal_access_path_base in
+          if HilExp.is_null_literal actual then
+            remove_accesses_to_formal formal_access_expression edited_accesses_from_callee
+          else
+            begin
+              (* replace all accesses to formal with actual *)
+              let accesses_new = AccessSet.map (AccessEvent.edit_access_with_actuals formal_access_expression actual) accesses in
+              for_each_actual_replace_formal_with_actual t accesses_new
+            end
+          )
+        in
+        for_each_actual_replace_formal_with_actual actuals_list edited_accesses_from_callee
+      in
+  (* function replaces formal parameters in accesses with actual parameters *)
   let replace_formals_with_actuals formals actuals accesses =
     let cnt = ref 0 in
     let accesses_ref = ref accesses in
@@ -1453,20 +1560,21 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
       | [] -> !accesses_ref
       | formal :: tl -> (
         (* edit access *)
-        let actual =
+        let actuals_list =
           match (List.nth actuals !cnt) with
-          | None -> assert false (* TODO *)
-          | Some HilExp.AccessExpression actual_load -> (
-            let (_, e_aliased_final) = resolve_entire_aliasing_of_var actual_load astate ~add_deref:false in
-            HilExp.AccessExpression e_aliased_final
+          | None -> [] (* TODO *)
+          | Some HilExp.AccessExpression ((FieldOffset _) as actual_load) -> (
+            let lst = resolve_entire_aliasing_of_var_for_lfield_list actual_load astate ~add_deref:false in
+            for_each_var_create_hilexp lst []
           )
-          | Some actual -> actual
+          | Some HilExp.AccessExpression actual_load -> (
+            let lst = resolve_entire_aliasing_of_var_list actual_load astate ~add_deref:false in (* TODO struct dealiasing *)
+            for_each_var_create_hilexp lst []
+          )
+          | Some actual -> [actual]
         in
-        let formal_pvar = Pvar.mk (fst formal) callee_pname in
-        let formal_access_path_base = AccessPath.base_of_pvar formal_pvar (snd formal) in
-        let formal_access_expression = HilExp.AccessExpression.base formal_access_path_base in
         (* replace all accesses to formal with actual *)
-        accesses_ref := AccessSet.map (AccessEvent.edit_access_with_actuals formal_access_expression actual) !accesses_ref;
+        accesses_ref := for_each_update_accesses formal actuals_list callee_pname !accesses_ref;(* AccessSet.map (AccessEvent.edit_access_with_actuals formal_access_expression actual) !accesses_ref; *)
         cnt := !cnt + 1; (* go to the next parameter *)
         loop tl
       )

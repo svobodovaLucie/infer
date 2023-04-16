@@ -1244,41 +1244,54 @@ let remove_accesses_to_formal formal accesses : AccessSet.t =
   AccessSet.of_list accesses_list_with_removed_accesses
 
 (* functions that handle locks *)
-(* function adds a lock to lockset and removes it from unlockset *)
+(* function adds all aliased locks to lockset and removes them from unlockset *)
 let acquire_lock lockid astate loc =
   (* dealiasing *)
   match lockid with
   | HilExp.AccessExpression e_ae -> (
-    let (_, e_aliased_final) = resolve_entire_aliasing_of_var e_ae astate ~add_deref:true in
-    let lockid = HilExp.AccessExpression.to_access_path e_aliased_final in
-    (* add the lock *)
-    let lock : LockEvent.t = (lockid, loc) in
-    F.printf "adding lock: %a\n" LockEvent.pp lock;
-    let new_astate : t =
-      let lockset = Lockset.add lock astate.lockset in
-      let unlockset = Lockset.remove lock astate.unlockset in
-      { astate with lockset; unlockset }
+    let lst = resolve_entire_aliasing_of_var_list e_ae astate ~add_deref:true ~return_addressof_alias:false in
+    let rec add_locks_to_lockset lst astate =
+      match lst with
+      | [] -> astate
+      | (_, e_aliased_final) :: t -> (
+        let lockid = HilExp.AccessExpression.to_access_path e_aliased_final in
+        (* add the lock *)
+        let lock : LockEvent.t = (lockid, loc) in
+        F.printf "adding lock: %a\n" LockEvent.pp lock;
+        let new_astate : t =
+          let lockset = Lockset.add lock astate.lockset in
+          let unlockset = Lockset.remove lock astate.unlockset in
+          { astate with lockset; unlockset }
+        in
+        add_locks_to_lockset t new_astate
+      )
     in
-    new_astate
+    add_locks_to_lockset lst astate
   )
   | _ -> astate
 
-(* function removes lock from lockset and adds it to unlockset *)
+(* function removes all aliased locks from lockset and adds them to unlockset *)
 let release_lock lockid astate loc =
   (* dealiasing *)
   match lockid with
   | HilExp.AccessExpression e_ae -> (
-    let (_, e_aliased_final) = resolve_entire_aliasing_of_var e_ae astate ~add_deref:true in
-    let lockid = HilExp.AccessExpression.to_access_path e_aliased_final in
-    (* remove the lock *)
-    let lock : LockEvent.t = (lockid, loc) in
-    F.printf "removing lock: %a\n" LockEvent.pp lock;
-    let new_astate : t =
-      let lockset = Lockset.remove lock astate.lockset in
-      let unlockset = Lockset.add lock astate.unlockset in
-      { astate with lockset; unlockset }
-    in
-    new_astate
+    let lst = resolve_entire_aliasing_of_var_list e_ae astate ~add_deref:true ~return_addressof_alias:false in
+    let rec remove_locks_from_lockset lst astate =
+      match lst with
+      | [] -> astate
+      | (_, e_aliased_final) :: t -> (
+        let lockid = HilExp.AccessExpression.to_access_path e_aliased_final in
+        (* remove the lock *)
+        let lock : LockEvent.t = (lockid, loc) in
+        F.printf "removing lock: %a\n" LockEvent.pp lock;
+        let new_astate : t =
+          let lockset = Lockset.remove lock astate.lockset in
+          let unlockset = Lockset.add lock astate.unlockset in
+          { astate with lockset; unlockset }
+        in
+        remove_locks_from_lockset t new_astate
+      )
+    in remove_locks_from_lockset lst astate
   )
   | _ -> astate
 

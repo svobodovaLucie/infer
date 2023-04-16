@@ -213,30 +213,21 @@ module AccessEvent = struct
      it must to be recursive to keep the same "format" as the original var was (e.g. **x, *x, &x) *)
   let rec replace_base_of_var_with_another_var var actual =
     F.printf "replace_base_of_var_with_another_var: var=%a, actual=%a\n" HilExp.AccessExpression.pp var HilExp.AccessExpression.pp actual;
-    let replace_base_inner = replace_base_of_var_with_another_var actual in
     match var with
-    | HilExp.AccessExpression.Dereference (Base _) -> (* *v -> *a *)
-      HilExp.AccessExpression.dereference actual
-    | HilExp.AccessExpression.Dereference ((FieldOffset _) as ae) -> (* *(v.val) -> *(a.val) *)
-      HilExp.AccessExpression.dereference (replace_base_of_var_with_another_var ae actual)
+    | HilExp.AccessExpression.Base _ -> (* v -> a *)
+      actual
     | HilExp.AccessExpression.Dereference ae -> (* *( *v) -> *(...) *)
-      HilExp.AccessExpression.dereference (replace_base_inner ae)
-    | HilExp.AccessExpression.AddressOf (Base _) -> ((* &v -> &a *)
-      match HilExp.AccessExpression.address_of actual with
-      | Some address_of -> address_of
-      | None -> actual
-    )
+      HilExp.AccessExpression.dereference (replace_base_of_var_with_another_var ae actual)
     | HilExp.AccessExpression.AddressOf ae -> ( (* &( *v) -> &(...) *)
-      let address_of_option = HilExp.AccessExpression.address_of (replace_base_inner ae) in
+      let address_of_option = HilExp.AccessExpression.address_of (replace_base_of_var_with_another_var ae actual) in
       match address_of_option with
       | Some address_of -> address_of
       | None -> ae
     )
-    | HilExp.AccessExpression.FieldOffset (ae, fieldname) -> ( (* s.ptr -> a.ptr *)
-      let replaced_struct_name = replace_base_of_var_with_another_var ae actual in
-      HilExp.AccessExpression.field_offset replaced_struct_name fieldname
-    )
-    | _ -> actual
+    | HilExp.AccessExpression.FieldOffset (ae, fieldname) -> (* v.ptr -> a.ptr *)
+      HilExp.AccessExpression.field_offset (replace_base_of_var_with_another_var ae actual) fieldname
+    | HilExp.AccessExpression.ArrayOffset (ae, typ, hilexp_option) -> (* v[...] -> a[...] *)
+      HilExp.AccessExpression.array_offset (replace_base_of_var_with_another_var ae actual) typ hilexp_option
 
   (* function replaces the var in access by another var (actual), if the var equals formal *)
   let edit_access_with_actuals formal actual access =

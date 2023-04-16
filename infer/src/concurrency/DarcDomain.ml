@@ -459,19 +459,6 @@ let get_base_as_access_expression var =
   let var_base_ae = HilExp.AccessExpression.base var_base in
   var_base_ae
 
-let rec find_load_alias var aliases ~add_deref =
-  F.printf "find_load_alias of var=%a: " HilExp.AccessExpression.pp var;
-  match aliases with
-  | [] -> None
-  | (fst, snd) :: t ->
-    F.printf "fst=%a, snd=%a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;
-    if ((HilExp.AccessExpression.equal fst var) || (HilExp.AccessExpression.equal snd var)) then
-      match add_deref with
-      | true -> Some (fst, HilExp.AccessExpression.dereference snd)
-      | false -> Some (fst, snd)
-    else
-      find_load_alias var t ~add_deref
-
 (* function returns Some alias if var participates in any alias in astate.aliases, or None,
    if add_deref is true, the second var in alias is returned as dereference *)
 let rec find_alias var aliases ~add_deref =
@@ -631,14 +618,6 @@ let get_base_alias lhs aliases =
   let lhs_base_ae = get_base_as_access_expression lhs in
   resolve_alias lhs lhs_base_ae lhs_base_ae aliases
 
-(* function returns alias of var if found in aliases, else returns var *)
-let replace_var_with_its_alias var aliases =
-  let var_ae = get_base_as_access_expression var in
-  let result_option = resolve_alias var var_ae var_ae aliases in
-  match result_option with
-  | None -> var (* alias not found -> return the original var *)
-  | Some (_, snd) -> snd (* alias found -> return the alias *)
-
 (* function returns Some load_alias if there already is an alias in load_aliases *)
 let rec find_load_alias_by_var var load_aliases =
   match load_aliases with
@@ -648,22 +627,6 @@ let rec find_load_alias_by_var var load_aliases =
       Some (fst, snd)
     else
       find_load_alias_by_var var t
-
-(* function resolves load alias *)
-let resolve_load_alias exp load_aliases ~add_deref : HilExp.AccessExpression.t =
-  let exp_base_ae = get_base_as_access_expression exp in
-  let res =
-    match exp with
-    | HilExp.AccessExpression.AddressOf _ -> exp
-    | _ -> (
-      let alias = find_load_alias exp_base_ae load_aliases ~add_deref in
-      match alias with
-      | Some (_, snd) -> snd
-      | None -> exp_base_ae
-    )
-  in
-  (* transform res to same "format" as exp was (dereference, addressOf etc.) *)
-  AccessEvent.replace_base_of_var_with_another_var exp res
 
 let resolve_load_alias_list exp load_aliases ~add_deref : HilExp.AccessExpression.t list =
   let exp_base_ae = get_base_as_access_expression exp in

@@ -217,6 +217,8 @@ module AccessEvent = struct
     match var with
     | HilExp.AccessExpression.Dereference (Base _) -> (* *v -> *a *)
       HilExp.AccessExpression.dereference actual
+    | HilExp.AccessExpression.Dereference ((FieldOffset _) as ae) -> (* *(v.val) -> *(a.val) *)
+      HilExp.AccessExpression.dereference (replace_base_of_var_with_another_var ae actual)
     | HilExp.AccessExpression.Dereference ae -> (* *( *v) -> *(...) *)
       HilExp.AccessExpression.dereference (replace_base_inner ae)
     | HilExp.AccessExpression.AddressOf (Base _) -> ((* &v -> &a *)
@@ -230,14 +232,9 @@ module AccessEvent = struct
       | Some address_of -> address_of
       | None -> ae
     )
-    | HilExp.AccessExpression.FieldOffset (ae, fieldname) -> (
-      F.printf "replace_base_of_var_with_another_var2: ae: %a, fieldname: %a\n" HilExp.AccessExpression.pp ae Fieldname.pp fieldname;
-      (* rekurzivne replacnout ae with another var a pridat fieldname *)
-      let final_ae = (replace_base_of_var_with_another_var ae actual) in
-      let final = HilExp.AccessExpression.field_offset final_ae fieldname in
-      F.printf "replace_base_of_var_with_another_var2: ae after: %a\n" HilExp.AccessExpression.pp final;
-      final
-      (* actual *)
+    | HilExp.AccessExpression.FieldOffset (ae, fieldname) -> ( (* s.ptr -> a.ptr *)
+      let replaced_struct_name = replace_base_of_var_with_another_var ae actual in
+      HilExp.AccessExpression.field_offset replaced_struct_name fieldname
     )
     | _ -> actual
 

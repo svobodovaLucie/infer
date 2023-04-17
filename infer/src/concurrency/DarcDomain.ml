@@ -437,7 +437,9 @@ let print_astate astate  =
   F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
   F.printf "aliases=%a\n" AliasesSet.pp astate.aliases;
   F.printf "heap_aliases=";
-  _print_heap_aliases_list astate
+  _print_heap_aliases_list astate;
+  F.printf "load_aliases=";
+  _print_load_aliases_list astate
   (* F.printf "caller_pname=%a\n" Procname.pp caller_pname; *)
   (* F.printf "loc=%a\n" Location.pp loc *)
   (* F.printf "=======================================\n" *)
@@ -708,19 +710,42 @@ let remove_heap_alias_by_var_name var astate =
     { astate with heap_aliases=updated_heap_aliases }
   | None -> astate (* heap alias with var doesn't exist *)
 
+let heap_alias_equal (var, loc) (var', loc') =
+  HilExp.AccessExpression.equal var var' && Location.equal loc loc'
+
+(* function returns "union" of two lists *)
+let rec list_union lst1 lst2 ~equal =
+  match lst1 with
+  | [] -> lst2
+  | hd :: tl -> (
+    let list_mem_opt = List.mem lst2 hd ~equal in
+    match list_mem_opt with
+    | true -> list_union tl lst2 ~equal
+    | false -> hd :: list_union tl lst2 ~equal
+  )
+
 (* function adds new heap alias to astate.heap_aliases,
    if there already is an alias with variable var, the old alias is first removed *)
 let add_heap_alias var loc astate =
-  let new_heap_alias = (var, loc) in
+  (* get base of var? *)
+  let var_base = HilExp.AccessExpression.get_base var in
+  let var_base_ae = HilExp.AccessExpression.base var_base in
+  let new_heap_alias = (var_base_ae, loc) in
   (* remove heap alias if there already is any alias with the var *)
-  let astate = remove_heap_alias_by_var_name var astate in
+  let astate = remove_heap_alias_by_var_name var_base_ae astate in
   (* add new alias to heap aliases *)
-  let new_heap_aliases = new_heap_alias :: astate.heap_aliases in
+  let list_mem = List.mem astate.heap_aliases new_heap_alias ~equal:heap_alias_equal in
+  let new_heap_aliases =
+    match list_mem with
+    | true -> astate.heap_aliases
+    | false -> new_heap_alias :: astate.heap_aliases
+  in
   {astate with heap_aliases = new_heap_aliases}
 
 (* functions joins astate.heap_aliases with heap_aliases *)
 let add_heap_aliases_to_astate astate heap_aliases =
-  let heap_aliases_joined = astate.heap_aliases @ heap_aliases in
+  let heap_aliases_joined = list_union astate.heap_aliases heap_aliases ~equal:heap_alias_equal in
+(*  let heap_aliases_joined = astate.heap_aliases @ heap_aliases in*)
   {astate with heap_aliases=heap_aliases_joined}
 
 (* function returns first variable in a tuple or var if the tuple is None *)
@@ -1532,24 +1557,17 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
       let formal_access_path_base = AccessPath.base_of_pvar formal_pvar typ in
       HilExp.AccessExpression.base formal_access_path_base
     )
-    | _ -> assert false (*TODO*)
+    | _ -> assert false
   in
   let list_of_accesses_to_formal = get_all_accesses_to_formal callee_formal edited_accesses_from_callee in
   (* get set of accesses to corresponding actual in callee *)
   let (astate, accesses_to_formal_to_add_to_astate_list) = for_actual_add_accesses_to_all_aliases callee_formal list_of_accesses_to_formal (List.nth actuals 3) astate ~creating_thread:true in
   let accesses_to_formal_to_add_to_astate = AccessSet.of_list accesses_to_formal_to_add_to_astate_list in
-  F.printf "accesses_to_formal_to_add_to_astate:\n";
-  _print_accesses accesses_to_formal_to_add_to_astate;
   let accesses_to_globals_in_callee = remove_accesses_to_all_formals callee_pname callee_formals edited_accesses_from_callee in
-  F.printf "accesses_to_globals_in_callee:\n";
-  _print_accesses accesses_to_globals_in_callee;
   let accesses_from_callee = AccessSet.union accesses_to_formal_to_add_to_astate accesses_to_globals_in_callee in
   let accesses_joined = AccessSet.union astate.accesses accesses_from_callee in
-  F.printf "accesses_joined:\n";
-  _print_accesses accesses_joined;
   (* return updated astate *)
   { astate with accesses=accesses_joined }
-
 
 (* function integrates summary of callee to the current astate when function call occurs,
    it replaces all accesses to formals in callee_summary to accesses to actual *)
@@ -1580,8 +1598,6 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
         (* get set of accesses to corresponding actual in callee *)
         let (_, accesses_to_formal_to_add_to_astate_list) = for_actual_add_accesses_to_all_aliases formal_access_expression list_of_accesses_to_formal (List.nth actuals !cnt) astate ~creating_thread:false in
         let accesses_to_formal_to_add_to_astate = AccessSet.of_list accesses_to_formal_to_add_to_astate_list in
-        F.printf "accesses_to_formal_to_add_to_astate:\n";
-        _print_accesses accesses_to_formal_to_add_to_astate;
         accesses_ref := AccessSet.union accesses_to_formal_to_add_to_astate !accesses_ref;
         cnt := !cnt + 1; (* go to the next parameter *)
         loop t_formals
@@ -1590,15 +1606,9 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
     loop formals
   in
   let accesses_with_actuals = replace_formals_with_actuals callee_formals actuals (AccessSet.empty) in
-  F.printf "accesses_with_actuals:\n";
-  _print_accesses accesses_with_actuals;
   let accesses_to_globals_in_callee = remove_accesses_to_all_formals callee_pname callee_formals edited_accesses_from_callee in
-  F.printf "accesses_to_globals_in_callee:\n";
-  _print_accesses accesses_to_globals_in_callee;
   let accesses_from_callee = AccessSet.union accesses_with_actuals accesses_to_globals_in_callee in
   let accesses_joined = AccessSet.union astate.accesses accesses_from_callee in
-  F.printf "accesses_joined:\n";
-  _print_accesses accesses_joined;
   (* return updated astate *)
   { astate with accesses=accesses_joined }
 
@@ -1678,17 +1688,6 @@ let ( <= ) ~lhs ~rhs =
 (* leq function *)
 let leq ~lhs ~rhs = (<=) ~lhs ~rhs
 
-(* function returns "union" of two lists *)
-let rec list_union lst1 lst2 =
-  match lst1 with
-  | [] -> lst2
-  | hd :: tl -> (
-    let list_mem_opt = List.mem lst2 hd ~equal:phys_equal in
-    match list_mem_opt with
-    | true -> list_union tl lst2
-    | false -> hd :: list_union tl lst2
-  )
-
 (* function joint two astates *)
 let join astate1 astate2 =
   F.printf "join\n";
@@ -1697,9 +1696,9 @@ let join astate1 astate2 =
   let lockset = Lockset.inter astate1.lockset astate2.lockset in
   let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in
   let aliases = AliasesSet.union astate1.aliases astate2.aliases in  (* TODO FIXME how to join aliases *)
-  let load_aliases = list_union astate1.load_aliases astate2.load_aliases in
-  let heap_aliases = list_union astate1.heap_aliases astate2.heap_aliases in
-  let locals = list_union astate1.locals astate2.locals in
+  let load_aliases = list_union astate1.load_aliases astate2.load_aliases ~equal:phys_equal in
+  let heap_aliases = list_union astate1.heap_aliases astate2.heap_aliases ~equal:heap_alias_equal in
+  let locals = list_union astate1.locals astate2.locals ~equal:phys_equal  in
   { threads_active; accesses; lockset; unlockset; aliases; load_aliases; heap_aliases; locals }
 
 (* widening function *)

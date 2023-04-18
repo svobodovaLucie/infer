@@ -252,7 +252,7 @@ module AccessEvent = struct
     if Location.compare a1.loc a2.loc <= 0 then true else false
 
   (* function returns true if a1.var == a2.var *)
-  let predicate_var (a1, a2) =
+  let _predicate_var (a1, a2) =
     if Int.equal (HilExp.AccessExpression.compare a1.var a2.var) 0 then true else false
 
   (* function returns true if a1.thread != a2.thread *)
@@ -449,10 +449,10 @@ let rec _print_ae_list ae_list =
   | [] -> F.printf ".\n"
   | h::t -> F.printf "%a, " Aliases.pp h; _print_ae_list t
 
-let rec print_pairs_list lst =
+let rec _print_pairs_list lst =
   match lst with
   | [] -> F.printf "\n"
-  | h::t -> AccessEvent.print_access_pair h; print_pairs_list t
+  | h::t -> AccessEvent.print_access_pair h; _print_pairs_list t
 
 let heap_alias_equal (var, loc) (var', loc') =
   HilExp.AccessExpression.equal var var' && Location.equal loc loc'
@@ -1589,22 +1589,30 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
   (* replace actuals with formals *)
   let callee_formal = (* callee formal is the same every time: pthread_create(void *arg) *)
     match callee_formals with
-    | (var, typ) :: [] -> (
+    | (var, typ) :: _ -> (
       let formal_pvar = Pvar.mk (var) callee_pname in
       let formal_access_path_base = AccessPath.base_of_pvar formal_pvar typ in
+      F.printf "callee formal access path base: %a\n" AccessPath.pp_base formal_access_path_base;
       HilExp.AccessExpression.base formal_access_path_base
     )
     | _ -> assert false
   in
   let list_of_accesses_to_formal = get_all_accesses_to_formal callee_formal edited_accesses_from_callee in
+  F.printf "list_of_accesses_to_formal:\n";
+  _print_accesses list_of_accesses_to_formal;
   (* get set of accesses to corresponding actual in callee *)
   let (astate, accesses_to_formal_to_add_to_astate_list) = for_actual_add_accesses_to_all_aliases callee_formal list_of_accesses_to_formal (List.nth actuals 3) astate ~creating_thread:true in
   let accesses_to_formal_to_add_to_astate = AccessSet.of_list accesses_to_formal_to_add_to_astate_list in
   let accesses_to_globals_in_callee = remove_accesses_to_all_formals callee_pname callee_formals edited_accesses_from_callee in
   let accesses_from_callee = AccessSet.union accesses_to_formal_to_add_to_astate accesses_to_globals_in_callee in
   let accesses_joined = AccessSet.union astate.accesses accesses_from_callee in
-  (* return updated astate *)
-  { astate with accesses=accesses_joined }
+  let astate =
+    (* return updated astate *)
+    { astate with accesses=accesses_joined }
+  in
+  F.printf "astate after pthread_summary:\n";
+  print_astate astate;
+  astate
 
 (* function integrates summary of callee to the current astate when function call occurs,
    it replaces all accesses to formals in callee_summary to accesses to actual *)
@@ -1649,68 +1657,54 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
   (* return updated astate *)
   { astate with accesses=accesses_joined }
 
-(* {{x, 2, ...}, {x, 3, ...}, {y, 5, ...}, ...} -> get_list_of_vars: [x, y, ...] *)
-let get_list_of_vars set =
-  AccessSet.fold (fun s acc -> (if List.mem acc s.var ~equal:HilExp.AccessExpression.equal then acc else s.var :: acc)) set []
-
-let rec print_list lst =
+(* function returns a tuple of lists, the first list is a list of accesses to var,
+   the second list is a list of accesses that are not to var *)
+let rec separate_lists var lst accesses_to_var other_accesses =
   match lst with
-  | [] -> F.printf "\n"
-  | h :: t -> (
-    F.printf "%a " HilExp.AccessExpression.pp h;
-    print_list t
+  | [] -> (accesses_to_var, other_accesses)
+  | access :: t -> (
+    let access_var = AccessEvent.get_var access in
+    if HilExp.AccessExpression.equal var access_var then
+      separate_lists var t (access :: accesses_to_var) other_accesses
+    else
+      separate_lists var t accesses_to_var (access :: other_accesses)
   )
 
-(* function computes if there are any data races in the program,
-   it creates pairs of accesses and checks on which pairs data race could occur *)
-let compute_data_races post =
-  (* create a list of pairs of accesses - [(ac1, ac1); (ac1, ac2)] *)
-  let fold_add_pairs access lst = lst @ [access] in (* val fold : (elt -> 'a -> 'a) -> t -> 'a -> 'a *)
-  (*
-    FIXME optimize data race computation:
-    create list of used vars
-    -> create pairs of accesses to those vars
-    -> compute data races
-    -> report only one of them
-   *)
-  let list_of_vars = get_list_of_vars post.accesses in
-  F.printf "list_of_vars: \n";
-  print_list list_of_vars;
-  (* create list from set *)
-  let lst1 = AccessSet.fold fold_add_pairs post.accesses [] in
-  let lst2 = AccessSet.fold fold_add_pairs post.accesses [] in
-  (* create a cartesian product *)
-  let rec product l1 l2 =
+(* function creates cartesian product of two lists *)
+let rec product l1 l2 =
     match l1, l2 with
     | [], _ | _, [] -> []
     | h1::t1, h2::t2 -> (h1,h2)::(product [h1] t2)@(product t1 l2)
-  in
-  let list_of_access_pairs = product lst1 lst2 in
-  (* remove pairs where the first access has higher loc than the second one *)
-  let optimised_list = List.filter ~f:AccessEvent.predicate_loc list_of_access_pairs in
-  (* the final computation*)
-  (* F.printf "cartesian product:\n";
-  print_pairs_list list_of_access_pairs; *)
-  (* F.printf "different pairs:\n";*)
-  (* print_pairs_list optimised_list;*)
-  (* F.printf "vars_checked:\n";*)
-  let vars_checked = List.filter ~f:AccessEvent.predicate_var optimised_list in
-  (* print_pairs_list vars_checked;*)
-  (* F.printf "read_write_checked:\n";*)
-  let read_write_checked = List.filter ~f:AccessEvent.predicate_read_write vars_checked in
-  (* print_pairs_list read_write_checked;*)
-  (* F.printf "threads_checked:\n"; *)
+
+(* function computes data races for one variable, returns one pair of accesses if there is a data race between them *)
+let compute_data_races_for_one_var accesses_to_var var =
+  let pairs_of_accesses = product accesses_to_var accesses_to_var in
+  let optimised_list = List.filter ~f:AccessEvent.predicate_loc pairs_of_accesses in
+  let read_write_checked = List.filter ~f:AccessEvent.predicate_read_write optimised_list in
   let threads_checked = List.filter ~f:AccessEvent.predicate_thread read_write_checked in
-  (* print_pairs_list threads_checked; *)
-  (* F.printf "threads_intersection_checked:\n"; *)
   let threads_intersection_checked = List.filter ~f:AccessEvent.predicate_threads_intersection threads_checked in
-  (* print_pairs_list threads_intersection_checked; *)
-  F.printf "locksets_checked:\n";
-  let locksets_checked = List.filter ~f:AccessEvent.predicate_locksets threads_intersection_checked in
-  print_pairs_list locksets_checked;
-  locksets_checked
+  F.printf "locksets_checked for var: %a\n" HilExp.AccessExpression.pp var;
+  let locksets_checked_one_element = List.find ~f:AccessEvent.predicate_locksets threads_intersection_checked in
+  match locksets_checked_one_element with
+  | None -> []
+  | Some element -> [element]
 
-
+(* function checks if there are any data races in the program,
+   it creates pairs of accesses and checks on which pairs data race could occur *)
+let compute_data_races post =
+  let accesses_list = AccessSet.elements post.accesses in
+  let rec create_report lst_of_accesses report_acc =
+    match lst_of_accesses with
+    | [] -> report_acc
+    | (access : AccessSet.elt) :: t -> (
+      let access_var = AccessEvent.get_var access in
+      F.printf "compute_data_races, access: %a\n" AccessEvent.pp access;
+      let (accesses_to_var, other_accesses) = separate_lists access_var t [access] [] in
+      let report_acc_new = compute_data_races_for_one_var accesses_to_var access_var in
+      create_report other_accesses (report_acc @ report_acc_new)
+    )
+  in
+  create_report accesses_list []
 
 (* abstract interpretation functions *)
 (* <= function *)

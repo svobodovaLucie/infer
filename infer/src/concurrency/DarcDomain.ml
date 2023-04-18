@@ -658,7 +658,7 @@ let rec find_load_alias_by_var var load_aliases =
     else
       find_load_alias_by_var var t
 
-let resolve_load_alias_list exp load_aliases ~_add_deref : HilExp.AccessExpression.t list =
+let resolve_load_alias_list exp load_aliases ~add_deref : HilExp.AccessExpression.t list =
   let exp_base_ae = get_base_as_access_expression exp in
   let rec get_list_of_final_vars lst final_list_acc =
     match lst with
@@ -678,7 +678,7 @@ let resolve_load_alias_list exp load_aliases ~_add_deref : HilExp.AccessExpressi
     | list -> get_list_of_final_vars list []
   )
   | _ -> (
-    let load_alias_list = find_load_alias_list exp_base_ae load_aliases ~add_deref:_add_deref [] in
+    let load_alias_list = find_load_alias_list exp_base_ae load_aliases ~add_deref [] in
     match load_alias_list with
     | [] -> [exp_base_ae]
     | list -> get_list_of_final_vars list []
@@ -897,7 +897,7 @@ let replace_var_with_its_alias_list var aliases (heap_aliases : (HilExp.access_e
 
 let resolve_entire_aliasing_of_var_list e_ae astate ~add_deref ~return_addressof_alias =
   (* get list of load aliases, e.g. (n$1, i), (n$1, j) *)
-  let e_after_resolving_load_alias_list = resolve_load_alias_list e_ae astate.load_aliases ~_add_deref:add_deref in
+  let e_after_resolving_load_alias_list = resolve_load_alias_list e_ae astate.load_aliases ~add_deref in
   (* for each load alias *)
   let rec for_each_load_alias lst acc =
     match lst with

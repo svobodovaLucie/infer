@@ -81,6 +81,6 @@ type summary = t
 
 val compute_data_races : summary -> (AccessEvent.t * AccessEvent.t) list
 
-val astate_with_clear_load_aliases : t -> t
+val astate_with_clear_load_aliases : t -> int -> t
 
 val add_heap_aliases_to_astate : t -> (HilExp.AccessExpression.t * Location.t) list -> t

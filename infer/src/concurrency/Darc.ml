@@ -137,12 +137,10 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
   let clear_load_aliases_if_new_loc astate (last_loc : Location.t) (loc : Location.t) =
     if (loc.line > last_loc.line) then
       begin
-(*        F.printf "loc is larger than last_loc -> clearing\n";*)
-        Domain.astate_with_clear_load_aliases astate
+        Domain.astate_with_clear_load_aliases astate (last_loc.line - 10) (* save load aliases of the last 10 loc *)
       end
     else
       begin
-(*        F.printf "loc is not larger than last_loc -> not clearing\n";*)
         astate
       end
 
@@ -396,27 +394,28 @@ let add_nonpointer_formals_to_list formals lst_ref pname =
   in
   loop formals
 
-let add_formal_to_heap_aliases formal heap_aliases pname =
+let add_formal_to_heap_aliases formal heap_aliases pname line_num =
   (* (Mangled.t * Typ.t) -> HilExp.AccessExpression.t formal *)
   let formal_pvar = Pvar.mk (fst formal) pname in
   let formal_access_path_base = AccessPath.base_of_pvar formal_pvar (snd formal) in
   let formal_ae = HilExp.AccessExpression.base formal_access_path_base in
   (* make dummy Location *)
   let loc_dummy = Location.dummy in
+  let loc_dummy = { loc_dummy with line=line_num } in
   (* add formal to the list *)
   let new_heap_aliases = (formal_ae, loc_dummy) :: heap_aliases in
   new_heap_aliases
 
 let add_formals_to_heap_aliases astate formals pname =
-  let rec add_each_formal_to_heap_aliases formals_lst heap_aliases_lst =
+  let rec add_each_formal_to_heap_aliases formals_lst heap_aliases_lst (line_num : int) =
     match formals_lst with
     | [] -> heap_aliases_lst
     | formal :: t -> (
-      let updated_heap_aliases_lst = add_formal_to_heap_aliases formal heap_aliases_lst pname in
-      add_each_formal_to_heap_aliases t updated_heap_aliases_lst
+      let updated_heap_aliases_lst = add_formal_to_heap_aliases formal heap_aliases_lst pname line_num in
+      add_each_formal_to_heap_aliases t updated_heap_aliases_lst (line_num - 1)
     )
   in
-  let heap_aliases_with_formals = add_each_formal_to_heap_aliases formals [] in
+  let heap_aliases_with_formals = add_each_formal_to_heap_aliases formals [] (-1) in
   Domain.add_heap_aliases_to_astate astate heap_aliases_with_formals
 
 (** 5(a) Type of CFG to analyze--Exceptional to follow exceptional control-flow edges, Normal to ignore them *)

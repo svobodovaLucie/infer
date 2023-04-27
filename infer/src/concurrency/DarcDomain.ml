@@ -32,13 +32,15 @@ end
 
 module ThreadEvent = struct
   (* type of ThreadEvent *)
-  type t = (AccessPath.t * Location.t * Bool.t)
+(*  type t = (HilExp.AccessExpression.t * Location.t * Bool.t)*)
+type t = (AccessPath.t * Location.t * Bool.t)
 
   (* compare function *)
-  let compare ((base, aclist) as th, loc, created_in_loop) ((base', aclist') as th', loc', created_in_loop') =
+(*  let compare (th, loc, created_in_loop) (th', loc', created_in_loop') =*)
+let compare ((base, aclist) as th, loc, created_in_loop) ((base', aclist') as th', loc', created_in_loop') =
     (* F.printf "comparing threads: %a and %a\n" AccessPath.pp th AccessPath.pp th'; *)
     let result_th =
-      (* compare access paths *)
+(*       compare access paths *)
       if (Int.equal (AccessPath.compare th th') 0) then 0
       else begin
         let res = AccessPath.compare_base base base' in
@@ -47,6 +49,7 @@ module ThreadEvent = struct
           List.compare AccessPath.compare_access aclist aclist'
       end
     in
+(*    if HilExp.AccessExpression.equal th th' then*)
     if (Int.equal result_th 0) then
       (* compare loc *)
       if (Int.equal (Location.compare loc loc') 0) then
@@ -58,7 +61,8 @@ module ThreadEvent = struct
       else
         Location.compare loc loc'
     else
-      result_th
+(*      HilExp.AccessExpression.compare th th'*)
+  result_th
 
   (* function creates a main thread *)
   let create_main_thread =
@@ -66,11 +70,16 @@ module ThreadEvent = struct
     let pvar_from_pname : Pvar.t = Pvar.mk_tmp "'main_thread'" pname in
     let tvar_name = Typ.TVar "thread" in
     let typ_main_thread = Typ.mk tvar_name in
-    let acc_path_from_pvar : AccessPath.t = AccessPath.of_pvar pvar_from_pname typ_main_thread in
+(*    let acc_path_from_pvar : AccessPath.base = AccessPath.base_of_pvar pvar_from_pname typ_main_thread in*)
+(*    let thread_ae = HilExp.AccessExpression.base acc_path_from_pvar in*)
+(*    (thread_ae, Location.dummy, false)*)
+let acc_path_from_pvar : AccessPath.t = AccessPath.of_pvar pvar_from_pname typ_main_thread in
     (acc_path_from_pvar, Location.dummy, false)
+
 
   (* pretty print function *)
   let pp fmt (th, loc, created_in_loop) =
+(*    F.fprintf fmt "%a on %a, in_loop=%b" HilExp.AccessExpression.pp th Location.pp loc created_in_loop*)
     F.fprintf fmt "%a on %a, in_loop=%b" AccessPath.pp th Location.pp loc created_in_loop
 
   (* pretty print function - shorter version used for reporting *)
@@ -80,8 +89,10 @@ module ThreadEvent = struct
       F.fprintf fmt "main thread"
     else
       match created_in_loop with
-      | true -> F.fprintf fmt "thread %a created on %a in loop" AccessPath.pp th Location.pp_line loc
-      | false -> F.fprintf fmt "thread %a created on %a" AccessPath.pp th Location.pp_line loc
+(*      | true -> F.fprintf fmt " %a created on %a in loop" HilExp.AccessExpression.pp th Location.pp_line loc*)
+| true -> F.fprintf fmt "thread %a created on %a in loop" AccessPath.pp th Location.pp_line loc
+(*      | false -> F.fprintf fmt "%a created on %a" HilExp.AccessExpression.pp th Location.pp_line loc*)
+| false -> F.fprintf fmt "thread %a created on %a" AccessPath.pp th Location.pp_line loc
 
 end
 
@@ -122,21 +133,21 @@ module AccessEvent = struct
   }
 
   (* function prints a thread option *)
-  let print_thread thread_opt =
+  let _print_thread thread_opt =
     match thread_opt with
     | None -> F.printf "on thread None"
-    | Some thread -> F.printf "on thread %a" ThreadEvent.pp thread
+    | Some thread -> F.printf "on %a" ThreadEvent.pp thread
 
   (* function prints an access pair *)
   let print_access_pair (t1, t2) =
-    let t1_access_string = ReadWriteModels.access_to_string t1.access_type in
-    F.printf "(%a, %a, %s, %a " HilExp.AccessExpression.pp t1.var Location.pp t1.loc t1_access_string ThreadSet.pp t1.threads_active;
-    print_thread t1.thread;
+    let _t1_access_string = ReadWriteModels.access_to_string t1.access_type in
+(*    F.printf "(%a, %a, %s, %a " HilExp.AccessExpression.pp t1.var Location.pp t1.loc t1_access_string ThreadSet.pp t1.threads_active;*)
+(*    print_thread t1.thread;*)
     (* print_lockset t1; *)
-    F.printf "\n";
-    let t2_access_string = ReadWriteModels.access_to_string t2.access_type in
-    F.printf "| %a, %a, %s, %a " HilExp.AccessExpression.pp t2.var Location.pp t2.loc t2_access_string ThreadSet.pp t2.threads_active;
-    print_thread t2.thread;
+(*    F.printf "\n";*)
+    let _t2_access_string = ReadWriteModels.access_to_string t2.access_type in
+(*    F.printf "| %a, %a, %s, %a " HilExp.AccessExpression.pp t2.var Location.pp t2.loc t2_access_string ThreadSet.pp t2.threads_active;*)
+(*    print_thread t2.thread;*)
     (* print_lockset t2; *)
     F.printf ")\n-----\n"
 
@@ -212,7 +223,6 @@ module AccessEvent = struct
   (* function replaces the base in var with actual,
      it must to be recursive to keep the same "format" as the original var was (e.g. **x, *x, &x) *)
   let rec replace_base_of_var_with_another_var var actual =
-    F.printf "replace_base_of_var_with_another_var: var=%a, actual=%a\n" HilExp.AccessExpression.pp var HilExp.AccessExpression.pp actual;
     match var with
     | HilExp.AccessExpression.Base _ -> (* v -> a *)
       actual
@@ -470,11 +480,11 @@ let get_base_as_access_expression var =
 (* function returns Some alias if var participates in any alias in astate.aliases, or None,
    if add_deref is true, the second var in alias is returned as dereference *)
 let rec find_alias var aliases ~add_deref =
-  F.printf "find_alias of var=%a: " HilExp.AccessExpression.pp var;
+(*  F.printf "find_alias of var=%a: " HilExp.AccessExpression.pp var;*)
   match aliases with
   | [] -> None
   | (fst, snd) :: t ->
-    F.printf "fst=%a, snd=%a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;
+(*    F.printf "fst=%a, snd=%a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;*)
     if ((HilExp.AccessExpression.equal fst var) || (HilExp.AccessExpression.equal snd var)) then
       match add_deref with
       | true -> Some (fst, HilExp.AccessExpression.dereference snd)
@@ -483,11 +493,11 @@ let rec find_alias var aliases ~add_deref =
       find_alias var t ~add_deref
 
 let rec find_alias_list var aliases ~add_deref acc =
-  F.printf "find_alias_list of var=%a: " HilExp.AccessExpression.pp var;
+(*  F.printf "find_alias_list of var=%a: " HilExp.AccessExpression.pp var;*)
   match aliases with
   | [] -> acc
   | (fst, snd) :: t ->
-    F.printf "fst=%a, snd=%a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;
+(*    F.printf "fst=%a, snd=%a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;*)
     if ((HilExp.AccessExpression.equal fst var) || (HilExp.AccessExpression.equal snd var)) then
       let alias_to_add =
         match add_deref with
@@ -499,11 +509,11 @@ let rec find_alias_list var aliases ~add_deref acc =
       find_alias_list var t ~add_deref acc
 
 let rec find_load_alias_list var aliases ~add_deref acc =
-  F.printf "find_load_alias_list of var=%a: " HilExp.AccessExpression.pp var;
+(*  F.printf "find_load_alias_list of var=%a: " HilExp.AccessExpression.pp var;*)
   match aliases with
   | [] -> acc
   | (fst, snd, loc) :: t ->
-    F.printf "fst=%a, snd=%a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;
+(*    F.printf "fst=%a, snd=%a\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;*)
     if ((HilExp.AccessExpression.equal fst var) || (HilExp.AccessExpression.equal snd var)) then
       let alias_to_add =
         match add_deref with
@@ -582,7 +592,7 @@ let create_new_alias fst snd =
   | _ -> None
 
 let rec resolve_alias_list lhs lhs_current var aliases ~return_addressof_alias =
-  F.printf "resolve_alias_list: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;
+(*  F.printf "resolve_alias_list: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;*)
   (* if lhs matches lhs_current, end the recursion and return final alias/var *)
   if (HilExp.AccessExpression.equal lhs lhs_current) then
     begin
@@ -620,7 +630,7 @@ let rec resolve_alias_list lhs lhs_current var aliases ~return_addressof_alias =
 
 (* function resolves alias by going through aliases (not heap aliases) *)
 let rec resolve_alias lhs lhs_current var aliases =
-  F.printf "resolve_alias: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;
+(*  F.printf "resolve_alias: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var;*)
   (* if lhs matches lhs_current, end the recursion and return final alias/var *)
   if (HilExp.AccessExpression.equal lhs lhs_current) then
     begin
@@ -801,7 +811,7 @@ let get_option_snd alias = (
 
 (* function updates aliases and heap aliases with (lhs = rhs) expression *)
 let update_aliases lhs rhs astate =
-  F.printf "update_aliases: lhs=%a, rhs=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp rhs;
+(*  F.printf "update_aliases: lhs=%a, rhs=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp rhs;*)
   let aliases = AliasesSet.elements astate.aliases in
   (* lhs *)
   (* find if there exists an alias for lhs variable and get the first var in the alias *)
@@ -818,13 +828,9 @@ let update_aliases lhs rhs astate =
   )
   | _ -> (  (* base, dereference etc. *)
     (* check if there already is some alias for the rhs expression *)
-    F.printf ":---\n";
-    print_astate astate;
-    F.printf "---:\n";
     let rhs_alias = get_base_alias rhs aliases in (* *q -> Some (x, &z) *)
     match rhs_alias with
     | Some _ -> ( (* alias was found *)
-      F.printf "rhs alias Some\n";
       (* get the second variable in rhs_alias and create new alias *)
       let rhs_alias_snd = get_option_snd rhs_alias in (* Some (x, &z) -> Some &z *)
       let new_alias = create_new_alias lhs_alias_fst rhs_alias_snd in
@@ -833,7 +839,6 @@ let update_aliases lhs rhs astate =
       add_new_alias astate_alias_removed new_alias
     )
     | None -> ( (* alias wasn't found - try to find alias in heap aliases *)
-      F.printf "rhs alias None\n";
       (* find rhs in heap aliases *)
       let rhs_heap_alias_loc = find_heap_alias_by_var rhs astate.heap_aliases in
       match rhs_heap_alias_loc with
@@ -903,14 +908,14 @@ let resolve_entire_aliasing_of_var_list e_ae astate ~add_deref ~return_addressof
     match lst with
     | [] -> acc
     | e_after_resolving_load_alias :: t -> (
-      F.printf "e_after_resolving_load_alias 1: %a\n" HilExp.AccessExpression.pp e_after_resolving_load_alias;
-      (* get list of all aliased variables *)
+(*      F.printf "e_after_resolving_load_alias 1: %a\n" HilExp.AccessExpression.pp e_after_resolving_load_alias;*)
+(*      (* get list of all aliased variables *)*)
       let e_final_list = replace_var_with_its_alias_list e_after_resolving_load_alias (AliasesSet.elements astate.aliases) astate.heap_aliases ~return_addressof_alias in
       (* create list of (e_after_resolving_load_alias, e_final) pairs *)
       let rec create_list_of_aliased_vars lst cacc =
         match lst with
         | [] -> cacc
-        | var :: t -> (F.printf "var 1: %a\n" HilExp.AccessExpression.pp var; create_list_of_aliased_vars t ((e_after_resolving_load_alias, var) :: cacc) )
+        | var :: t -> (create_list_of_aliased_vars t ((e_after_resolving_load_alias, var) :: cacc) )
       in
       (* if the list is empty try to find in heap_aliases *)
         match e_final_list with
@@ -929,16 +934,18 @@ let resolve_entire_aliasing_of_var_list e_ae astate ~add_deref ~return_addressof
 
 (* functions that handle threads *)
 (* function returns None or Some (thread, loc, false) *)
-let create_thread_from_load_ae_with_false_flag load loc astate =
+let create_thread_from_load_ae_with_false_flag load loc astate : ThreadEvent.t =
   (* load expression dealiasing *)
   let thread_load_alias = find_load_alias_by_var load astate.load_aliases in
   match thread_load_alias with
   | None -> (
+(*    (load, loc, false)*)
     let load_ap = HilExp.AccessExpression.to_access_path load in
     (load_ap, loc, false)
   )
   | Some (_, final_thread) -> (
-    (* create new thread from alias *)
+(*     create new thread from alias *)
+(*    (final_thread, loc, false)*)
     let final_thread_ap = HilExp.AccessExpression.to_access_path final_thread in
     (final_thread_ap, loc, false)
   )
@@ -981,10 +988,14 @@ let add_thread thread astate =
 
 (* function finds thread in threads set and returns None if not found or Some thread if found *)
 let find_thread_in_threads_active thread_name threads ~created_in_loop_flag =
-  let threads_list : (AccessPath.t * Location.t * Bool.t) list = ThreadSet.elements threads in
+(*  let threads_list : ThreadEvent.t list = ThreadSet.elements threads in*)
+let threads_list : (AccessPath.t * Location.t * Bool.t) list = ThreadSet.elements threads in
   let rec find_thread lst =
     match lst with
     | [] -> None
+(*    | (th, _, flag) as th_ev :: t -> ( *)
+(*      if (HilExp.AccessExpression.equal th thread_name) && (Bool.equal flag created_in_loop_flag) then*)
+(*        Some th_ev*)
     | (th_ap, _, flag) as th :: t -> (
       if (AccessPath.equal th_ap thread_name) && (Bool.equal flag created_in_loop_flag) then
         Some th
@@ -1004,7 +1015,8 @@ let remove_thread load_ae astate =
   | Some (_, thread_ae) -> (
     let thread_name = HilExp.AccessExpression.to_access_path thread_ae in
     (* find the thread in threads_active - first find with true flag *)
-    let thread_with_true_flag = find_thread_in_threads_active thread_name astate.threads_active ~created_in_loop_flag:true in
+(*    let thread_with_true_flag = find_thread_in_threads_active thread_ae astate.threads_active ~created_in_loop_flag:true in*)
+let thread_with_true_flag = find_thread_in_threads_active thread_name astate.threads_active ~created_in_loop_flag:true in
     (* if found then remove *)
     match thread_with_true_flag with
     | Some th -> (
@@ -1014,7 +1026,8 @@ let remove_thread load_ae astate =
     )
     | None -> (
       (* else find the thread with false flag *)
-      let thread = find_thread_in_threads_active thread_name astate.threads_active ~created_in_loop_flag:false in
+(*      let thread = find_thread_in_threads_active thread_ae astate.threads_active ~created_in_loop_flag:false in*)
+let thread = find_thread_in_threads_active thread_name astate.threads_active ~created_in_loop_flag:false in
       match thread with
       | Some th ->
         (* remove the thread *)
@@ -1054,11 +1067,8 @@ let transform_sil_exprs_to_hil_list sil_expr_list add_deref = (* list of sil exp
 
 (* f_ae je load expression struktury *)
 let resolve_entire_aliasing_of_var_for_lfield_list e_ae astate ~add_deref ~return_addressof_alias =
-  F.printf "resolve_entire_aliasing_of_var_for_lfield_list e_ae=%a\n" HilExp.AccessExpression.pp e_ae;
-  let ae_fields_list =
     match e_ae with
     | HilExp.AccessExpression.FieldOffset (fieldoffset_ae, fieldname)-> (
-      F.printf "resolve_entire_aliasing_of_var_for_lfield_list-FieldOffset: (%a, %a)\n" HilExp.AccessExpression.pp fieldoffset_ae Fieldname.pp fieldname;
       (* ziskat list aliasu toho fieldoffset_ae *)
       let lst = resolve_entire_aliasing_of_var_list fieldoffset_ae astate ~add_deref  ~return_addressof_alias in (* lst je ve tvaru [(e_aliased, e_aliased_final)] *)
       (* pro kazdy prvek z listu vytvorit ae s fieldname *)
@@ -1075,24 +1085,7 @@ let resolve_entire_aliasing_of_var_for_lfield_list e_ae astate ~add_deref ~retur
       (* return list *)
       lst_with_fieldnames
     )
-    | _ -> (
-      F.printf "resolve_entire_aliasing_of_var_for_lfield_list-Other\n";
-      []
-    )
-  in
-  let rec print_list_of_vars lst =
-    match lst with
-    | [] -> F.printf "\n"
-    | (h_fst, h_snd) :: t -> (
-      F.printf "(%a,%a) " HilExp.AccessExpression.pp h_fst HilExp.AccessExpression.pp h_snd;
-      print_list_of_vars t
-    )
-  in
-  F.printf "ae_fields_list: \n";
-  print_list_of_vars ae_fields_list;
-  ae_fields_list
-
-
+    | _ -> []
 
 (* function returns Some var if var is present in locals, or else returns None *)
 let find_var_in_list var locals =
@@ -1112,7 +1105,6 @@ let remove_var_from_locals var_to_be_removed locals =
   let is_in_locals = List.mem locals var_to_be_removed ~equal:HilExp.AccessExpression.equal in
   (* remove var from locals *)
   let rec remove_from_locals var_to_be_removed locals acc =
-    F.printf "removing from locals: %a\n" HilExp.AccessExpression.pp var_to_be_removed;
     match locals with
     | [] -> acc
     | h :: t ->
@@ -1150,7 +1142,6 @@ let add_access_to_astate var access_type astate loc pname =
     in
     { var; loc; access_type; locked; unlocked; threads_active; thread }
   in
-  F.printf "add_access_to_astate: %a\n" AccessEvent.pp new_access;
   let accesses = AccessSet.add new_access astate.accesses in
   { astate with accesses }
 
@@ -1340,7 +1331,7 @@ let acquire_lock lockid astate loc =
         let lockid = HilExp.AccessExpression.to_access_path e_aliased_final in
         (* add the lock *)
         let lock : LockEvent.t = (lockid, loc) in
-        F.printf "adding lock: %a\n" LockEvent.pp lock;
+(*        F.printf "adding lock: %a\n" LockEvent.pp lock;*)
         let new_astate : t =
           let lockset = Lockset.add lock astate.lockset in
           let unlockset = Lockset.remove lock astate.unlockset in
@@ -1366,7 +1357,7 @@ let release_lock lockid astate loc =
         let lockid = HilExp.AccessExpression.to_access_path e_aliased_final in
         (* remove the lock *)
         let lock : LockEvent.t = (lockid, loc) in
-        F.printf "removing lock: %a\n" LockEvent.pp lock;
+(*        F.printf "removing lock: %a\n" LockEvent.pp lock;*)
         let new_astate : t =
           let lockset = Lockset.remove lock astate.lockset in
           let unlockset = Lockset.add lock astate.unlockset in
@@ -1380,72 +1371,43 @@ let release_lock lockid astate loc =
 
 (* function handles load expression *)
 let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
-  F.printf "load_aliases: \n";
-  _print_load_aliases_list astate;
   (* for each load alias *)
-      let rec add_load_alias_and_accesses l updated_astate =
-        F.printf "add_load_alias_and_accesses: \n";
-        print_astate updated_astate;
-        match l with
-        | [] -> updated_astate
-        | (e_aliased, e_aliased_final) :: t -> (
-          (* create new load alias *)
-          let new_load_alias = (id_ae, e_aliased_final, loc) in
-          (* check if the load alias already exist *)
-          let load_alias_eq (a, b, _) (a', b', _) =
-            HilExp.AccessExpression.equal a a' && HilExp.AccessExpression.equal b b'
-          in
-          let load_aliases =
-            match List.mem updated_astate.load_aliases new_load_alias ~equal:load_alias_eq with
-            | false -> new_load_alias :: updated_astate.load_aliases
-            | true -> updated_astate.load_aliases
-          in
-          (* add new load alias to load_aliases *)
-          let astate = { updated_astate with load_aliases } in
-          (* add all read access (if it is access to heap allocated variable with alias, there could be more accesses) *)
-          F.printf "load:add_load_alias_and_accesses: e_aliased=%a e_aliased_final=%a\n" HilExp.AccessExpression.pp e_aliased HilExp.AccessExpression.pp e_aliased_final;
-          let new_updated_astate = add_accesses_to_astate_with_aliases_or_heap_aliases e_aliased e_aliased_final ReadWriteModels.Read astate loc pname in
-          F.printf "new_updated_astate: \n";
-          print_astate new_updated_astate;
-          F.printf "new_updated_astate end--- \n";
-          add_load_alias_and_accesses t new_updated_astate
-        )
+  let rec add_load_alias_and_accesses l updated_astate =
+    match l with
+    | [] -> updated_astate
+    | (e_aliased, e_aliased_final) :: t -> (
+      (* create new load alias *)
+      let new_load_alias = (id_ae, e_aliased_final, loc) in
+      (* check if the load alias already exist *)
+      let load_alias_eq (a, b, _) (a', b', _) =
+        HilExp.AccessExpression.equal a a' && HilExp.AccessExpression.equal b b'
+      in
+      let load_aliases =
+        match List.mem updated_astate.load_aliases new_load_alias ~equal:load_alias_eq with
+        | false -> new_load_alias :: updated_astate.load_aliases
+        | true -> updated_astate.load_aliases
+      in
+      (* add new load alias to load_aliases *)
+      let astate = { updated_astate with load_aliases } in
+      (* add all read access (if it is access to heap allocated variable with alias, there could be more accesses) *)
+      let new_updated_astate = add_accesses_to_astate_with_aliases_or_heap_aliases e_aliased e_aliased_final ReadWriteModels.Read astate loc pname in
+      add_load_alias_and_accesses t new_updated_astate
+    )
   in
   match e with
   | Exp.Var _ -> (
-    F.printf "Var\n";
     (* e is Var (e.g. n$0) -> it should already be present in load_aliases -> resolve it *)
     let lst = resolve_entire_aliasing_of_var_list e_ae astate ~add_deref:false ~return_addressof_alias:false in (* lst je ve tvaru [(e_aliased, e_aliased_final)] *)
     (* for each load alias *)
     add_load_alias_and_accesses lst astate
   )
-  | Exp.Lvar _ -> (
-    F.printf "Lvar\n";
-    (* e is program var -> create new load alias (pvar, load_expr) and add it to astate.load_aliases *)
-    let new_load_alias = (id_ae, e_ae, loc) in
-    let load_aliases = new_load_alias :: astate.load_aliases in
-    let astate = { astate with load_aliases } in
-    (* add read access to e *)
-    add_access_to_astate_with_check e_ae ReadWriteModels.Read astate loc pname
-  )
-  | Exp.Lfield (exp, fieldname, _lfield_typ) -> (
-    F.printf "Lfield exp: %a fieldname: %a\n" Exp.pp exp Fieldname.pp fieldname;
-    (* FIXME do it recursively! *)
+  | Exp.Lfield _ -> (
+    (* e is a field of a structure *)
     let lst = resolve_entire_aliasing_of_var_for_lfield_list e_ae astate ~add_deref:true ~return_addressof_alias:false in
     add_load_alias_and_accesses lst astate
   )
-  | Exp.Lindex _ -> (
-      F.printf "Lindex\n";
-      (* e is program var -> create new load alias (pvar, load_expr) and add it to astate.load_aliases *)
-      let new_load_alias = (id_ae, e_ae, loc) in
-      let load_aliases = new_load_alias :: astate.load_aliases in
-      let astate = { astate with load_aliases } in
-      (* add read access to e *)
-      add_access_to_astate_with_check e_ae ReadWriteModels.Read astate loc pname
-    )
-  | _ -> (
-    F.printf "another Exp type\n";
-    (* create new load alias and add it to the astate.load_aliases *)
+  | Exp.Lvar _ | _ -> (
+    (* e is program var -> create new load alias (pvar, load_expr) and add it to astate.load_aliases *)
     let new_load_alias = (id_ae, e_ae, loc) in
     let load_aliases = new_load_alias :: astate.load_aliases in
     let astate = { astate with load_aliases } in
@@ -1580,6 +1542,19 @@ let store e1 typ e2 loc astate pname =
           (astate, new_accesses)
         end
 
+(* function joins two astates *)
+let _join_without_accesses astate1 astate2 =
+(*  F.printf "join\n";*)
+  let threads_active = ThreadSet.union astate1.threads_active astate2.threads_active in
+(*  let accesses = astate1.accesses in*)
+  let lockset = Lockset.inter astate1.lockset astate2.lockset in
+  let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in
+(*  let aliases = astate1.aliases in*)
+(*  let load_aliases = astate1.load_aliases in*)
+(*  let heap_aliases = astate1.heap_aliases in (* TODO join heap aliases or not? *)*)
+(*  let locals = astate1.locals in*)
+  { astate1 with threads_active; lockset; unlockset }
+
 (* function integrates summary of callee to the current astate when function call to pthread_create() occurs,
    it replaces all accesses to formal in callee_summary to accesses to actual *)
 let integrate_pthread_summary astate thread callee_pname loc callee_summary callee_formals actuals _sil_actual_argument _caller_pname =
@@ -1598,8 +1573,8 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
     | _ -> assert false
   in
   let list_of_accesses_to_formal = get_all_accesses_to_formal callee_formal edited_accesses_from_callee in
-  F.printf "list_of_accesses_to_formal:\n";
-  _print_accesses list_of_accesses_to_formal;
+(*  F.printf "list_of_accesses_to_formal:\n";*)
+(*  _print_accesses list_of_accesses_to_formal;*)
   (* get set of accesses to corresponding actual in callee *)
   let (astate, accesses_to_formal_to_add_to_astate_list) = for_actual_add_accesses_to_all_aliases callee_formal list_of_accesses_to_formal (List.nth actuals 3) astate ~creating_thread:true in
   let accesses_to_formal_to_add_to_astate = AccessSet.of_list accesses_to_formal_to_add_to_astate_list in
@@ -1612,7 +1587,9 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
   in
   F.printf "astate after pthread_summary:\n";
   print_astate astate;
-  astate
+  (* TODO I am not joining the abstract state -> locks and threads!!! *)
+(*  join_without_accesses astate callee_summary*)
+astate
 
 (* function integrates summary of callee to the current astate when function call occurs,
    it replaces all accesses to formals in callee_summary to accesses to actual *)
@@ -1655,7 +1632,12 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
   let accesses_from_callee = AccessSet.union accesses_with_actuals accesses_to_globals_in_callee in
   let accesses_joined = AccessSet.union astate.accesses accesses_from_callee in
   (* return updated astate *)
-  { astate with accesses=accesses_joined }
+  let astate = { astate with accesses=accesses_joined } in
+  F.printf "astate after pthread_summary:\n";
+  print_astate astate;
+  (* TODO I am not joining locks etc I think !!! *)
+(*  join_without_accesses astate callee_summary*)
+astate
 
 (* function returns a tuple of lists, the first list is a list of accesses to var,
    the second list is a list of accesses that are not to var *)
@@ -1677,13 +1659,13 @@ let rec product l1 l2 =
     | h1::t1, h2::t2 -> (h1,h2)::(product [h1] t2)@(product t1 l2)
 
 (* function computes data races for one variable, returns one pair of accesses if there is a data race between them *)
-let compute_data_races_for_one_var accesses_to_var var =
+let compute_data_races_for_one_var accesses_to_var _var =
   let pairs_of_accesses = product accesses_to_var accesses_to_var in
   let optimised_list = List.filter ~f:AccessEvent.predicate_loc pairs_of_accesses in
   let read_write_checked = List.filter ~f:AccessEvent.predicate_read_write optimised_list in
   let threads_checked = List.filter ~f:AccessEvent.predicate_thread read_write_checked in
   let threads_intersection_checked = List.filter ~f:AccessEvent.predicate_threads_intersection threads_checked in
-  F.printf "locksets_checked for var: %a\n" HilExp.AccessExpression.pp var;
+(*  F.printf "locksets_checked for var: %a\n" HilExp.AccessExpression.pp var;*)
   let locksets_checked_one_element = List.find ~f:AccessEvent.predicate_locksets threads_intersection_checked in
   match locksets_checked_one_element with
   | None -> []
@@ -1698,7 +1680,7 @@ let compute_data_races post =
     | [] -> report_acc
     | (access : AccessSet.elt) :: t -> (
       let access_var = AccessEvent.get_var access in
-      F.printf "compute_data_races, access: %a\n" AccessEvent.pp access;
+(*      F.printf "compute_data_races, access: %a\n" AccessEvent.pp access;*)
       let (accesses_to_var, other_accesses) = separate_lists access_var t [access] [] in
       let report_acc_new = compute_data_races_for_one_var accesses_to_var access_var in
       create_report other_accesses (report_acc @ report_acc_new)
@@ -1719,14 +1701,14 @@ let ( <= ) ~lhs ~rhs =
 (* leq function *)
 let leq ~lhs ~rhs = (<=) ~lhs ~rhs
 
-(* function joint two astates *)
+(* function joins two astates *)
 let join astate1 astate2 =
-  F.printf "join\n";
+(*  F.printf "join\n";*)
   let threads_active = ThreadSet.union astate1.threads_active astate2.threads_active in
   let accesses = AccessSet.union astate1.accesses astate2.accesses in
   let lockset = Lockset.inter astate1.lockset astate2.lockset in
   let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in
-  let aliases = AliasesSet.union astate1.aliases astate2.aliases in  (* TODO FIXME how to join aliases *)
+  let aliases = AliasesSet.union astate1.aliases astate2.aliases in
   let load_aliases = list_union astate1.load_aliases astate2.load_aliases ~equal:load_alias_eq in
   let heap_aliases = list_union astate1.heap_aliases astate2.heap_aliases ~equal:heap_alias_equal in
   let locals = list_union astate1.locals astate2.locals ~equal:HilExp.AccessExpression.equal  in

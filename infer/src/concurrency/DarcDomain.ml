@@ -1467,18 +1467,13 @@ let store e1 typ e2 loc astate pname =
         end
 
 (* function joins two astates *)
-let integrate_summary_without_accesses astate1 _astate2 =
-(*  F.printf "join\n";*)
-(*  let threads_active = ThreadSet.union astate1.threads_active astate2.threads_active in*)
-(*  let accesses = astate1.accesses in*)
-(*  let lockset = Lockset.inter astate1.lockset astate2.lockset in*)
-(*  let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in*)
-(*  let aliases = astate1.points_to in*)
-(*  let load_aliases = astate1.load_aliases in*)
-(*  let heap_aliases = astate1.heap_aliases in (* TODO join heap aliases or not? *)*)
-(*  let locals = astate1.locals in*)
-(*  { astate1 with threads_active; lockset; unlockset }*)
-astate1
+let integrate_summary_without_accesses astate callee_summary =
+  let threads_active = ThreadSet.union astate.threads_active callee_summary.threads_active in
+  let lockset = Lockset.diff (Lockset.union astate.lockset callee_summary.lockset) callee_summary.unlockset in
+  let unlockset = Lockset.union (Lockset.diff astate.unlockset callee_summary.lockset) callee_summary.unlockset in
+  let points_to = PointsToSet.union astate.points_to callee_summary.points_to in
+  let heap_points_to = HeapPointsToSet.union astate.heap_points_to callee_summary.heap_points_to in
+  { astate with threads_active; lockset; unlockset; points_to; heap_points_to }
 
 (* function integrates summary of callee to the current astate when function call to pthread_create() occurs,
    it replaces all accesses to formal in callee_summary to accesses to actual *)

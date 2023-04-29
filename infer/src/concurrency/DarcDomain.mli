@@ -57,7 +57,10 @@ module AccessEvent : sig
   (* function returns line of code of an access *)
   val get_loc : t -> Location.t
 
-  (* pretty print function used for reporting *)
+  (* pretty print function used for reporting - short version *)
+  val pp_report_short : Format.formatter -> t -> unit
+
+  (* pretty print function used for reporting - long version (with threads and locks) *)
   val pp_report_long : Format.formatter -> t -> unit
 end
 

@@ -32,16 +32,12 @@ module ReadWriteModels = struct
     match access_type with
     | Read -> "read from"
     | Write -> "write to"
-
 end
 
+(* module used for dealing with threads *)
 module ThreadEvent = struct
   (* type of ThreadEvent *)
   type t = (HilExp.AccessExpression.t * Location.t * Bool.t)
-
-  (* pretty print function *)
-  let pp fmt (th, loc, created_in_loop) =
-    F.fprintf fmt "%a on %a, in_loop=%b" HilExp.AccessExpression.pp th Location.pp loc created_in_loop
 
   (* compare function *)
   let compare (th, loc, created_in_loop) (th', loc', created_in_loop') =
@@ -62,20 +58,19 @@ module ThreadEvent = struct
     let thread_ae = HilExp.AccessExpression.base acc_path_from_pvar in
     (thread_ae, Location.dummy, false)
 
-  (* pretty print function - shorter version used for reporting *)
-  let pp_short fmt ((th, loc, created_in_loop) as thread) =
-    let main_thread = create_main_thread in
-    if (Int.equal (compare main_thread thread) 0) then
-      F.fprintf fmt "main thread"
-    else
+  (* pretty print function *)
+  let pp fmt ((th, loc, created_in_loop) as thread) =
+    match compare thread create_main_thread with
+    | 0 -> F.fprintf fmt "the main thread"
+    | _ ->
       match created_in_loop with
       | true -> F.fprintf fmt " %a created on %a in loop" HilExp.AccessExpression.pp th Location.pp_line loc
       | false -> F.fprintf fmt "%a created on %a" HilExp.AccessExpression.pp th Location.pp_line loc
-
 end
-
+(* set of ThreadEvent.t elements *)
 module ThreadSet = AbstractDomain.FiniteSet(ThreadEvent)
 
+(* module used for handling points to relations *)
 module PointsTo = struct
   (* type of PointsTo *)
   type t = (HilExp.AccessExpression.t * HilExp.AccessExpression.t)
@@ -89,19 +84,51 @@ module PointsTo = struct
     else
       snd_compare
 
-  (* pretty print function *)
-  let pp fmt (f, s) =
-    F.fprintf fmt "(%a, %a)" HilExp.AccessExpression.pp f HilExp.AccessExpression.pp s
-
+  (* function returns true if the the first var of the points-to tuple does not equal var *)
   let fst_not_equals_var (fst, _) var =
     not (HilExp.AccessExpression.equal fst var)
 
+  (* pretty print function *)
+  let pp fmt (f, s) =
+    F.fprintf fmt "(%a, %a)" HilExp.AccessExpression.pp f HilExp.AccessExpression.pp s
 end
-
+(* set of PointsTo.t elements *)
 module PointsToSet = AbstractDomain.FiniteSet(PointsTo)
 
+(* module used for handling the heap points-to relation *)
+module HeapPointsTo = struct
+  (* type of heap points-to relation *)
+  type t = (HilExp.AccessExpression.t * Location.t * Bool.t)
+
+  (* function compares two heap points-to relations *)
+  let compare (var, loc, created_in_loop) (var', loc', created_in_loop') =
+    match HilExp.AccessExpression.equal var var' with
+    | false -> HilExp.AccessExpression.compare var var'
+    | true ->
+      match Location.equal loc loc' with
+      | false -> Location.compare loc loc'
+      | true -> Bool.compare created_in_loop created_in_loop'
+
+  (* function returns true if the variable in the points-to relation
+     does not equal the variable var *)
+  let fst_not_equals_var (fst, _, _) var =
+    not (HilExp.AccessExpression.equal fst var)
+
+  (* function returns true if the location where the variable in the heap points-to
+     relation points to does not equal the location loc *)
+  let loc_not_equals (_, ha_loc, _) loc =
+    not (Location.equal ha_loc loc)
+
+  (* pretty print function *)
+  let pp fmt (ae, loc, created_in_loop) =
+    F.fprintf fmt "(%a, %a, %b)" HilExp.AccessExpression.pp ae Location.pp loc created_in_loop
+end
+(* set of HeapPointsTo.t elements *)
+module HeapPointsToSet = AbstractDomain.FiniteSet(HeapPointsTo)
+
+(* module used for handling load aliases *)
 module LoadAlias = struct
-  (* type of PointsTo *)
+  (* type of LoadAlias *)
   type t = (HilExp.AccessExpression.t * HilExp.AccessExpression.t * Location.t)
 
   (* compare function *)
@@ -113,16 +140,19 @@ module LoadAlias = struct
     else
       snd_compare
 
+  (* function returns true id the line of the location in the load alias in lower than or equal to max *)
+  let loc_leq_than_max (_, _, (loc : Location.t)) max =
+    loc.line <= max
+
   (* pretty print function *)
   let pp fmt (f, s, loc) =
     F.fprintf fmt "(%a, %a, %a)" HilExp.AccessExpression.pp f HilExp.AccessExpression.pp s Location.pp loc
 
-  let loc_leq_than_max (_, _, (loc : Location.t)) max =
-    loc.line <= max
 end
-
+(* set of LoadAlias.t elements *)
 module LoadAliasesSet = AbstractDomain.FiniteSet(LoadAlias)
 
+(* module used for dealing with accesses *)
 module AccessEvent = struct
   (* type of AccessEvent *)
   type t =
@@ -136,25 +166,6 @@ module AccessEvent = struct
     thread: ThreadEvent.t option;
   }
 
-  (* function prints a thread option *)
-  let _print_thread thread_opt =
-    match thread_opt with
-    | None -> F.printf "on thread None"
-    | Some thread -> F.printf "on %a" ThreadEvent.pp thread
-
-  (* function prints an access pair *)
-  let print_access_pair (t1, t2) =
-    let _t1_access_string = ReadWriteModels.access_to_string t1.access_type in
-(*    F.printf "(%a, %a, %s, %a " HilExp.AccessExpression.pp t1.var Location.pp t1.loc t1_access_string ThreadSet.pp t1.threads_active;*)
-(*    print_thread t1.thread;*)
-    (* print_lockset t1; *)
-(*    F.printf "\n";*)
-    let _t2_access_string = ReadWriteModels.access_to_string t2.access_type in
-(*    F.printf "| %a, %a, %s, %a " HilExp.AccessExpression.pp t2.var Location.pp t2.loc t2_access_string ThreadSet.pp t2.threads_active;*)
-(*    print_thread t2.thread;*)
-    (* print_lockset t2; *)
-    F.printf ")\n-----\n"
-
   (* compare function *)
   let compare a1 a2 =
     let var_cmp = HilExp.AccessExpression.compare a1.var a2.var in
@@ -164,45 +175,35 @@ module AccessEvent = struct
     let unlocked_cmp = Lockset.compare a1.unlocked a2.unlocked in
     let threads_active_cmp = ThreadSet.compare a1.threads_active a2.threads_active in
     let thread_cmp =
-      match a1.thread with
-      | Some thread1 -> (
-        match a2.thread with
-        | Some thread2 -> ThreadEvent.compare thread1 thread2
-        | None -> 1
-      )
-      | None -> (
-        match a2.thread with
-        | Some _ -> -1
-        | None -> 0
-      )
+      match (a1.thread, a2.thread) with
+      | (None, None) -> 0
+      | (None, Some _) -> -1
+      | (Some _, None) -> 1
+      | (Some thread1, Some thread2) -> ThreadEvent.compare thread1 thread2
     in
-    if not (Int.equal var_cmp 0) then
-      var_cmp
-    else if not (Int.equal access_type_cmp 0) then
-      access_type_cmp
-    else if not (Int.equal thread_cmp 0) then
-      thread_cmp
-    else if not (Int.equal threads_active_cmp 0) then
-      threads_active_cmp
-    else if not (Int.equal locked_cmp 0) then
-      locked_cmp
-    else if not (Int.equal unlocked_cmp 0) then
-      unlocked_cmp
-    else
-      loc_cmp
+    if not (Int.equal var_cmp 0) then var_cmp
+    else if not (Int.equal access_type_cmp 0) then access_type_cmp
+    else if not (Int.equal thread_cmp 0) then thread_cmp
+    else if not (Int.equal threads_active_cmp 0) then threads_active_cmp
+    else if not (Int.equal locked_cmp 0) then locked_cmp
+    else if not (Int.equal unlocked_cmp 0) then unlocked_cmp
+    else loc_cmp
 
   (* pretty print *)
   let pp fmt t1 =
     F.fprintf fmt "{%a, %s, %a, " HilExp.AccessExpression.pp t1.var (ReadWriteModels.access_to_string t1.access_type) Location.pp_line t1.loc;
-    match t1.thread with
-    | Some t -> F.fprintf fmt "thread %a}" ThreadEvent.pp_short t
-    | None -> F.fprintf fmt "None thread}"
+    let _pp_thr =
+      match t1.thread with
+      | Some t -> F.fprintf fmt "thread %a\n" ThreadEvent.pp t;
+      | None -> F.fprintf fmt "None thread\n";
+    in
+    F.fprintf fmt "threads: %a, \nlocks: %a}\n" ThreadSet.pp t1.threads_active Lockset.pp t1.locked
 
   (* pretty print function - shorter version used for reporting *)
-  let _pp_report_short fmt t1 =
+  let pp_report_short fmt t1 =
     F.fprintf fmt "%s %a on %a on " (ReadWriteModels.access_to_string t1.access_type) HilExp.AccessExpression.pp t1.var Location.pp_line t1.loc;
     match t1.thread with
-    | Some t -> F.fprintf fmt "%a" ThreadEvent.pp_short t
+    | Some t -> F.fprintf fmt "%a" ThreadEvent.pp t
     | None -> F.fprintf fmt "unknown thread"
 
   (* pretty print function - shorter version used for reporting *)
@@ -210,11 +211,10 @@ module AccessEvent = struct
     F.fprintf fmt "%s %a on %a on " (ReadWriteModels.to_report_string t1.access_type) HilExp.AccessExpression.pp t1.var Location.pp_line t1.loc;
     let _print_thread =
       match t1.thread with
-      | Some t -> F.fprintf fmt "%a" ThreadEvent.pp_short t;
+      | Some t -> F.fprintf fmt "%a" ThreadEvent.pp t;
       | None -> F.fprintf fmt "unknown thread";
     in
-(*    print_thread;*)
-    F.fprintf fmt "\nactive threads: %a\n locks locked: %a\n"
+    F.fprintf fmt "\nactive threads: %a\n locks held: %a\n"
         ThreadSet.pp t1.threads_active Lockset.pp t1.locked
 
   (* function returns access.var *)
@@ -277,10 +277,6 @@ module AccessEvent = struct
   let predicate_loc (a1, a2) =
     if Location.compare a1.loc a2.loc <= 0 then true else false
 
-  (* function returns true if a1.var == a2.var *)
-  let _predicate_var (a1, a2) =
-    if Int.equal (HilExp.AccessExpression.compare a1.var a2.var) 0 then true else false
-
   (* function returns true if a1.thread != a2.thread *)
   let predicate_thread (a1, a2) =
     match (a1.thread, a2.thread) with
@@ -293,7 +289,6 @@ module AccessEvent = struct
     | (ReadWriteModels.Read, ReadWriteModels.Read) -> false
     | _ -> true
 
-  (* FIXME *)
   (* function returns true if there is at least one thread in the intersection of threads_active,
      and if at least one of the threads in the intersection is the thread on which an access occurred *)
   let predicate_threads_intersection (a1, a2) =
@@ -301,15 +296,11 @@ module AccessEvent = struct
     if (ThreadSet.cardinal intersection) > 1 then
       begin
         match (a1.thread, a2.thread) with
-        | (Some a1_thread, Some a2_thread) -> (
-          (* there are more threads running concurrently - check if any of these threads equals a1.thread or a2.thread *)
-          let a1_in_intersection = ThreadSet.mem a1_thread intersection in
-          (* F.printf "a1_in_intersection: %b\n" a1_in_intersection; *)
-          let a2_in_intersection = ThreadSet.mem a2_thread intersection in
-          (* F.printf "a2_in_intersection: %b\n" a2_in_intersection; *)
-          a1_in_intersection || a2_in_intersection
-        )
-        | _ -> false (* at least one of the threads is None -> FIXME *)
+        | (Some a1_thread, Some a2_thread) ->
+          (* there are more threads running concurrently
+             -> check if any of these threads equals a1.thread or a2.thread *)
+          (ThreadSet.mem a1_thread intersection) || (ThreadSet.mem a2_thread intersection)
+        | _ -> false (* at least one of the threads is None *)
       end
     else
       false (* the only thread in the intersection is main -> data race cannot occur *)
@@ -337,29 +328,7 @@ end
 
 module LocalsSet = AbstractDomain.FiniteSet(Locals)
 
-module HeapPointsTo = struct
-  type t = (HilExp.AccessExpression.t * Location.t * Bool.t)
 
-  let pp fmt (ae, loc, created_in_loop) =
-    F.fprintf fmt "(%a, %a, %b)" HilExp.AccessExpression.pp ae Location.pp loc created_in_loop
-
-  let compare (var, loc, created_in_loop) (var', loc', created_in_loop') =
-    match HilExp.AccessExpression.equal var var' with
-    | false -> HilExp.AccessExpression.compare var var'
-    | true ->
-      match Location.equal loc loc' with
-      | false -> Location.compare loc loc'
-      | true -> Bool.compare created_in_loop created_in_loop'
-
-  let fst_not_equals_var (fst, _, _) var =
-    not (HilExp.AccessExpression.equal fst var)
-
-  let loc_not_equals (_, ha_loc, _) loc =
-    not (Location.equal ha_loc loc)
-
-end
-
-module HeapPointsToSet = AbstractDomain.FiniteSet(HeapPointsTo)
 
 let add_var_to_locals var locals_set =
   LocalsSet.add var locals_set
@@ -477,11 +446,6 @@ let rec _print_ae_list ae_list =
   match ae_list with
   | [] -> F.printf ".\n"
   | h::t -> F.printf "%a, " PointsTo.pp h; _print_ae_list t
-
-let rec _print_pairs_list lst =
-  match lst with
-  | [] -> F.printf "\n"
-  | h::t -> AccessEvent.print_access_pair h; _print_pairs_list t
 
 let load_alias_eq (a, b, _) (a', b', _) =
   HilExp.AccessExpression.equal a a' && HilExp.AccessExpression.equal b b'
@@ -1503,17 +1467,18 @@ let store e1 typ e2 loc astate pname =
         end
 
 (* function joins two astates *)
-let _join_without_accesses astate1 astate2 =
+let integrate_summary_without_accesses astate1 _astate2 =
 (*  F.printf "join\n";*)
-  let threads_active = ThreadSet.union astate1.threads_active astate2.threads_active in
+(*  let threads_active = ThreadSet.union astate1.threads_active astate2.threads_active in*)
 (*  let accesses = astate1.accesses in*)
-  let lockset = Lockset.inter astate1.lockset astate2.lockset in
-  let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in
+(*  let lockset = Lockset.inter astate1.lockset astate2.lockset in*)
+(*  let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in*)
 (*  let aliases = astate1.points_to in*)
 (*  let load_aliases = astate1.load_aliases in*)
 (*  let heap_aliases = astate1.heap_aliases in (* TODO join heap aliases or not? *)*)
 (*  let locals = astate1.locals in*)
-  { astate1 with threads_active; lockset; unlockset }
+(*  { astate1 with threads_active; lockset; unlockset }*)
+astate1
 
 (* function integrates summary of callee to the current astate when function call to pthread_create() occurs,
    it replaces all accesses to formal in callee_summary to accesses to actual *)
@@ -1548,8 +1513,8 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
   F.printf "astate after pthread_summary:\n";
   print_astate astate;
   (* TODO I am not joining the abstract state -> locks and threads!!! *)
-(*  join_without_accesses astate callee_summary*)
-astate
+  integrate_summary_without_accesses astate callee_summary
+(*astate*)
 
 (* function integrates summary of callee to the current astate when function call occurs,
    it replaces all accesses to formals in callee_summary to accesses to actual *)
@@ -1596,8 +1561,8 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
   F.printf "astate after pthread_summary:\n";
   print_astate astate;
   (* TODO I am not joining locks etc I think !!! *)
-(*  join_without_accesses astate callee_summary*)
-astate
+  integrate_summary_without_accesses astate callee_summary
+(*astate*)
 
 (* function returns a tuple of lists, the first list is a list of accesses to var,
    the second list is a list of accesses that are not to var *)

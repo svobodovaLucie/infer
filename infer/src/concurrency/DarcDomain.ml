@@ -97,6 +97,29 @@ end
 
 module PointsToSet = AbstractDomain.FiniteSet(PointsTo)
 
+module LoadAlias = struct
+  (* type of PointsTo *)
+  type t = (HilExp.AccessExpression.t * HilExp.AccessExpression.t * Location.t)
+
+  (* compare function *)
+  let compare (ae1, ae2, _) (ae1', ae2', _) =
+    let fst_compare = HilExp.AccessExpression.compare ae1 ae1' in
+    let snd_compare = HilExp.AccessExpression.compare ae2 ae2' in
+    if not (Int.equal fst_compare 0) then
+      fst_compare
+    else
+      snd_compare
+
+  (* pretty print function *)
+  let pp fmt (f, s, loc) =
+    F.fprintf fmt "(%a, %a, %a)" HilExp.AccessExpression.pp f HilExp.AccessExpression.pp s Location.pp loc
+
+  let loc_greater_than_max (_, _, (loc : Location.t)) max =
+    loc.line > max
+end
+
+module LoadAliasesSet = AbstractDomain.FiniteSet(LoadAlias)
+
 module AccessEvent = struct
   (* type of AccessEvent *)
   type t =
@@ -321,7 +344,8 @@ type t =
   lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
   unlockset: Lockset.t;
   points_to: PointsToSet.t;
-  load_aliases: (HilExp.AccessExpression.t * HilExp.AccessExpression.t * Location.t) list;
+(*  load_aliases: (HilExp.AccessExpression.t * HilExp.AccessExpression.t * Location.t) list;*)
+  load_aliases: LoadAliasesSet.t;
   heap_aliases: (HilExp.AccessExpression.t * Location.t) list;
 (*  locals: (Mangled.t * Typ.t) list; (* TODO maybe use HilExp.AccessExpression.t? *)*)
 (*  locals: HilExp.AccessExpression.t list;*)
@@ -335,7 +359,7 @@ let empty =
   lockset = Lockset.empty;
   unlockset = Lockset.empty;
   points_to = PointsToSet.empty;
-  load_aliases = [];
+  load_aliases = LoadAliasesSet.empty;
   heap_aliases = [];
   locals = LocalsSet.empty;
 }
@@ -347,22 +371,10 @@ let empty_with_locals locals =
   lockset = Lockset.empty;
   unlockset = Lockset.empty;
   points_to = PointsToSet.empty;
-  load_aliases = [];
+  load_aliases = LoadAliasesSet.empty;
   heap_aliases = [];
   locals;
 }
-
-(* print functions *)
-let print_load_aliases (ae1, ae2, loc) =
-  F.printf "(%a, %a, %a)\n" HilExp.AccessExpression.pp ae1 HilExp.AccessExpression.pp ae2 Location.pp loc
-
-let _print_load_aliases_list astate =
-  let rec print list =
-     match list with
-     | [] -> F.printf ".\n";
-     | h::t -> print_load_aliases h; print t
-   in
-   print astate.load_aliases
 
 let print_heap_aliases (ae, loc) =
   F.printf "(%a, %a), " HilExp.AccessExpression.pp ae Location.pp loc
@@ -441,11 +453,10 @@ let print_astate astate  =
   F.printf "lockset=%a\n" Lockset.pp astate.lockset;
   F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
   F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
-  F.printf "aliases=%a\n" PointsToSet.pp astate.points_to;
+  F.printf "points_to=%a\n" PointsToSet.pp astate.points_to;
   F.printf "heap_aliases=";
   _print_heap_aliases_list astate;
-  F.printf "load_aliases=";
-  _print_load_aliases_list astate
+  F.printf "load_aliases=%a\n" LoadAliasesSet.pp astate.load_aliases
   (* F.printf "caller_pname=%a\n" Procname.pp caller_pname; *)
   (* F.printf "loc=%a\n" Location.pp loc *)
   (* F.printf "=======================================\n" *)
@@ -665,6 +676,7 @@ let rec find_load_alias_by_var var load_aliases =
       find_load_alias_by_var var t
 
 let resolve_load_alias_list exp load_aliases ~add_deref : HilExp.AccessExpression.t list =
+  let load_aliases = LoadAliasesSet.elements load_aliases in
   let exp_base_ae = get_base_as_access_expression exp in
   let rec get_list_of_final_vars lst final_list_acc =
     match lst with
@@ -692,17 +704,22 @@ let resolve_load_alias_list exp load_aliases ~add_deref : HilExp.AccessExpressio
 
 (* function deletes load_aliases  from astate *)
 let astate_with_clear_load_aliases astate loc_to_be_removed =
-  let rec delete_load_alias_if_loc_lower lst acc =
-    match lst with
-    | [] -> acc
-    | ((_, _, (loc : Location.t)) as alias) :: t -> (
-      if loc.line < loc_to_be_removed then
-        delete_load_alias_if_loc_lower t acc
-      else
-        delete_load_alias_if_loc_lower t (alias :: acc)
-    )
+  let load_aliases = LoadAliasesSet.filter (fun x -> LoadAlias.loc_greater_than_max x loc_to_be_removed) astate.load_aliases
+
+(*  let load_aliases = LoadAliasesSet.filter (LoadAlias.loc_greater_than_max loc_to_be_removed) astate.load_aliases*)
   in
-  let load_aliases = delete_load_alias_if_loc_lower astate.load_aliases [] in
+(*  *)
+(*  let rec delete_load_alias_if_loc_lower lst acc =*)
+(*    match lst with*)
+(*    | [] -> acc*)
+(*    | ((_, _, (loc : Location.t)) as alias) :: t -> ( *)
+(*      if loc.line < loc_to_be_removed then*)
+(*        delete_load_alias_if_loc_lower t acc*)
+(*      else*)
+(*        delete_load_alias_if_loc_lower t (alias :: acc)*)
+(*    )*)
+(*  in*)
+(*  let load_aliases = delete_load_alias_if_loc_lower astate.load_aliases [] in*)
   {astate with load_aliases}
 
 (* functions that handle heap aliases *)
@@ -932,7 +949,7 @@ let resolve_entire_aliasing_of_var_list e_ae astate ~add_deref ~return_addressof
 (* function creates new thread: None or Some (thread, loc, false) *)
 let create_thread_from_load_ae_with_false_flag load loc astate : ThreadEvent.t =
   (* find thread in load aliases *)
-  let thread_load_alias = find_load_alias_by_var load astate.load_aliases in
+  let thread_load_alias = find_load_alias_by_var load (LoadAliasesSet.elements astate.load_aliases) in
   match thread_load_alias with
   | None -> (
     (* create thread name from load alias base *)
@@ -1008,7 +1025,7 @@ let threads_list = ThreadSet.elements threads in
 let remove_thread load_ae astate =
 F.printf "remove_thread\n";
   (* find thread by its name in threads *)
-  let thread_load_alias = find_load_alias_by_var load_ae astate.load_aliases in
+  let thread_load_alias = find_load_alias_by_var load_ae (LoadAliasesSet.elements astate.load_aliases) in
   match thread_load_alias with
   | None -> astate (* not found *)
   | Some (_, thread_ae) -> (
@@ -1352,15 +1369,15 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
     | (e_aliased, e_aliased_final) :: t -> (
       (* create new load alias *)
       let new_load_alias = (id_ae, e_aliased_final, loc) in
+      let load_aliases = LoadAliasesSet.add new_load_alias astate.load_aliases in
       (* check if the load alias already exist *)
-      let load_alias_eq (a, b, _) (a', b', _) =
-        HilExp.AccessExpression.equal a a' && HilExp.AccessExpression.equal b b'
-      in
-      let load_aliases =
-        match List.mem updated_astate.load_aliases new_load_alias ~equal:load_alias_eq with
-        | false -> new_load_alias :: updated_astate.load_aliases
-        | true -> updated_astate.load_aliases
-      in
+(*      let load_alias_eq (a, b, _) (a', b', _) =*)
+(*        HilExp.AccessExpression.equal a a' && HilExp.AccessExpression.equal b b'*)
+(*      in*)
+(*      let load_aliases =*)
+(*        match List.mem updated_astate.load_aliases new_load_alias ~equal:load_alias_eq with*)
+(*        | false -> new_load_alias :: updated_astate.load_aliases*)
+(*        | true -> updated_astate.load_aliases*)
       (* add new load alias to load_aliases *)
       let astate = { updated_astate with load_aliases } in
       (* add all read access (if it is access to heap allocated variable with alias, there could be more accesses) *)
@@ -1383,7 +1400,8 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
   | Exp.Lvar _ | _ -> (
     (* e is program var -> create new load alias (pvar, load_expr) and add it to astate.load_aliases *)
     let new_load_alias = (id_ae, e_ae, loc) in
-    let load_aliases = new_load_alias :: astate.load_aliases in
+(*    let load_aliases = new_load_alias :: astate.load_aliases in*)
+    let load_aliases = LoadAliasesSet.add new_load_alias astate.load_aliases in
     let astate = { astate with load_aliases } in
     (* add read access to e *)
     add_access_to_astate_with_check e_ae ReadWriteModels.Read astate loc pname
@@ -1687,7 +1705,8 @@ let join astate1 astate2 =
   let lockset = Lockset.inter astate1.lockset astate2.lockset in
   let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in
   let points_to = PointsToSet.union astate1.points_to astate2.points_to in
-  let load_aliases = list_union astate1.load_aliases astate2.load_aliases ~equal:load_alias_eq in
+  let load_aliases = LoadAliasesSet.union astate1.load_aliases astate2.load_aliases in
+(*  let load_aliases = list_union astate1.load_aliases astate2.load_aliases ~equal:load_alias_eq in*)
 (*  let load_aliases = astate1.load_aliases in*)
   let heap_aliases = list_union astate1.heap_aliases astate2.heap_aliases ~equal:heap_alias_equal in
 (*  let heap_aliases = astate1.heap_aliases in*)

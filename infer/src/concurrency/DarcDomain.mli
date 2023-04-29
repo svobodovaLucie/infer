@@ -38,7 +38,7 @@ module AccessEvent : sig
   val get_loc : t -> Location.t
 
   (* pretty print function used for reporting *)
-  val pp_report_short : Format.formatter -> t -> unit
+  val pp_report_long : Format.formatter -> t -> unit
 end
 
 val update_aliases : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> t -> t

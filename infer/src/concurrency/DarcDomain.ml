@@ -28,41 +28,29 @@ module ReadWriteModels = struct
     | Read  -> "read"
     | Write -> "write"
 
+  let to_report_string access_type =
+    match access_type with
+    | Read -> "read from"
+    | Write -> "write to"
+
 end
 
 module ThreadEvent = struct
   (* type of ThreadEvent *)
-(*  type t = (HilExp.AccessExpression.t * Location.t * Bool.t)*)
-type t = (AccessPath.t * Location.t * Bool.t)
+  type t = (HilExp.AccessExpression.t * Location.t * Bool.t)
+
+  (* pretty print function *)
+  let pp fmt (th, loc, created_in_loop) =
+    F.fprintf fmt "%a on %a, in_loop=%b" HilExp.AccessExpression.pp th Location.pp loc created_in_loop
 
   (* compare function *)
-(*  let compare (th, loc, created_in_loop) (th', loc', created_in_loop') =*)
-let compare ((base, aclist) as th, loc, created_in_loop) ((base', aclist') as th', loc', created_in_loop') =
-    (* F.printf "comparing threads: %a and %a\n" AccessPath.pp th AccessPath.pp th'; *)
-    let result_th =
-(*       compare access paths *)
-      if (Int.equal (AccessPath.compare th th') 0) then 0
-      else begin
-        let res = AccessPath.compare_base base base' in
-        if not (Int.equal res 0) then res
-        else
-          List.compare AccessPath.compare_access aclist aclist'
-      end
-    in
-(*    if HilExp.AccessExpression.equal th th' then*)
-    if (Int.equal result_th 0) then
-      (* compare loc *)
-      if (Int.equal (Location.compare loc loc') 0) then
-        (* compare created_in_loop flag *)
-        match (created_in_loop, created_in_loop') with
-        | (true, false) -> 1
-        | (false, true) -> -1
-        | _ -> 0
-      else
-        Location.compare loc loc'
-    else
-(*      HilExp.AccessExpression.compare th th'*)
-  result_th
+  let compare (th, loc, created_in_loop) (th', loc', created_in_loop') =
+    match HilExp.AccessExpression.equal th th' with
+    | false -> HilExp.AccessExpression.compare th th'
+    | true ->
+      match Location.equal loc loc' with
+      | false -> Location.compare loc loc'
+      | true -> Bool.compare created_in_loop created_in_loop'
 
   (* function creates a main thread *)
   let create_main_thread =
@@ -70,17 +58,9 @@ let compare ((base, aclist) as th, loc, created_in_loop) ((base', aclist') as th
     let pvar_from_pname : Pvar.t = Pvar.mk_tmp "'main_thread'" pname in
     let tvar_name = Typ.TVar "thread" in
     let typ_main_thread = Typ.mk tvar_name in
-(*    let acc_path_from_pvar : AccessPath.base = AccessPath.base_of_pvar pvar_from_pname typ_main_thread in*)
-(*    let thread_ae = HilExp.AccessExpression.base acc_path_from_pvar in*)
-(*    (thread_ae, Location.dummy, false)*)
-let acc_path_from_pvar : AccessPath.t = AccessPath.of_pvar pvar_from_pname typ_main_thread in
-    (acc_path_from_pvar, Location.dummy, false)
-
-
-  (* pretty print function *)
-  let pp fmt (th, loc, created_in_loop) =
-(*    F.fprintf fmt "%a on %a, in_loop=%b" HilExp.AccessExpression.pp th Location.pp loc created_in_loop*)
-    F.fprintf fmt "%a on %a, in_loop=%b" AccessPath.pp th Location.pp loc created_in_loop
+    let acc_path_from_pvar : AccessPath.base = AccessPath.base_of_pvar pvar_from_pname typ_main_thread in
+    let thread_ae = HilExp.AccessExpression.base acc_path_from_pvar in
+    (thread_ae, Location.dummy, false)
 
   (* pretty print function - shorter version used for reporting *)
   let pp_short fmt ((th, loc, created_in_loop) as thread) =
@@ -89,10 +69,8 @@ let acc_path_from_pvar : AccessPath.t = AccessPath.of_pvar pvar_from_pname typ_m
       F.fprintf fmt "main thread"
     else
       match created_in_loop with
-(*      | true -> F.fprintf fmt " %a created on %a in loop" HilExp.AccessExpression.pp th Location.pp_line loc*)
-| true -> F.fprintf fmt "thread %a created on %a in loop" AccessPath.pp th Location.pp_line loc
-(*      | false -> F.fprintf fmt "%a created on %a" HilExp.AccessExpression.pp th Location.pp_line loc*)
-| false -> F.fprintf fmt "thread %a created on %a" AccessPath.pp th Location.pp_line loc
+      | true -> F.fprintf fmt " %a created on %a in loop" HilExp.AccessExpression.pp th Location.pp_line loc
+      | false -> F.fprintf fmt "%a created on %a" HilExp.AccessExpression.pp th Location.pp_line loc
 
 end
 
@@ -195,11 +173,23 @@ module AccessEvent = struct
     | None -> F.fprintf fmt "None thread}"
 
   (* pretty print function - shorter version used for reporting *)
-  let pp_report_short fmt t1 =
+  let _pp_report_short fmt t1 =
     F.fprintf fmt "%s %a on %a on " (ReadWriteModels.access_to_string t1.access_type) HilExp.AccessExpression.pp t1.var Location.pp_line t1.loc;
     match t1.thread with
     | Some t -> F.fprintf fmt "%a" ThreadEvent.pp_short t
     | None -> F.fprintf fmt "unknown thread"
+
+  (* pretty print function - shorter version used for reporting *)
+  let pp_report_long fmt t1 =
+    F.fprintf fmt "%s %a on %a on " (ReadWriteModels.to_report_string t1.access_type) HilExp.AccessExpression.pp t1.var Location.pp_line t1.loc;
+    let _print_thread =
+      match t1.thread with
+      | Some t -> F.fprintf fmt "%a" ThreadEvent.pp_short t;
+      | None -> F.fprintf fmt "unknown thread";
+    in
+(*    print_thread;*)
+    F.fprintf fmt "\nactive threads: %a\n locks locked: %a\n"
+        ThreadSet.pp t1.threads_active Lockset.pp t1.locked
 
   (* function returns access.var *)
   let get_var access = access.var
@@ -933,21 +923,20 @@ let resolve_entire_aliasing_of_var_list e_ae astate ~add_deref ~return_addressof
   for_each_load_alias e_after_resolving_load_alias_list []
 
 (* functions that handle threads *)
-(* function returns None or Some (thread, loc, false) *)
+(* function creates new thread: None or Some (thread, loc, false) *)
 let create_thread_from_load_ae_with_false_flag load loc astate : ThreadEvent.t =
-  (* load expression dealiasing *)
+  (* find thread in load aliases *)
   let thread_load_alias = find_load_alias_by_var load astate.load_aliases in
   match thread_load_alias with
   | None -> (
-(*    (load, loc, false)*)
-    let load_ap = HilExp.AccessExpression.to_access_path load in
-    (load_ap, loc, false)
+    (* create thread name from load alias base *)
+    let load_base = HilExp.AccessExpression.base (HilExp.AccessExpression.get_base load) in
+    (load_base, loc, false)
   )
   | Some (_, final_thread) -> (
-(*     create new thread from alias *)
-(*    (final_thread, loc, false)*)
-    let final_thread_ap = HilExp.AccessExpression.to_access_path final_thread in
-    (final_thread_ap, loc, false)
+    (* create thread *)
+    let final_thread = HilExp.AccessExpression.base (HilExp.AccessExpression.get_base final_thread) in
+    (final_thread, loc, false)
   )
 
 (* function created new thread from load alias *)
@@ -956,6 +945,7 @@ let new_thread th_load_ae loc astate =
   let new_thread_from_load_with_false_flag = create_thread_from_load_ae_with_false_flag th_load_ae loc astate in
   (* find thread (with false flag) in threads_active *)
   let found_with_false_flag = ThreadSet.mem new_thread_from_load_with_false_flag astate.threads_active in
+  let res =
   match found_with_false_flag with
   | false -> new_thread_from_load_with_false_flag
   | true -> (
@@ -964,6 +954,9 @@ let new_thread th_load_ae loc astate =
       let thread_with_true_flag = (th, loc, true) in
       thread_with_true_flag
   )
+  in
+  F.printf "new_thread=%a\n" ThreadEvent.pp res;
+  res
 
 (* function add thread to astate.threads_active,
    if there already is the thread with false created_in_loop flag, adds it with true flag *)
@@ -986,37 +979,36 @@ let add_thread thread astate =
   in
   { astate with threads_active }
 
-(* function finds thread in threads set and returns None if not found or Some thread if found *)
+(* function finds thread in threads set by its name and created_in_loop flag
+   and returns None if not found or Some thread if found *)
 let find_thread_in_threads_active thread_name threads ~created_in_loop_flag =
-(*  let threads_list : ThreadEvent.t list = ThreadSet.elements threads in*)
-let threads_list : (AccessPath.t * Location.t * Bool.t) list = ThreadSet.elements threads in
+let threads_list = ThreadSet.elements threads in
   let rec find_thread lst =
     match lst with
     | [] -> None
-(*    | (th, _, flag) as th_ev :: t -> ( *)
-(*      if (HilExp.AccessExpression.equal th thread_name) && (Bool.equal flag created_in_loop_flag) then*)
-(*        Some th_ev*)
-    | (th_ap, _, flag) as th :: t -> (
-      if (AccessPath.equal th_ap thread_name) && (Bool.equal flag created_in_loop_flag) then
-        Some th
+    | (th, _, flag) as th_ev :: t -> (
+      if (HilExp.AccessExpression.equal th thread_name)
+          && (Bool.equal flag created_in_loop_flag) then
+        Some th_ev
       else
         find_thread t
     )
   in
   find_thread threads_list
 
+
 (* function tries to find thread with flag created_in_loop set to true in astate.threads_active,
    if found then removes it, if not found, tries to find the thread with false flag and removes it *)
 let remove_thread load_ae astate =
+F.printf "remove_thread\n";
   (* find thread by its name in threads *)
   let thread_load_alias = find_load_alias_by_var load_ae astate.load_aliases in
   match thread_load_alias with
   | None -> astate (* not found *)
   | Some (_, thread_ae) -> (
-    let thread_name = HilExp.AccessExpression.to_access_path thread_ae in
     (* find the thread in threads_active - first find with true flag *)
-(*    let thread_with_true_flag = find_thread_in_threads_active thread_ae astate.threads_active ~created_in_loop_flag:true in*)
-let thread_with_true_flag = find_thread_in_threads_active thread_name astate.threads_active ~created_in_loop_flag:true in
+    let thread_ae = HilExp.AccessExpression.base (HilExp.AccessExpression.get_base thread_ae) in
+    let thread_with_true_flag = find_thread_in_threads_active thread_ae astate.threads_active ~created_in_loop_flag:true in
     (* if found then remove *)
     match thread_with_true_flag with
     | Some th -> (
@@ -1026,8 +1018,7 @@ let thread_with_true_flag = find_thread_in_threads_active thread_name astate.thr
     )
     | None -> (
       (* else find the thread with false flag *)
-(*      let thread = find_thread_in_threads_active thread_ae astate.threads_active ~created_in_loop_flag:false in*)
-let thread = find_thread_in_threads_active thread_name astate.threads_active ~created_in_loop_flag:false in
+      let thread = find_thread_in_threads_active thread_ae astate.threads_active ~created_in_loop_flag:false in
       match thread with
       | Some th ->
         (* remove the thread *)
@@ -1702,6 +1693,10 @@ let ( <= ) ~lhs ~rhs =
 let leq ~lhs ~rhs = (<=) ~lhs ~rhs
 
 (* function joins two astates *)
+(*
+  FIXME:
+  1. not renaming heap allocated variables when joining two astates
+*)
 let join astate1 astate2 =
 (*  F.printf "join\n";*)
   let threads_active = ThreadSet.union astate1.threads_active astate2.threads_active in
@@ -1710,8 +1705,11 @@ let join astate1 astate2 =
   let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in
   let aliases = AliasesSet.union astate1.aliases astate2.aliases in
   let load_aliases = list_union astate1.load_aliases astate2.load_aliases ~equal:load_alias_eq in
+(*  let load_aliases = astate1.load_aliases in*)
   let heap_aliases = list_union astate1.heap_aliases astate2.heap_aliases ~equal:heap_alias_equal in
+(*  let heap_aliases = astate1.heap_aliases in*)
   let locals = list_union astate1.locals astate2.locals ~equal:HilExp.AccessExpression.equal  in
+(*  let locals = astate1.locals in*)
   { threads_active; accesses; lockset; unlockset; aliases; load_aliases; heap_aliases; locals }
 
 (* widening function *)

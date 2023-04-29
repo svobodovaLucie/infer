@@ -290,7 +290,7 @@ let report {InterproceduralAnalysis.proc_desc; err_log; _} post =
     match lst with
     | [] -> ()
     | (fst, snd) :: t -> (
-      let fst_message = F.asprintf "Data race between \t%a\n\t\t\t%a\n" DarcDomain.AccessEvent.pp_report_short fst DarcDomain.AccessEvent.pp_report_short snd in
+      let fst_message = F.asprintf "Data race between \t%a\n\t\t\t%a\n" DarcDomain.AccessEvent.pp_report_long fst DarcDomain.AccessEvent.pp_report_long snd in
       (* let snd_message = F.asprintf "Potential data race between \t%a\n\t\t\t%a\n" DarcDomain.AccessEvent.pp_report_short snd DarcDomain.AccessEvent.pp_report_short fst in *)
       let fst_loc = Domain.AccessEvent.get_loc fst in
       (* let snd_loc = Domain.AccessEvent.get_loc snd in *)

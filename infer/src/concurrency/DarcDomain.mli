@@ -30,6 +30,16 @@ module PointsTo : sig
   type t
 end
 
+module HeapPointsTo : sig
+  (* type of PointsTo *)
+  type t
+end
+
+module HeapPointsToSet : sig
+  (* type of PointsTo *)
+  type t
+end
+
 module Locals : sig
   type t
 end
@@ -93,6 +103,6 @@ val compute_data_races : summary -> (AccessEvent.t * AccessEvent.t) list
 
 val astate_with_clear_load_aliases : t -> int -> t
 
-val add_heap_aliases_to_astate : t -> (HilExp.AccessExpression.t * Location.t) list -> t
+val add_heap_aliases_to_astate : t -> (HilExp.AccessExpression.t * Location.t * bool) list -> t
 
 val add_var_to_locals : HilExp.AccessExpression.t -> LocalsSet.t -> LocalsSet.t

@@ -263,7 +263,7 @@ let add_formal_to_heap_aliases formal heap_aliases pname line_num =
   let loc_dummy = Location.dummy in
   let loc_dummy = { loc_dummy with line=line_num } in
   (* add formal to the list *)
-  let new_heap_aliases = (formal_ae, loc_dummy) :: heap_aliases in
+  let new_heap_aliases = (formal_ae, loc_dummy, false) :: heap_aliases in
   new_heap_aliases
 
 let add_formals_to_heap_aliases astate formals pname =

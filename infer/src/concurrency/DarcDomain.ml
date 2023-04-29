@@ -93,6 +93,9 @@ module PointsTo = struct
   let pp fmt (f, s) =
     F.fprintf fmt "(%a, %a)" HilExp.AccessExpression.pp f HilExp.AccessExpression.pp s
 
+  let fst_not_equals_var (fst, _) var =
+    not (HilExp.AccessExpression.equal fst var)
+
 end
 
 module PointsToSet = AbstractDomain.FiniteSet(PointsTo)
@@ -114,8 +117,8 @@ module LoadAlias = struct
   let pp fmt (f, s, loc) =
     F.fprintf fmt "(%a, %a, %a)" HilExp.AccessExpression.pp f HilExp.AccessExpression.pp s Location.pp loc
 
-  let loc_greater_than_max (_, _, (loc : Location.t)) max =
-    loc.line > max
+  let loc_leq_than_max (_, _, (loc : Location.t)) max =
+    loc.line <= max
 end
 
 module LoadAliasesSet = AbstractDomain.FiniteSet(LoadAlias)
@@ -334,6 +337,30 @@ end
 
 module LocalsSet = AbstractDomain.FiniteSet(Locals)
 
+module HeapPointsTo = struct
+  type t = (HilExp.AccessExpression.t * Location.t * Bool.t)
+
+  let pp fmt (ae, loc, created_in_loop) =
+    F.fprintf fmt "(%a, %a, %b)" HilExp.AccessExpression.pp ae Location.pp loc created_in_loop
+
+  let compare (var, loc, created_in_loop) (var', loc', created_in_loop') =
+    match HilExp.AccessExpression.equal var var' with
+    | false -> HilExp.AccessExpression.compare var var'
+    | true ->
+      match Location.equal loc loc' with
+      | false -> Location.compare loc loc'
+      | true -> Bool.compare created_in_loop created_in_loop'
+
+  let fst_not_equals_var (fst, _, _) var =
+    not (HilExp.AccessExpression.equal fst var)
+
+  let loc_not_equals (_, ha_loc, _) loc =
+    not (Location.equal ha_loc loc)
+
+end
+
+module HeapPointsToSet = AbstractDomain.FiniteSet(HeapPointsTo)
+
 let add_var_to_locals var locals_set =
   LocalsSet.add var locals_set
 
@@ -344,11 +371,8 @@ type t =
   lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
   unlockset: Lockset.t;
   points_to: PointsToSet.t;
-(*  load_aliases: (HilExp.AccessExpression.t * HilExp.AccessExpression.t * Location.t) list;*)
   load_aliases: LoadAliasesSet.t;
-  heap_aliases: (HilExp.AccessExpression.t * Location.t) list;
-(*  locals: (Mangled.t * Typ.t) list; (* TODO maybe use HilExp.AccessExpression.t? *)*)
-(*  locals: HilExp.AccessExpression.t list;*)
+  heap_points_to: HeapPointsToSet.t;
   locals : LocalsSet.t;
 }
 
@@ -360,7 +384,7 @@ let empty =
   unlockset = Lockset.empty;
   points_to = PointsToSet.empty;
   load_aliases = LoadAliasesSet.empty;
-  heap_aliases = [];
+  heap_points_to = HeapPointsToSet.empty;
   locals = LocalsSet.empty;
 }
 
@@ -372,20 +396,9 @@ let empty_with_locals locals =
   unlockset = Lockset.empty;
   points_to = PointsToSet.empty;
   load_aliases = LoadAliasesSet.empty;
-  heap_aliases = [];
+  heap_points_to = HeapPointsToSet.empty;
   locals;
 }
-
-let print_heap_aliases (ae, loc) =
-  F.printf "(%a, %a), " HilExp.AccessExpression.pp ae Location.pp loc
-
-let _print_heap_aliases_list astate =
-  let rec print list =
-     match list with
-     | [] -> F.printf ".\n";
-     | h::t -> print_heap_aliases h; print t
-   in
-   print astate.heap_aliases
 
 let _print_alias alias = (
   match alias with
@@ -454,8 +467,7 @@ let print_astate astate  =
   F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
   F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
   F.printf "points_to=%a\n" PointsToSet.pp astate.points_to;
-  F.printf "heap_aliases=";
-  _print_heap_aliases_list astate;
+  F.printf "heap_points_to=%a\n" HeapPointsToSet.pp astate.heap_points_to;
   F.printf "load_aliases=%a\n" LoadAliasesSet.pp astate.load_aliases
   (* F.printf "caller_pname=%a\n" Procname.pp caller_pname; *)
   (* F.printf "loc=%a\n" Location.pp loc *)
@@ -470,9 +482,6 @@ let rec _print_pairs_list lst =
   match lst with
   | [] -> F.printf "\n"
   | h::t -> AccessEvent.print_access_pair h; _print_pairs_list t
-
-let heap_alias_equal (var, loc) (var', loc') =
-  HilExp.AccessExpression.equal var var' && Location.equal loc loc'
 
 let load_alias_eq (a, b, _) (a', b', _) =
   HilExp.AccessExpression.equal a a' && HilExp.AccessExpression.equal b b'
@@ -541,21 +550,9 @@ let remove_all_var_aliases_from_aliases var_option astate =
   match var_option with
   | None -> astate
   | Some var -> (
-    let aliases_list = PointsToSet.elements astate.points_to in
-    let rec remove_var_alias var lst acc =
-      match lst with
-      | [] -> acc
-      | ((fst, _) as alias) :: t -> (
-        if (HilExp.AccessExpression.equal fst var) then
-          remove_var_alias var t acc
-        else
-          remove_var_alias var t (alias :: acc)
-      )
-    in
-    let aliases_removed_list = remove_var_alias var aliases_list [] in
-    let aliases_removed = PointsToSet.of_list aliases_removed_list in
-    let heap_aliases_removed = remove_var_alias var astate.heap_aliases [] in
-    {astate with points_to=aliases_removed; heap_aliases=heap_aliases_removed}
+    let points_to = PointsToSet.filter (fun elt -> PointsTo.fst_not_equals_var elt var) astate.points_to in
+    let heap_points_to = HeapPointsToSet.filter (fun elt -> HeapPointsTo.fst_not_equals_var elt var) astate.heap_points_to in
+    {astate with points_to; heap_points_to}
   )
 
 (* function adds new alias to astate.points_to *)
@@ -704,7 +701,7 @@ let resolve_load_alias_list exp load_aliases ~add_deref : HilExp.AccessExpressio
 
 (* function deletes load_aliases  from astate *)
 let astate_with_clear_load_aliases astate loc_to_be_removed =
-  let load_aliases = LoadAliasesSet.filter (fun x -> LoadAlias.loc_greater_than_max x loc_to_be_removed) astate.load_aliases
+  let load_aliases = LoadAliasesSet.filter (fun x -> LoadAlias.loc_leq_than_max x loc_to_be_removed) astate.load_aliases
 
 (*  let load_aliases = LoadAliasesSet.filter (LoadAlias.loc_greater_than_max loc_to_be_removed) astate.load_aliases*)
   in
@@ -725,26 +722,13 @@ let astate_with_clear_load_aliases astate loc_to_be_removed =
 (* functions that handle heap aliases *)
 (* function removes all heap aliases with the same loc (used when free() is called) *)
 let remove_heap_aliases_by_loc loc astate =
-  let rec update_heap_aliases loc list acc =
-    match list with
-    | [] -> acc
-    | (var, location) :: t -> (
-      if Location.equal loc location then
-        update_heap_aliases loc t acc
-      else
-        begin
-          let new_acc = (var, location) :: acc in
-          update_heap_aliases loc t new_acc
-        end
-    )
-  in
-  update_heap_aliases loc astate.heap_aliases []
+  HeapPointsToSet.filter (fun elt -> HeapPointsTo.loc_not_equals elt loc) astate.heap_points_to
 
 let get_heap_aliases_list_by_loc loc heap_aliases =
   let rec find_heap_aliases loc list acc =
     match list with
     | [] -> acc
-    | (var, location) :: t ->
+    | (var, location, _) :: t ->
       if Location.equal loc location then
         find_heap_aliases loc t (var :: acc)
       else
@@ -756,7 +740,7 @@ let get_heap_aliases_list_by_loc loc heap_aliases =
 let rec find_heap_alias_by_var var heap_aliases =
   match heap_aliases with
   | [] -> None
-  | (fst, loc) :: t ->
+  | (fst, loc, _) :: t ->
     if HilExp.AccessExpression.equal var fst then
       Some loc
     else
@@ -765,48 +749,32 @@ let rec find_heap_alias_by_var var heap_aliases =
 (* function removes heap alias of var *)
 let remove_heap_alias_by_var_name var astate =
   (* find var alias in heap_aliases, return loc *)
-  let loc_of_alias_to_be_removed = find_heap_alias_by_var var astate.heap_aliases in
+  let loc_of_alias_to_be_removed = find_heap_alias_by_var var (HeapPointsToSet.elements astate.heap_points_to) in
   match loc_of_alias_to_be_removed with
   | Some loc ->
     (* remove all heap_aliases with the returned loc *)
     let updated_heap_aliases = remove_heap_aliases_by_loc loc astate in
-    { astate with heap_aliases=updated_heap_aliases }
+    { astate with heap_points_to=updated_heap_aliases }
   | None -> astate (* heap alias with var doesn't exist *)
 
-(* function returns "union" of two lists *)
-let rec list_union lst1 lst2 ~equal =
-  match lst1 with
-  | [] -> lst2
-  | hd :: tl -> (
-    let list_mem_opt = List.mem lst2 hd ~equal in
-    match list_mem_opt with
-    | true -> list_union tl lst2 ~equal
-    | false -> hd :: list_union tl lst2 ~equal
-  )
-
-(* function adds new heap alias to astate.heap_aliases,
+(* function adds new heap alias to astate.heap_points_to,
    if there already is an alias with variable var, the old alias is first removed *)
 let add_heap_alias var loc astate =
   (* get base of var? *)
   let var_base = HilExp.AccessExpression.get_base var in
   let var_base_ae = HilExp.AccessExpression.base var_base in
-  let new_heap_alias = (var_base_ae, loc) in
+  let new_heap_alias = (var_base_ae, loc, false) in
   (* remove heap alias if there already is any alias with the var *)
   let astate = remove_heap_alias_by_var_name var_base_ae astate in
   (* add new alias to heap aliases *)
-  let list_mem = List.mem astate.heap_aliases new_heap_alias ~equal:heap_alias_equal in
-  let new_heap_aliases =
-    match list_mem with
-    | true -> astate.heap_aliases
-    | false -> new_heap_alias :: astate.heap_aliases
-  in
-  {astate with heap_aliases = new_heap_aliases}
+  let new_heap_aliases = HeapPointsToSet.add new_heap_alias astate.heap_points_to in
+  {astate with heap_points_to = new_heap_aliases}
 
-(* functions joins astate.heap_aliases with heap_aliases *)
+(* functions joins astate.heap_points_to with heap_aliases *)
 let add_heap_aliases_to_astate astate heap_aliases =
-  let heap_aliases_joined = list_union astate.heap_aliases heap_aliases ~equal:heap_alias_equal in
-(*  let heap_aliases_joined = astate.heap_aliases @ heap_aliases in*)
-  {astate with heap_aliases=heap_aliases_joined}
+  let heap_aliases_set = HeapPointsToSet.of_list heap_aliases in
+  let heap_aliases_joined = HeapPointsToSet.union astate.heap_points_to heap_aliases_set in
+  {astate with heap_points_to=heap_aliases_joined}
 
 (* function returns first variable in a tuple or var if the tuple is None *)
 let get_option_fst var alias = (
@@ -853,7 +821,7 @@ let update_aliases lhs rhs astate =
     )
     | None -> ( (* alias wasn't found - try to find alias in heap aliases *)
       (* find rhs in heap aliases *)
-      let rhs_heap_alias_loc = find_heap_alias_by_var rhs astate.heap_aliases in
+      let rhs_heap_alias_loc = find_heap_alias_by_var rhs (HeapPointsToSet.elements astate.heap_points_to) in
       match rhs_heap_alias_loc with
       | Some loc -> (
         (* remove existing alias from aliases and add the new alias to astate *)
@@ -866,7 +834,7 @@ let update_aliases lhs rhs astate =
 
 
 (* function returns alias of var if found in aliases, else returns var *)
-let replace_var_with_its_alias_list var aliases (heap_aliases : (HilExp.access_expression * Location.t) list) ~return_addressof_alias =
+let replace_var_with_its_alias_list var aliases heap_aliases ~return_addressof_alias =
   let var_ae = get_base_as_access_expression var in
   let result_list = resolve_alias_list var var_ae var_ae aliases ~return_addressof_alias in
   match result_list with
@@ -923,7 +891,7 @@ let resolve_entire_aliasing_of_var_list e_ae astate ~add_deref ~return_addressof
     | e_after_resolving_load_alias :: t -> (
 (*      F.printf "e_after_resolving_load_alias 1: %a\n" HilExp.AccessExpression.pp e_after_resolving_load_alias;*)
 (*      (* get list of all aliased variables *)*)
-      let e_final_list = replace_var_with_its_alias_list e_after_resolving_load_alias (PointsToSet.elements astate.points_to) astate.heap_aliases ~return_addressof_alias in
+      let e_final_list = replace_var_with_its_alias_list e_after_resolving_load_alias (PointsToSet.elements astate.points_to) (HeapPointsToSet.elements astate.heap_points_to) ~return_addressof_alias in
       (* create list of (e_after_resolving_load_alias, e_final) pairs *)
       let rec create_list_of_aliased_vars lst cacc =
         match lst with
@@ -933,7 +901,7 @@ let resolve_entire_aliasing_of_var_list e_ae astate ~add_deref ~return_addressof
       (* if the list is empty try to find in heap_aliases *)
         match e_final_list with
         | [] -> (
-          let e_final_list_heap = replace_var_with_its_alias_list e_after_resolving_load_alias (PointsToSet.elements astate.points_to) astate.heap_aliases ~return_addressof_alias in
+          let e_final_list_heap = replace_var_with_its_alias_list e_after_resolving_load_alias (PointsToSet.elements astate.points_to) (HeapPointsToSet.elements astate.heap_points_to) ~return_addressof_alias in
           let new_heap_acc = create_list_of_aliased_vars e_final_list_heap acc in
           for_each_load_alias t new_heap_acc
         )
@@ -1160,7 +1128,7 @@ let add_access_with_heap_alias_when_malloc e1_ae e2_ae loc astate tmp_heap pname
       (* check if the var is equal to e2_ae *)
       if (HilExp.AccessExpression.equal var e2_ae) then
         begin
-          (* create (e1_ae, loc), add it to astate.heap_aliases, don't add (var, loc) to acc and continue with t *)
+          (* create (e1_ae, loc), add it to astate.heap_points_to, don't add (var, loc) to acc and continue with t *)
           let new_astate = add_heap_alias e1_ae loc updated_astate in
           update_astate_and_tmp_heap new_astate t updated_tmp_heap
         end
@@ -1177,11 +1145,11 @@ let add_access_with_heap_alias_when_malloc e1_ae e2_ae loc astate tmp_heap pname
 let get_list_of_heap_aliases_with_same_loc_as_var var (astate : t) =
   (* find var in aliases *)
   let var_base_ae = get_base_as_access_expression var in
-  let loc_opt = find_heap_alias_by_var var_base_ae astate.heap_aliases in
-  let rec get_list_of_vars_with_loc loc (heap_aliases : (HilExp.access_expression * Location.t) list) acc =
+  let loc_opt = find_heap_alias_by_var var_base_ae (HeapPointsToSet.elements astate.heap_points_to) in
+  let rec get_list_of_vars_with_loc loc heap_aliases acc =
     match heap_aliases with
     | [] -> acc
-    | (var_found, loc_found) :: t ->
+    | (var_found, loc_found, _) :: t ->
       (* check if loc equals loc_found *)
       if (Location.equal loc loc_found) then
         begin
@@ -1195,7 +1163,7 @@ let get_list_of_heap_aliases_with_same_loc_as_var var (astate : t) =
   (* check if heap alias with var exists and if yes, get list of all heap aliases with the same loc *)
   match loc_opt with
   | None -> [] (* heap alias doesn't exist *)
-  | Some loc -> get_list_of_vars_with_loc loc astate.heap_aliases []
+  | Some loc -> get_list_of_vars_with_loc loc (HeapPointsToSet.elements astate.heap_points_to) []
 
 (* function adds accesses to all aliased vars *)
 let add_accesses_to_astate_with_aliases_or_heap_aliases e1_ae e1_aliased_final access_type astate loc pname =
@@ -1706,12 +1674,9 @@ let join astate1 astate2 =
   let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in
   let points_to = PointsToSet.union astate1.points_to astate2.points_to in
   let load_aliases = LoadAliasesSet.union astate1.load_aliases astate2.load_aliases in
-(*  let load_aliases = list_union astate1.load_aliases astate2.load_aliases ~equal:load_alias_eq in*)
-(*  let load_aliases = astate1.load_aliases in*)
-  let heap_aliases = list_union astate1.heap_aliases astate2.heap_aliases ~equal:heap_alias_equal in
-(*  let heap_aliases = astate1.heap_aliases in*)
+  let heap_points_to = HeapPointsToSet.union astate1.heap_points_to astate2.heap_points_to in
   let locals = LocalsSet.union astate1.locals astate2.locals in
-  { threads_active; accesses; lockset; unlockset; points_to; load_aliases; heap_aliases; locals }
+  { threads_active; accesses; lockset; unlockset; points_to; load_aliases; heap_points_to; locals }
 
 (* widening function *)
 let widen ~prev ~next ~num_iters:_ =

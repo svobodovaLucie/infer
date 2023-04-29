@@ -1251,12 +1251,12 @@ let acquire_lock lockid astate loc =
   (* dealiasing *)
   match lockid with
   | HilExp.AccessExpression e_ae -> (
-    let lst = resolve_entire_aliasing_of_var_list e_ae astate ~add_deref:true ~return_addressof_alias:false in
+    let lst =  resolve_load_alias_list e_ae astate.load_aliases ~add_deref:true in
     let rec add_locks_to_lockset lst astate =
       match lst with
       | [] -> astate
-      | (_, e_aliased_final) :: t -> (
-        let lockid = HilExp.AccessExpression.to_access_path e_aliased_final in
+      | lock_ae :: t -> (
+        let lockid = HilExp.AccessExpression.to_access_path lock_ae in
         (* add the lock *)
         let lock : LockEvent.t = (lockid, loc) in
 (*        F.printf "adding lock: %a\n" LockEvent.pp lock;*)
@@ -1309,14 +1309,6 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
       (* create new load alias *)
       let new_load_alias = (id_ae, e_aliased_final, loc) in
       let load_aliases = LoadAliasesSet.add new_load_alias astate.load_aliases in
-      (* check if the load alias already exist *)
-(*      let load_alias_eq (a, b, _) (a', b', _) =*)
-(*        HilExp.AccessExpression.equal a a' && HilExp.AccessExpression.equal b b'*)
-(*      in*)
-(*      let load_aliases =*)
-(*        match List.mem updated_astate.load_aliases new_load_alias ~equal:load_alias_eq with*)
-(*        | false -> new_load_alias :: updated_astate.load_aliases*)
-(*        | true -> updated_astate.load_aliases*)
       (* add new load alias to load_aliases *)
       let astate = { updated_astate with load_aliases } in
       (* add all read access (if it is access to heap allocated variable with alias, there could be more accesses) *)

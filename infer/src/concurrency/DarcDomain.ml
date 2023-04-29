@@ -168,6 +168,7 @@ module AccessEvent = struct
     locked: Lockset.t;
     unlocked: Lockset.t;
     threads_active: ThreadSet.t;
+(*    threads_joined: ThreadSet.t;*)
     thread: ThreadEvent.t option;
   }
 
@@ -179,6 +180,7 @@ module AccessEvent = struct
     let locked_cmp = Lockset.compare a1.locked a2.locked in
     let unlocked_cmp = Lockset.compare a1.unlocked a2.unlocked in
     let threads_active_cmp = ThreadSet.compare a1.threads_active a2.threads_active in
+(*    let threads_joined_cmp = ThreadSet.compare a1.threads_joined a2.threads_joined in*)
     let thread_cmp =
       match (a1.thread, a2.thread) with
       | (None, None) -> 0
@@ -190,6 +192,7 @@ module AccessEvent = struct
     else if not (Int.equal access_type_cmp 0) then access_type_cmp
     else if not (Int.equal thread_cmp 0) then thread_cmp
     else if not (Int.equal threads_active_cmp 0) then threads_active_cmp
+(*    else if not (Int.equal threads_joined_cmp 0) then threads_joined_cmp*)
     else if not (Int.equal locked_cmp 0) then locked_cmp
     else if not (Int.equal unlocked_cmp 0) then unlocked_cmp
     else loc_cmp
@@ -233,7 +236,7 @@ module AccessEvent = struct
   let update_accesses_with_locks_and_threads threads_active lockset unlockset thread access =
     let locked = Lockset.diff (Lockset.union lockset access.locked) access.unlocked in
     let unlocked = Lockset.union (Lockset.diff unlockset access.locked) access.unlocked in
-    let threads_active = ThreadSet.union threads_active access.threads_active in
+(*    let threads_joined = ThreadSet.union threads_active access.threads_active in*)
     let thread =
       match access.thread with
       | None -> thread
@@ -641,7 +644,7 @@ let rec find_load_alias_by_var var load_aliases =
     else
       find_load_alias_by_var var t
 
-let resolve_load_alias_list exp load_aliases ~add_deref : HilExp.AccessExpression.t list =
+let resolve_load_alias_list exp e load_aliases ~add_deref : HilExp.AccessExpression.t list =
   let load_aliases = LoadAliasesSet.elements load_aliases in
   let exp_base_ae = get_base_as_access_expression exp in
   let rec get_list_of_final_vars lst final_list_acc =
@@ -661,32 +664,34 @@ let resolve_load_alias_list exp load_aliases ~add_deref : HilExp.AccessExpressio
     | [] -> [exp]
     | list -> get_list_of_final_vars list []
   )
-  | _ -> (
+  | HilExp.AccessExpression.FieldOffset _ -> (
     let load_alias_list = find_load_alias_list exp_base_ae load_aliases ~add_deref [] in
     match load_alias_list with
     | [] -> [exp_base_ae]
     | list -> get_list_of_final_vars list []
   )
+  | _ -> (
+    let load_alias_list = find_load_alias_list exp_base_ae load_aliases ~add_deref [] in
+    match load_alias_list with
+    | [] -> (
+      match e with
+      | Some Exp.Lvar _ | Some Exp.Lindex _ | None ->
+        (* program var -> access can be added *)
+        [exp_base_ae]
+      | Some Exp.Lfield (f_exp, _, _) -> (
+        match f_exp with
+        | Exp.Lvar _ | Exp.Lindex _ | Exp.Lfield _ -> [exp_base_ae] (* program var -> add *)
+        | _ -> [] (* tmp var -> do not add *)
+      )
+      | Some _ -> [] (* tmp var -> do not add *)
+    )
+    | list -> get_list_of_final_vars list []
+  )
 
 (* function deletes load_aliases  from astate *)
 let astate_with_clear_load_aliases astate loc_to_be_removed =
-  let load_aliases = LoadAliasesSet.filter (fun x -> LoadAlias.loc_leq_than_max x loc_to_be_removed) astate.load_aliases
-
-(*  let load_aliases = LoadAliasesSet.filter (LoadAlias.loc_greater_than_max loc_to_be_removed) astate.load_aliases*)
-  in
-(*  *)
-(*  let rec delete_load_alias_if_loc_lower lst acc =*)
-(*    match lst with*)
-(*    | [] -> acc*)
-(*    | ((_, _, (loc : Location.t)) as alias) :: t -> ( *)
-(*      if loc.line < loc_to_be_removed then*)
-(*        delete_load_alias_if_loc_lower t acc*)
-(*      else*)
-(*        delete_load_alias_if_loc_lower t (alias :: acc)*)
-(*    )*)
-(*  in*)
-(*  let load_aliases = delete_load_alias_if_loc_lower astate.load_aliases [] in*)
-  {astate with load_aliases}
+  let load_aliases = LoadAliasesSet.filter (fun x -> LoadAlias.loc_leq_than_max x loc_to_be_removed) astate.load_aliases in
+  { astate with load_aliases }
 
 (* functions that handle heap aliases *)
 (* function removes all heap aliases with the same loc (used when free() is called) *)
@@ -850,9 +855,9 @@ let replace_var_with_its_alias_list var aliases heap_aliases ~return_addressof_a
 
 
 
-let resolve_entire_aliasing_of_var_list e_ae astate ~add_deref ~return_addressof_alias =
+let resolve_entire_aliasing_of_var_list e_ae e astate ~add_deref ~return_addressof_alias =
   (* get list of load aliases, e.g. (n$1, i), (n$1, j) *)
-  let e_after_resolving_load_alias_list = resolve_load_alias_list e_ae astate.load_aliases ~add_deref in
+  let e_after_resolving_load_alias_list = resolve_load_alias_list e_ae e astate.load_aliases ~add_deref in
   (* for each load alias *)
   let rec for_each_load_alias lst acc =
     match lst with
@@ -1017,11 +1022,11 @@ let transform_sil_exprs_to_hil_list sil_expr_list add_deref = (* list of sil exp
   transform_sil_to_hil_actuals sil_expr_list []
 
 (* f_ae je load expression struktury *)
-let resolve_entire_aliasing_of_var_for_lfield_list e_ae astate ~add_deref ~return_addressof_alias =
+let resolve_entire_aliasing_of_var_for_lfield_list e_ae e astate ~add_deref ~return_addressof_alias =
     match e_ae with
     | HilExp.AccessExpression.FieldOffset (fieldoffset_ae, fieldname)-> (
       (* ziskat list aliasu toho fieldoffset_ae *)
-      let lst = resolve_entire_aliasing_of_var_list fieldoffset_ae astate ~add_deref  ~return_addressof_alias in (* lst je ve tvaru [(e_aliased, e_aliased_final)] *)
+      let lst = resolve_entire_aliasing_of_var_list fieldoffset_ae e astate ~add_deref ~return_addressof_alias in (* lst je ve tvaru [(e_aliased, e_aliased_final)] *)
       (* pro kazdy prvek z listu vytvorit ae s fieldname *)
       let rec for_each_create_fieldname fieldname lst acc =
         match lst with
@@ -1251,7 +1256,7 @@ let acquire_lock lockid astate loc =
   (* dealiasing *)
   match lockid with
   | HilExp.AccessExpression e_ae -> (
-    let lst =  resolve_load_alias_list e_ae astate.load_aliases ~add_deref:true in
+    let lst =  resolve_load_alias_list e_ae None astate.load_aliases ~add_deref:true in
     let rec add_locks_to_lockset lst astate =
       match lst with
       | [] -> astate
@@ -1279,7 +1284,7 @@ let release_lock lockid astate loc =
   | HilExp.AccessExpression e_ae -> (
     (* get program var from load alias *)
     (* locks: must-be-locked, points-to: may-point-to -> don't remove all lock aliases *)
-    let lst =  resolve_load_alias_list e_ae astate.load_aliases ~add_deref:true in
+    let lst =  resolve_load_alias_list e_ae None astate.load_aliases ~add_deref:true in
     let rec remove_locks_from_lockset lst astate =
       match lst with
       | [] -> astate
@@ -1319,13 +1324,13 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
   match e with
   | Exp.Var _ -> (
     (* e is Var (e.g. n$0) -> it should already be present in load_aliases -> resolve it *)
-    let lst = resolve_entire_aliasing_of_var_list e_ae astate ~add_deref:false ~return_addressof_alias:false in (* lst je ve tvaru [(e_aliased, e_aliased_final)] *)
+    let lst = resolve_entire_aliasing_of_var_list e_ae (Some e) astate ~add_deref:false ~return_addressof_alias:false in (* lst je ve tvaru [(e_aliased, e_aliased_final)] *)
     (* for each load alias *)
     add_load_alias_and_accesses lst astate
   )
   | Exp.Lfield _ -> (
     (* e is a field of a structure *)
-    let lst = resolve_entire_aliasing_of_var_for_lfield_list e_ae astate ~add_deref:true ~return_addressof_alias:false in
+    let lst = resolve_entire_aliasing_of_var_for_lfield_list e_ae (Some e) astate ~add_deref:true ~return_addressof_alias:false in
     add_load_alias_and_accesses lst astate
   )
   | Exp.Lvar _ | _ -> (
@@ -1348,7 +1353,7 @@ let store e1 typ e2 loc astate pname =
   let e1_hil = transform_sil_expr_to_hil e1 typ add_deref in
   match e1_hil with
   | HilExp.AccessExpression ((FieldOffset _) as e1_ae ) -> (
-    let lst = resolve_entire_aliasing_of_var_for_lfield_list e1_ae astate ~add_deref:true ~return_addressof_alias:false in
+    let lst = resolve_entire_aliasing_of_var_for_lfield_list e1_ae (Some e1) astate ~add_deref:true ~return_addressof_alias:false in
     let rec add_accesses_for_each_aliased_var lst updated_astate =
       match lst with
       | [] -> updated_astate
@@ -1361,7 +1366,7 @@ let store e1 typ e2 loc astate pname =
   )
   | AccessExpression e1_ae -> (
     (* add write_accesses TODO transform to _list function *)
-    let lst = resolve_entire_aliasing_of_var_list e1_ae astate ~add_deref:true ~return_addressof_alias:false in
+    let lst = resolve_entire_aliasing_of_var_list e1_ae (Some e1) astate ~add_deref:true ~return_addressof_alias:false in
     let rec for_each lst astate =
       match lst with
       | [] -> astate
@@ -1391,7 +1396,7 @@ let store e1 typ e2 loc astate pname =
                     match e2 with
                     | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> update_aliases e1_aliased_final e2_ae astate
                     | Exp.Var _ | _ ->  (
-                      let lst_e2 = resolve_entire_aliasing_of_var_list e2_ae astate ~add_deref:false ~return_addressof_alias:false in
+                      let lst_e2 = resolve_entire_aliasing_of_var_list e2_ae (Some e2) astate ~add_deref:false ~return_addressof_alias:false in
                       let rec foreach lst astate =
                         match lst with
                         | [] -> astate
@@ -1447,9 +1452,9 @@ let store e1 typ e2 loc astate pname =
           let list_of_actual_aliases =
             match actual with
             | HilExp.AccessExpression ((FieldOffset _) as actual_load) ->
-              resolve_entire_aliasing_of_var_for_lfield_list actual_load astate ~add_deref:false ~return_addressof_alias:creating_thread
+              resolve_entire_aliasing_of_var_for_lfield_list actual_load None astate ~add_deref:false ~return_addressof_alias:creating_thread
             | HilExp.AccessExpression actual_load ->
-              resolve_entire_aliasing_of_var_list actual_load astate ~add_deref:false ~return_addressof_alias:creating_thread
+              resolve_entire_aliasing_of_var_list actual_load None astate ~add_deref:false ~return_addressof_alias:creating_thread
             | _ -> []
           in
           (* if flag is true then remove all aliases from locals of astate *)

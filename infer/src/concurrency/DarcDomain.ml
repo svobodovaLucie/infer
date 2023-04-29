@@ -1272,12 +1272,14 @@ let release_lock lockid astate loc =
   (* dealiasing *)
   match lockid with
   | HilExp.AccessExpression e_ae -> (
-    let lst = resolve_entire_aliasing_of_var_list e_ae astate ~add_deref:true ~return_addressof_alias:false in
+    (* get program var from load alias *)
+    (* locks: must-be-locked, points-to: may-point-to -> don't remove all lock aliases *)
+    let lst =  resolve_load_alias_list e_ae astate.load_aliases ~add_deref:true in
     let rec remove_locks_from_lockset lst astate =
       match lst with
       | [] -> astate
-      | (_, e_aliased_final) :: t -> (
-        let lockid = HilExp.AccessExpression.to_access_path e_aliased_final in
+      | lock_ae :: t -> (
+        let lockid = HilExp.AccessExpression.to_access_path lock_ae in
         (* remove the lock *)
         let lock : LockEvent.t = (lockid, loc) in
 (*        F.printf "removing lock: %a\n" LockEvent.pp lock;*)

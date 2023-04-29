@@ -25,8 +25,8 @@ module ThreadEvent : sig
   type t
 end
 
-module Aliases : sig
-  (* type of Aliases *)
+module PointsTo : sig
+  (* type of PointsTo *)
   type t
 end
 

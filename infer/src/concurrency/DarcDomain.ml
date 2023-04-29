@@ -304,7 +304,7 @@ type t =
   accesses: AccessSet.t;
   lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
   unlockset: Lockset.t;
-  aliases: PointsToSet.t;
+  points_to: PointsToSet.t;
   load_aliases: (HilExp.AccessExpression.t * HilExp.AccessExpression.t * Location.t) list;
   heap_aliases: (HilExp.AccessExpression.t * Location.t) list;
 (*  locals: (Mangled.t * Typ.t) list; (* TODO maybe use HilExp.AccessExpression.t? *)*)
@@ -317,7 +317,7 @@ let empty =
   accesses = AccessSet.empty;
   lockset = Lockset.empty;
   unlockset = Lockset.empty;
-  aliases = PointsToSet.empty;
+  points_to = PointsToSet.empty;
   load_aliases = [];
   heap_aliases = [];
   locals = [];
@@ -329,7 +329,7 @@ let empty_with_locals locals =
   accesses = AccessSet.empty;
   lockset = Lockset.empty;
   unlockset = Lockset.empty;
-  aliases = PointsToSet.empty;
+  points_to = PointsToSet.empty;
   load_aliases = [];
   heap_aliases = [];
   locals;
@@ -390,7 +390,7 @@ let _print_astate_all astate loc caller_pname =
   F.printf "lockset=%a\n" Lockset.pp astate.lockset;
   F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
   F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
-  F.printf "aliases=%a\n" PointsToSet.pp astate.aliases;
+  F.printf "aliases=%a\n" PointsToSet.pp astate.points_to;
   F.printf "caller_pname=%a\n" Procname.pp caller_pname;
   F.printf "loc=%a\n" Location.pp loc;
   print_locals astate;
@@ -435,7 +435,7 @@ let print_astate astate  =
   F.printf "lockset=%a\n" Lockset.pp astate.lockset;
   F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
   F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
-  F.printf "aliases=%a\n" PointsToSet.pp astate.aliases;
+  F.printf "aliases=%a\n" PointsToSet.pp astate.points_to;
   F.printf "heap_aliases=";
   _print_heap_aliases_list astate;
   F.printf "load_aliases=";
@@ -467,7 +467,7 @@ let get_base_as_access_expression var =
   let var_base_ae = HilExp.AccessExpression.base var_base in
   var_base_ae
 
-(* function returns Some alias if var participates in any alias in astate.aliases, or None,
+(* function returns Some alias if var participates in any alias in astate.points_to, or None,
    if add_deref is true, the second var in alias is returned as dereference *)
 let rec find_alias var aliases ~add_deref =
 (*  F.printf "find_alias of var=%a: " HilExp.AccessExpression.pp var;*)
@@ -524,7 +524,7 @@ let remove_all_var_aliases_from_aliases var_option astate =
   match var_option with
   | None -> astate
   | Some var -> (
-    let aliases_list = PointsToSet.elements astate.aliases in
+    let aliases_list = PointsToSet.elements astate.points_to in
     let rec remove_var_alias var lst acc =
       match lst with
       | [] -> acc
@@ -538,10 +538,10 @@ let remove_all_var_aliases_from_aliases var_option astate =
     let aliases_removed_list = remove_var_alias var aliases_list [] in
     let aliases_removed = PointsToSet.of_list aliases_removed_list in
     let heap_aliases_removed = remove_var_alias var astate.heap_aliases [] in
-    {astate with aliases=aliases_removed; heap_aliases=heap_aliases_removed}
+    {astate with points_to=aliases_removed; heap_aliases=heap_aliases_removed}
   )
 
-(* function adds new alias to astate.aliases *)
+(* function adds new alias to astate.points_to *)
 let add_new_alias astate alias =
   match alias with
   | None -> astate
@@ -563,14 +563,14 @@ let add_new_alias astate alias =
           | Some address_of -> address_of
           | None -> fst
         in
-        let exists = PointsToSet.mem (snd, fst_address_of) astate.aliases in
+        let exists = PointsToSet.mem (snd, fst_address_of) astate.points_to in
         if exists then
           astate
         else
           begin
           (* add new alias *)
-          let new_aliases = PointsToSet.add alias astate.aliases in
-          { astate with aliases=new_aliases }
+          let new_aliases = PointsToSet.add alias astate.points_to in
+          { astate with points_to=new_aliases }
           end
       end
   )
@@ -802,7 +802,7 @@ let get_option_snd alias = (
 (* function updates aliases and heap aliases with (lhs = rhs) expression *)
 let update_aliases lhs rhs astate =
 (*  F.printf "update_aliases: lhs=%a, rhs=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp rhs;*)
-  let aliases = PointsToSet.elements astate.aliases in
+  let aliases = PointsToSet.elements astate.points_to in
   (* lhs *)
   (* find if there exists an alias for lhs variable and get the first var in the alias *)
   let lhs_alias = get_base_alias lhs aliases in
@@ -900,7 +900,7 @@ let resolve_entire_aliasing_of_var_list e_ae astate ~add_deref ~return_addressof
     | e_after_resolving_load_alias :: t -> (
 (*      F.printf "e_after_resolving_load_alias 1: %a\n" HilExp.AccessExpression.pp e_after_resolving_load_alias;*)
 (*      (* get list of all aliased variables *)*)
-      let e_final_list = replace_var_with_its_alias_list e_after_resolving_load_alias (PointsToSet.elements astate.aliases) astate.heap_aliases ~return_addressof_alias in
+      let e_final_list = replace_var_with_its_alias_list e_after_resolving_load_alias (PointsToSet.elements astate.points_to) astate.heap_aliases ~return_addressof_alias in
       (* create list of (e_after_resolving_load_alias, e_final) pairs *)
       let rec create_list_of_aliased_vars lst cacc =
         match lst with
@@ -910,7 +910,7 @@ let resolve_entire_aliasing_of_var_list e_ae astate ~add_deref ~return_addressof
       (* if the list is empty try to find in heap_aliases *)
         match e_final_list with
         | [] -> (
-          let e_final_list_heap = replace_var_with_its_alias_list e_after_resolving_load_alias (PointsToSet.elements astate.aliases) astate.heap_aliases ~return_addressof_alias in
+          let e_final_list_heap = replace_var_with_its_alias_list e_after_resolving_load_alias (PointsToSet.elements astate.points_to) astate.heap_aliases ~return_addressof_alias in
           let new_heap_acc = create_list_of_aliased_vars e_final_list_heap acc in
           for_each_load_alias t new_heap_acc
         )
@@ -1540,7 +1540,7 @@ let _join_without_accesses astate1 astate2 =
 (*  let accesses = astate1.accesses in*)
   let lockset = Lockset.inter astate1.lockset astate2.lockset in
   let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in
-(*  let aliases = astate1.aliases in*)
+(*  let aliases = astate1.points_to in*)
 (*  let load_aliases = astate1.load_aliases in*)
 (*  let heap_aliases = astate1.heap_aliases in (* TODO join heap aliases or not? *)*)
 (*  let locals = astate1.locals in*)
@@ -1703,14 +1703,14 @@ let join astate1 astate2 =
   let accesses = AccessSet.union astate1.accesses astate2.accesses in
   let lockset = Lockset.inter astate1.lockset astate2.lockset in
   let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in
-  let aliases = PointsToSet.union astate1.aliases astate2.aliases in
+  let points_to = PointsToSet.union astate1.points_to astate2.points_to in
   let load_aliases = list_union astate1.load_aliases astate2.load_aliases ~equal:load_alias_eq in
 (*  let load_aliases = astate1.load_aliases in*)
   let heap_aliases = list_union astate1.heap_aliases astate2.heap_aliases ~equal:heap_alias_equal in
 (*  let heap_aliases = astate1.heap_aliases in*)
   let locals = list_union astate1.locals astate2.locals ~equal:HilExp.AccessExpression.equal  in
 (*  let locals = astate1.locals in*)
-  { threads_active; accesses; lockset; unlockset; aliases; load_aliases; heap_aliases; locals }
+  { threads_active; accesses; lockset; unlockset; points_to; load_aliases; heap_aliases; locals }
 
 (* widening function *)
 let widen ~prev ~next ~num_iters:_ =
@@ -1723,7 +1723,7 @@ let pp : F.formatter -> t -> unit =
     F.fprintf fmt "\naccesses=%a" AccessSet.pp astate.accesses;
     F.fprintf fmt "\nlockset=%a" Lockset.pp astate.lockset;
     F.fprintf fmt "\nunlockset=%a" Lockset.pp astate.unlockset;
-    F.fprintf fmt "\naliases=%a" PointsToSet.pp astate.aliases;
+    F.fprintf fmt "\naliases=%a" PointsToSet.pp astate.points_to;
 
 (* type of summary *)
 type summary = t

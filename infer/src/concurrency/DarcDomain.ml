@@ -61,7 +61,7 @@ module ThreadEvent = struct
   (* pretty print function *)
   let pp fmt ((th, loc, created_in_loop) as thread) =
     match compare thread create_main_thread with
-    | 0 -> F.fprintf fmt "the main thread"
+    | 0 -> F.fprintf fmt "main thread"
     | _ ->
       match created_in_loop with
       | true -> F.fprintf fmt " %a created on %a in loop" HilExp.AccessExpression.pp th Location.pp_line loc
@@ -122,6 +122,9 @@ module HeapPointsTo = struct
   (* pretty print function *)
   let pp fmt (ae, loc, created_in_loop) =
     F.fprintf fmt "(%a, %a, %b)" HilExp.AccessExpression.pp ae Location.pp loc created_in_loop
+
+  let loc_greater_than_0 (_, (loc : Location.t), _) =
+    loc.line > 0
 end
 (* set of HeapPointsTo.t elements *)
 module HeapPointsToSet = AbstractDomain.FiniteSet(HeapPointsTo)
@@ -141,8 +144,10 @@ module LoadAlias = struct
       snd_compare
 
   (* function returns true id the line of the location in the load alias in lower than or equal to max *)
-  let loc_leq_than_max (_, _, (loc : Location.t)) max =
-    loc.line <= max
+  (* used when experimenting with for optimisation  *)
+  let loc_leq_than_max (_, _, (_loc : Location.t)) _max =
+    (* loc.line <= max *)
+    true
 
   (* pretty print function *)
   let pp fmt (f, s, loc) =
@@ -1468,13 +1473,31 @@ let store e1 typ e2 loc astate pname =
           (astate, new_accesses)
         end
 
+(* function removes all points-to relations containing a local variable *)
+let remove_locals_points_to points_to locals =
+  let points_to_list = PointsToSet.elements points_to in
+  let rec remove_var lst acc =
+    match lst with
+    | [] -> acc
+    | (var, var') :: t ->
+      if LocalsSet.mem var locals || LocalsSet.mem var' locals then
+        remove_var t (PointsToSet.remove (var, var') acc)
+      else
+        remove_var t acc
+  in
+  remove_var points_to_list points_to
+
+(* function removes all heap points-to relations containing a formal argument *)
+let remove_formals_heap_arguments heap_points_to =
+  HeapPointsToSet.filter HeapPointsTo.loc_greater_than_0 heap_points_to
+
 (* function joins two astates *)
 let integrate_summary_without_accesses astate callee_summary =
   let threads_active = ThreadSet.union astate.threads_active callee_summary.threads_active in
   let lockset = Lockset.diff (Lockset.union astate.lockset callee_summary.lockset) callee_summary.unlockset in
   let unlockset = Lockset.union (Lockset.diff astate.unlockset callee_summary.lockset) callee_summary.unlockset in
-  let points_to = PointsToSet.union astate.points_to callee_summary.points_to in
-  let heap_points_to = HeapPointsToSet.union astate.heap_points_to callee_summary.heap_points_to in
+  let points_to = PointsToSet.union astate.points_to (remove_locals_points_to callee_summary.points_to callee_summary.locals) in
+  let heap_points_to = HeapPointsToSet.union astate.heap_points_to (remove_formals_heap_arguments callee_summary.heap_points_to) in
   { astate with threads_active; lockset; unlockset; points_to; heap_points_to }
 
 (* function integrates summary of callee to the current astate when function call to pthread_create() occurs,

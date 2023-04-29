@@ -215,41 +215,44 @@ end
 
 
 (* function adds all locals to the locals list *)
-let add_locals_to_list locals lst_ref pname =
+let add_locals_to_list proc_attributes_list pname =
 (*  F.printf "locals...\n";*)
-  let rec loop : ProcAttributes.var_data list -> unit = function
-    | [] -> ()
-    | var :: tl ->
+  let locals_empty = Domain.LocalsSet.empty in
+  let rec add_local proc_attributes_list locals_set : Domain.LocalsSet.t =
+    match proc_attributes_list with
+    | [] -> locals_set
+    | (var : ProcAttributes.var_data) :: t ->
       (* add the variable to the locals list *)
-(*      F.printf "%a | \n" Mangled.pp (var.name);*)
       let pvar_mk = Pvar.mk var.name pname in
       let access_path_base = AccessPath.base_of_pvar pvar_mk var.typ in
       let ae = HilExp.AccessExpression.base access_path_base in
-(*      F.printf "ae: %a\n" HilExp.AccessExpression.pp ae;*)
-      lst_ref := ae :: !lst_ref;
-      loop tl
+      let locals_set_new = Domain.add_var_to_locals ae locals_set in
+      add_local t locals_set_new
   in
-  loop locals
+  add_local proc_attributes_list locals_empty
 
 (* function adds non-pointer formals to the locals list *)
-let add_nonpointer_formals_to_list formals lst_ref pname =
+let add_nonpointer_formals_to_list formals locals_set pname =
   (* TODO predelat na access_expressions!!! *)
 (*  F.printf "formals...\n";*)
-  let rec loop : (Mangled.t * Typ.t) list -> unit = function
-    | [] -> ()
+  let rec loop lst locals =
+    match lst with
+    | [] -> locals
     | var :: tl ->
       (* create access expression from var *)
       let var_pvar = Pvar.mk (fst var) pname in
       let var_base = AccessPath.base_of_pvar var_pvar (snd var) in
       let var_base_ae = HilExp.AccessExpression.base var_base in
       (* if typ is not a pointer, add the variable to locals list *)
-      if not (Typ.is_pointer (snd var)) then
-        lst_ref := var_base_ae :: !lst_ref;
-
-(*      F.printf "%a | \n" Mangled.pp (fst var);*)
-      loop tl
+      let locals_set_new =
+        if not (Typ.is_pointer (snd var)) then
+          Domain.add_var_to_locals var_base_ae locals
+        else
+          locals
+      in
+      loop tl locals_set_new
   in
-  loop formals
+  loop formals locals_set
 
 let add_formal_to_heap_aliases formal heap_aliases pname line_num =
   (* (Mangled.t * Typ.t) -> HilExp.AccessExpression.t formal *)
@@ -308,18 +311,17 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc
   F.printf "\n\n<<<<<<<<<<<<<<<<<<<< Darc: function %s START >>>>>>>>>>>>>>>>>>>>>>>>\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc));
 
   (* create a list of locals and add all the locals and non-pointer formals to the list *)
-  let locals = ref [] in
   let proc_desc_locals = Procdesc.get_locals proc_desc in   (* locals declared in the function *)
-  add_locals_to_list proc_desc_locals locals pname;
+  let locals_set = add_locals_to_list proc_desc_locals pname in
   let formals = Procdesc.get_formals proc_desc in (* formals of the function *)
-  add_nonpointer_formals_to_list formals locals pname;
+  let locals_set = add_nonpointer_formals_to_list formals locals_set pname in
 
   (* If the analysed function is main -> we need to do few changes -> add main thread to threads... *)
   let init_astate : DarcDomain.t =
     if (phys_equal (String.compare (Procname.to_string (Procdesc.get_proc_name proc_desc)) "main") 0) then
-      DarcDomain.initial_main !locals
+      DarcDomain.initial_main locals_set
     else
-      DarcDomain.empty_with_locals !locals
+      DarcDomain.empty_with_locals locals_set
     in
     (* add formals to heap_aliases *)
     let init_astate = add_formals_to_heap_aliases init_astate formals pname in

@@ -298,6 +298,22 @@ end
 
 module AccessSet = AbstractDomain.FiniteSet(AccessEvent)
 
+module Locals = struct
+  type t = HilExp.AccessExpression.t
+
+  let pp fmt t1 =
+    F.fprintf fmt "%a" HilExp.AccessExpression.pp t1
+
+  let compare t1 t2 =
+    HilExp.AccessExpression.compare t1 t2
+
+end
+
+module LocalsSet = AbstractDomain.FiniteSet(Locals)
+
+let add_var_to_locals var locals_set =
+  LocalsSet.add var locals_set
+
 type t =
 {
   threads_active: ThreadSet.t;
@@ -308,7 +324,8 @@ type t =
   load_aliases: (HilExp.AccessExpression.t * HilExp.AccessExpression.t * Location.t) list;
   heap_aliases: (HilExp.AccessExpression.t * Location.t) list;
 (*  locals: (Mangled.t * Typ.t) list; (* TODO maybe use HilExp.AccessExpression.t? *)*)
-  locals: HilExp.AccessExpression.t list;
+(*  locals: HilExp.AccessExpression.t list;*)
+  locals : LocalsSet.t;
 }
 
 let empty =
@@ -320,7 +337,7 @@ let empty =
   points_to = PointsToSet.empty;
   load_aliases = [];
   heap_aliases = [];
-  locals = [];
+  locals = LocalsSet.empty;
 }
 
 let empty_with_locals locals =
@@ -373,17 +390,6 @@ let _print_alias_opt alias =
   | None -> F.printf "None\n"
   | Some (fst, snd) -> F.printf "(%a, %a)\n" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd
 
-let print_locals astate =
-  F.printf "locals: {";
-  let rec print_vars = function
-    | [] -> F.printf "}\n"
-    | hd :: tl -> F.printf "%a, " HilExp.AccessExpression.pp hd; print_vars tl
-(*    | hd :: tl ->*)
-(*      let typ_string = Typ.to_string (snd hd) in*)
-(*      F.printf "|(%a, %s)|" Mangled.pp (fst hd) typ_string; print_vars tl*)
-  in
-  print_vars astate.locals
-
 let _print_astate_all astate loc caller_pname =
   F.printf "========= printing astate... ==========\n";
   F.printf "access=%a\n" AccessSet.pp astate.accesses;
@@ -393,7 +399,7 @@ let _print_astate_all astate loc caller_pname =
   F.printf "aliases=%a\n" PointsToSet.pp astate.points_to;
   F.printf "caller_pname=%a\n" Procname.pp caller_pname;
   F.printf "loc=%a\n" Location.pp loc;
-  print_locals astate;
+  F.printf "locals=%a\n" LocalsSet.pp astate.locals;
   F.printf "=======================================\n"
 
 let _print_formals formals =
@@ -1078,36 +1084,12 @@ let resolve_entire_aliasing_of_var_for_lfield_list e_ae astate ~add_deref ~retur
     )
     | _ -> []
 
-(* function returns Some var if var is present in locals, or else returns None *)
-let find_var_in_list var locals =
-  let rec find_in_list lst =
-    match lst with
-    | [] -> None
-    | h :: t ->
-      if (HilExp.AccessExpression.equal var h) then Some h else find_in_list t
-  in find_in_list locals
-
-(* function returns list of locals without var *)
+(* function removes var from locals *)
 let remove_var_from_locals var_to_be_removed locals =
   (* get base as access expression of var_to_be_removed *)
   let var_to_be_removed_base = HilExp.AccessExpression.get_base var_to_be_removed in
   let var_to_be_removed = HilExp.AccessExpression.base var_to_be_removed_base in
-  (* check if the var is in locals *)
-  let is_in_locals = List.mem locals var_to_be_removed ~equal:HilExp.AccessExpression.equal in
-  (* remove var from locals *)
-  let rec remove_from_locals var_to_be_removed locals acc =
-    match locals with
-    | [] -> acc
-    | h :: t ->
-      if (HilExp.AccessExpression.equal h var_to_be_removed) then
-        acc @ t
-      else
-        remove_from_locals var_to_be_removed t (h :: acc)
-  in
-  (* if var is in locals, remove it *)
-  match is_in_locals with
-  | false -> locals
-  | true -> remove_from_locals var_to_be_removed locals []
+  LocalsSet.remove var_to_be_removed locals
 
 let rec remove_vars_from_locals list_of_vars_to_be_removed locals =
   match list_of_vars_to_be_removed with
@@ -1144,10 +1126,11 @@ let add_access_to_astate_with_check var access_type astate loc pname =
   else
     begin
       let var_base_ae = get_base_as_access_expression var in
-      let is_local = find_var_in_list var_base_ae astate.locals in
+(*      let is_local = find_var_in_list var_base_ae astate.locals in*)
+      let is_local = LocalsSet.mem var_base_ae astate.locals in
       match is_local with
-      | Some _ -> astate (* local won't be added to accesses *)
-      | None -> add_access_to_astate var access_type astate loc pname
+      | true -> astate (* local won't be added to accesses *)
+      | false -> add_access_to_astate var access_type astate loc pname
     end
 
 (* function adds new access to astate and updates the list of tmp_heap,
@@ -1489,12 +1472,12 @@ let store e1 typ e2 loc astate pname =
       | [] -> accesses_acc
       | (_, actual_alias_ae) :: t_aliases -> (
         let actual_alias_base_ae = get_base_as_access_expression actual_alias_ae in
-        (* check if local *)
-        let is_local = find_var_in_list actual_alias_base_ae astate.locals in
+        (* check if the variable is local *)
+        let is_local = LocalsSet.mem actual_alias_base_ae astate.locals in
         let new_accesses_list =
           match is_local with
-          | Some _ -> [] (* local will not be added to accesses *)
-          | None -> (* replace all accesses to formal with actual *)
+          | true -> [] (* local will not be added to accesses *)
+          | false -> (* replace all accesses to formal with actual *)
             AccessSet.elements (AccessSet.map (AccessEvent.edit_access_with_actuals formal_access_expression (HilExp.AccessExpression actual_alias_ae)) list_of_accesses_to_formal)
         in
         let accesses_updated_with_new_accesses = new_accesses_list @ accesses_acc in
@@ -1708,8 +1691,7 @@ let join astate1 astate2 =
 (*  let load_aliases = astate1.load_aliases in*)
   let heap_aliases = list_union astate1.heap_aliases astate2.heap_aliases ~equal:heap_alias_equal in
 (*  let heap_aliases = astate1.heap_aliases in*)
-  let locals = list_union astate1.locals astate2.locals ~equal:HilExp.AccessExpression.equal  in
-(*  let locals = astate1.locals in*)
+  let locals = LocalsSet.union astate1.locals astate2.locals in
   { threads_active; accesses; lockset; unlockset; points_to; load_aliases; heap_aliases; locals }
 
 (* widening function *)

@@ -30,6 +30,16 @@ module PointsTo : sig
   type t
 end
 
+module Locals : sig
+  type t
+end
+
+module LocalsSet : sig
+  type t
+
+  val empty : t
+end
+
 module AccessEvent : sig
   (* type of AccessEvent *)
   type t
@@ -46,10 +56,10 @@ val update_aliases : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> t
 val empty : t
 
 (*val empty_with_locals : (Mangled.t * Typ.t) list -> t*)
-val empty_with_locals : HilExp.AccessExpression.t list -> t
+val empty_with_locals : LocalsSet.t -> t
 
 (*val initial_main : (Mangled.t * Typ.t) list -> t*)
-val initial_main : HilExp.AccessExpression.t list -> t
+val initial_main : LocalsSet.t -> t
 
 val acquire_lock : HilExp.t -> t -> Location.t -> t
 
@@ -84,3 +94,5 @@ val compute_data_races : summary -> (AccessEvent.t * AccessEvent.t) list
 val astate_with_clear_load_aliases : t -> int -> t
 
 val add_heap_aliases_to_astate : t -> (HilExp.AccessExpression.t * Location.t) list -> t
+
+val add_var_to_locals : HilExp.AccessExpression.t -> LocalsSet.t -> LocalsSet.t

@@ -58,14 +58,28 @@ module ThreadEvent = struct
     let thread_ae = HilExp.AccessExpression.base acc_path_from_pvar in
     (thread_ae, Location.dummy, false)
 
+  let _not_equals_var (th, _, _) var =
+    not (HilExp.AccessExpression.equal th var)
+
   (* pretty print function *)
-  let pp fmt ((th, loc, created_in_loop) as thread) =
+  let pp fmt ((th, (loc : Location.t), created_in_loop) as thread) =
+    let loc_str =
+      match Location.equal loc Location.dummy with
+      | true -> ""
+      | false -> " created on " ^ (string_of_int (loc.line))
+    in
+    let in_loop_str =
+      match created_in_loop with
+      | true -> " in loop"
+      | false -> ""
+    in
     match compare thread create_main_thread with
     | 0 -> F.fprintf fmt "main thread"
-    | _ ->
-      match created_in_loop with
-      | true -> F.fprintf fmt " %a created on %a in loop" HilExp.AccessExpression.pp th Location.pp_line loc
-      | false -> F.fprintf fmt "%a created on %a" HilExp.AccessExpression.pp th Location.pp_line loc
+    | _ -> F.fprintf fmt "%a%s%s" HilExp.AccessExpression.pp th loc_str in_loop_str
+
+  let var_and_flag_equal (th, _, (th_flag : bool)) var (flag : bool) =
+    HilExp.AccessExpression.equal th var && phys_equal th_flag flag
+
 end
 (* set of ThreadEvent.t elements *)
 module ThreadSet = AbstractDomain.FiniteSet(ThreadEvent)
@@ -157,6 +171,41 @@ end
 (* set of LoadAlias.t elements *)
 module LoadAliasesSet = AbstractDomain.FiniteSet(LoadAlias)
 
+(* function replaces location in threads from callee_summary that were not known before and therefore have dummy location *)
+let replace_unknown_threads_with_actuals astate_threads_active astate_threads_joined callee_summary_threads_active callee_summary_threads_joined =
+  let callee_threads_joined = ThreadSet.elements callee_summary_threads_joined in
+  let rec find_and_replace lst acc =
+    match lst with
+    | [] -> acc
+    | ((th, loc, flag) as thread):: t -> (
+      if Location.equal loc Location.dummy then
+        let thread_updated =
+          let thread_from_astate = ThreadSet.find_first_opt (fun elt -> ThreadEvent.var_and_flag_equal elt th flag) astate_threads_active in
+          match thread_from_astate with
+          | Some thread_noopt -> thread_noopt
+          | None -> (
+            (* try to find in threads_joined *)
+            let thread_from_astate_joined = ThreadSet.find_first_opt (fun elt -> ThreadEvent.var_and_flag_equal elt th flag) astate_threads_joined in
+            match thread_from_astate_joined with
+            | Some thread_joined_noopt -> thread_joined_noopt
+            | None -> (
+              let thread_from_callee_active = ThreadSet.find_first_opt (fun elt -> ThreadEvent.var_and_flag_equal elt th flag) callee_summary_threads_active in
+              match thread_from_callee_active with
+              | Some thread_act_noopt -> thread_act_noopt
+              | None -> thread
+            )
+          )
+        in
+        find_and_replace t (thread_updated :: acc)
+      else
+        find_and_replace t (thread :: acc)
+    )
+  in
+  let f = find_and_replace callee_threads_joined [] in
+  let callee_threads_joined_updated = ThreadSet.of_list f in
+(*  F.printf "callee_threads_joined_updated: %a\n" ThreadSet.pp callee_threads_joined_updated;*)
+  callee_threads_joined_updated
+
 (* module used for dealing with accesses *)
 module AccessEvent = struct
   (* type of AccessEvent *)
@@ -168,7 +217,7 @@ module AccessEvent = struct
     locked: Lockset.t;
     unlocked: Lockset.t;
     threads_active: ThreadSet.t;
-(*    threads_joined: ThreadSet.t;*)
+    threads_joined: ThreadSet.t;
     thread: ThreadEvent.t option;
   }
 
@@ -180,7 +229,7 @@ module AccessEvent = struct
     let locked_cmp = Lockset.compare a1.locked a2.locked in
     let unlocked_cmp = Lockset.compare a1.unlocked a2.unlocked in
     let threads_active_cmp = ThreadSet.compare a1.threads_active a2.threads_active in
-(*    let threads_joined_cmp = ThreadSet.compare a1.threads_joined a2.threads_joined in*)
+    let threads_joined_cmp = ThreadSet.compare a1.threads_joined a2.threads_joined in
     let thread_cmp =
       match (a1.thread, a2.thread) with
       | (None, None) -> 0
@@ -192,7 +241,7 @@ module AccessEvent = struct
     else if not (Int.equal access_type_cmp 0) then access_type_cmp
     else if not (Int.equal thread_cmp 0) then thread_cmp
     else if not (Int.equal threads_active_cmp 0) then threads_active_cmp
-(*    else if not (Int.equal threads_joined_cmp 0) then threads_joined_cmp*)
+    else if not (Int.equal threads_joined_cmp 0) then threads_joined_cmp
     else if not (Int.equal locked_cmp 0) then locked_cmp
     else if not (Int.equal unlocked_cmp 0) then unlocked_cmp
     else loc_cmp
@@ -205,7 +254,7 @@ module AccessEvent = struct
       | Some t -> F.fprintf fmt "thread %a\n" ThreadEvent.pp t;
       | None -> F.fprintf fmt "None thread\n";
     in
-    F.fprintf fmt "threads: %a, \nlocks: %a}\n" ThreadSet.pp t1.threads_active Lockset.pp t1.locked
+    F.fprintf fmt "threads: %a, \nthreads joined: %a\nlocks: %a\n}\n" ThreadSet.pp t1.threads_active ThreadSet.pp t1.threads_joined Lockset.pp t1.locked
 
   (* pretty print function - shorter version used for reporting *)
   let pp_report_short fmt t1 =
@@ -233,16 +282,18 @@ module AccessEvent = struct
 
   (* function returns access with updated locks and threads,
      and access with None thread updates with the thread in arguments *)
-  let update_accesses_with_locks_and_threads threads_active lockset unlockset thread access =
+  let update_accesses_with_locks_and_threads threads_active threads_joined lockset unlockset thread callee_threads_active callee_threads_joined access =
     let locked = Lockset.diff (Lockset.union lockset access.locked) access.unlocked in
     let unlocked = Lockset.union (Lockset.diff unlockset access.locked) access.unlocked in
-(*    let threads_joined = ThreadSet.union threads_active access.threads_active in*)
+    let renamed_access_threads = replace_unknown_threads_with_actuals threads_active threads_joined callee_threads_active callee_threads_joined in
+    let threads_active = ThreadSet.diff (ThreadSet.union threads_active access.threads_active) renamed_access_threads in
+    let threads_joined = ThreadSet.union (ThreadSet.diff threads_joined access.threads_active) renamed_access_threads in
     let thread =
       match access.thread with
       | None -> thread
       | Some th -> Some th
     in
-    { var=access.var; loc=access.loc; access_type=access.access_type; locked; unlocked; threads_active; thread }
+    { var=access.var; loc=access.loc; access_type=access.access_type; locked; unlocked; threads_active; threads_joined; thread }
 
   (* function replaces the base in var with actual,
      it must to be recursive to keep the same "format" as the original var was (e.g. **x, *x, &x) *)
@@ -344,6 +395,7 @@ let add_var_to_locals var locals_set =
 type t =
 {
   threads_active: ThreadSet.t;
+  threads_joined: ThreadSet.t;
   accesses: AccessSet.t;
   lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
   unlockset: Lockset.t;
@@ -356,6 +408,7 @@ type t =
 let empty =
 {
   threads_active = ThreadSet.empty;
+  threads_joined = ThreadSet.empty;
   accesses = AccessSet.empty;
   lockset = Lockset.empty;
   unlockset = Lockset.empty;
@@ -368,6 +421,7 @@ let empty =
 let empty_with_locals locals =
 {
   threads_active = ThreadSet.empty;
+  threads_joined = ThreadSet.empty;
   accesses = AccessSet.empty;
   lockset = Lockset.empty;
   unlockset = Lockset.empty;
@@ -398,6 +452,7 @@ let _print_astate_all astate loc caller_pname =
   F.printf "lockset=%a\n" Lockset.pp astate.lockset;
   F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
   F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
+  F.printf "threads_joined=%a\n" ThreadSet.pp astate.threads_joined;
   F.printf "aliases=%a\n" PointsToSet.pp astate.points_to;
   F.printf "caller_pname=%a\n" Procname.pp caller_pname;
   F.printf "loc=%a\n" Location.pp loc;
@@ -443,6 +498,7 @@ let print_astate astate  =
   F.printf "lockset=%a\n" Lockset.pp astate.lockset;
   F.printf "unlockset=%a\n" Lockset.pp astate.unlockset;
   F.printf "threads_active=%a\n" ThreadSet.pp astate.threads_active;
+  F.printf "threads_joined=%a\n" ThreadSet.pp astate.threads_joined;
   F.printf "points_to=%a\n" PointsToSet.pp astate.points_to;
   F.printf "heap_points_to=%a\n" HeapPointsToSet.pp astate.heap_points_to;
   F.printf "load_aliases=%a\n" LoadAliasesSet.pp astate.load_aliases
@@ -895,12 +951,20 @@ let create_thread_from_load_ae_with_false_flag load loc astate : ThreadEvent.t =
   match thread_load_alias with
   | None -> (
     (* create thread name from load alias base *)
-    let load_base = HilExp.AccessExpression.base (HilExp.AccessExpression.get_base load) in
+    let load_base =
+      match load with
+      | HilExp.AccessExpression.AddressOf b -> b
+      | _ -> load
+    in
     (load_base, loc, false)
   )
   | Some (_, final_thread) -> (
     (* create thread *)
-    let final_thread = HilExp.AccessExpression.base (HilExp.AccessExpression.get_base final_thread) in
+    let final_thread =
+      match final_thread with
+      | HilExp.AccessExpression.AddressOf th -> th
+      | _ -> final_thread
+    in
     (final_thread, loc, false)
   )
 
@@ -923,14 +987,40 @@ let new_thread th_load_ae loc astate =
   F.printf "new_thread=%a\n" ThreadEvent.pp res;
   res
 
+let remove_thread_from_threads_joined thread_id threads_joined =
+  let thread_with_true_flag_found = ThreadSet.find_opt (thread_id, Location.dummy, true) threads_joined in
+  (* first try to find thread with true flag *)
+  match thread_with_true_flag_found with
+  | Some th_true -> (
+    (* thread with true flag is in threads_joined -> remove it *)
+    ThreadSet.remove th_true threads_joined
+  )
+  | None -> (
+    (* thread with true flag is not in threads_joined -> try to find thread with false flag *)
+    let thread_with_false_flag_found = ThreadSet.find_opt (thread_id, Location.dummy, false) threads_joined in
+    match thread_with_false_flag_found with
+    | Some th_false -> (
+      (* thread is found -> remove it *)
+      ThreadSet.remove th_false threads_joined
+    )
+    | None -> (
+      (* not found -> return the original threads_joined *)
+      threads_joined
+    )
+  )
+
 (* function add thread to astate.threads_active,
    if there already is the thread with false created_in_loop flag, adds it with true flag *)
 let add_thread thread astate =
   (* find thread in threads_active *)
   let found_with_false_flag = ThreadSet.mem thread astate.threads_active in
-  let threads_active =
     match found_with_false_flag with
-    | false -> ThreadSet.add thread astate.threads_active
+    | false -> (
+      let threads_active = ThreadSet.add thread astate.threads_active in
+      let (thread_name, _, _) = thread in
+      let threads_joined = remove_thread_from_threads_joined thread_name astate.threads_joined in
+      {astate with threads_active; threads_joined }
+    )
     | true -> (
       (* if found then find the same thread with true *)
       let (th, loc, _) = thread in
@@ -938,11 +1028,15 @@ let add_thread thread astate =
       let found_with_true_flag = ThreadSet.mem thread_with_true astate.threads_active in
       (* add the thread if it is not already present in astate.threads_active *)
       match found_with_true_flag with
-      | false -> ThreadSet.add thread_with_true astate.threads_active
-      | true -> astate.threads_active
+      | false -> (
+        let threads_active = ThreadSet.add thread_with_true astate.threads_active in
+        { astate with threads_active }
+      )
+      | true -> (
+        let threads_active = astate.threads_active in
+        { astate with threads_active }
+      )
     )
-  in
-  { astate with threads_active }
 
 (* function finds thread in threads set by its name and created_in_loop flag
    and returns None if not found or Some thread if found *)
@@ -965,21 +1059,31 @@ let threads_list = ThreadSet.elements threads in
 (* function tries to find thread with flag created_in_loop set to true in astate.threads_active,
    if found then removes it, if not found, tries to find the thread with false flag and removes it *)
 let remove_thread load_ae astate =
-F.printf "remove_thread\n";
   (* find thread by its name in threads *)
   let thread_load_alias = find_load_alias_by_var load_ae (LoadAliasesSet.elements astate.load_aliases) in
   match thread_load_alias with
-  | None -> astate (* not found *)
+  | None -> (
+    (* not found -> add to threads_joined and return *)
+    let new_thread = (load_ae, Location.dummy, false) in
+    let threads_joined = ThreadSet.add new_thread astate.threads_joined in
+    { astate with threads_joined }
+  )
   | Some (_, thread_ae) -> (
     (* find the thread in threads_active - first find with true flag *)
-    let thread_ae = HilExp.AccessExpression.base (HilExp.AccessExpression.get_base thread_ae) in
+    let thread_ae =
+      match thread_ae with
+      | HilExp.AccessExpression.AddressOf th -> th
+      | _ -> thread_ae
+    in
+(*    let thread_ae = HilExp.AccessExpression.base (HilExp.AccessExpression.get_base thread_ae) in*)
     let thread_with_true_flag = find_thread_in_threads_active thread_ae astate.threads_active ~created_in_loop_flag:true in
     (* if found then remove *)
     match thread_with_true_flag with
     | Some th -> (
       (* remove the thread *)
+      let threads_joined = ThreadSet.add th astate.threads_joined in
       let threads_active = ThreadSet.remove th astate.threads_active in
-      { astate with threads_active }
+      { astate with threads_active; threads_joined }
     )
     | None -> (
       (* else find the thread with false flag *)
@@ -987,9 +1091,14 @@ F.printf "remove_thread\n";
       match thread with
       | Some th ->
         (* remove the thread *)
+        let threads_joined = ThreadSet.add th astate.threads_joined in
         let threads_active = ThreadSet.remove th astate.threads_active in
-        { astate with threads_active }
-      | None -> astate
+        { astate with threads_active; threads_joined }
+      | None -> (
+        let th = (thread_ae, Location.dummy, false) in
+        let threads_joined = ThreadSet.add th astate.threads_joined in
+        { astate with threads_joined }
+      )
     )
   )
 
@@ -1065,6 +1174,7 @@ let add_access_to_astate var access_type astate loc pname =
     let locked = astate.lockset in
     let unlocked = astate.unlockset in
     let threads_active = astate.threads_active in
+    let threads_joined = astate.threads_joined in
     let thread =
       (* TODO check equality to the entry point (not only main) *)
       if (Int.equal (String.compare (Procname.to_string pname) "main") 0) then
@@ -1072,7 +1182,7 @@ let add_access_to_astate var access_type astate loc pname =
       else
         None
     in
-    { var; loc; access_type; locked; unlocked; threads_active; thread }
+    { var; loc; access_type; locked; unlocked; threads_active; threads_joined; thread }
   in
   let accesses = AccessSet.add new_access astate.accesses in
   { astate with accesses }
@@ -1490,19 +1600,23 @@ let remove_formals_heap_arguments heap_points_to =
 
 (* function joins two astates *)
 let integrate_summary_without_accesses astate callee_summary =
-  let threads_active = ThreadSet.union astate.threads_active callee_summary.threads_active in
+  let renamed_callee_summary_threads = replace_unknown_threads_with_actuals astate.threads_active astate.threads_joined callee_summary.threads_active callee_summary.threads_joined in
+  let threads_active = ThreadSet.diff (ThreadSet.union astate.threads_active callee_summary.threads_active) renamed_callee_summary_threads in
+  let threads_joined = ThreadSet.union (ThreadSet.diff astate.threads_joined callee_summary.threads_active) renamed_callee_summary_threads in
   let lockset = Lockset.diff (Lockset.union astate.lockset callee_summary.lockset) callee_summary.unlockset in
   let unlockset = Lockset.union (Lockset.diff astate.unlockset callee_summary.lockset) callee_summary.unlockset in
   let points_to = PointsToSet.union astate.points_to (remove_locals_points_to callee_summary.points_to callee_summary.locals) in
   let heap_points_to = HeapPointsToSet.union astate.heap_points_to (remove_formals_heap_arguments callee_summary.heap_points_to) in
-  { astate with threads_active; lockset; unlockset; points_to; heap_points_to }
+  { astate with threads_active; threads_joined; lockset; unlockset; points_to; heap_points_to }
 
 (* function integrates summary of callee to the current astate when function call to pthread_create() occurs,
    it replaces all accesses to formal in callee_summary to accesses to actual *)
 let integrate_pthread_summary astate thread callee_pname loc callee_summary callee_formals actuals _sil_actual_argument _caller_pname =
   F.printf "integrate_pthread_summary: callee_pname=%a on %a\n" Procname.pp callee_pname Location.pp loc;
   (* edit information about each access - thread, threads_active, lockset, unlockset *)
-  let edited_accesses_from_callee = AccessSet.map (AccessEvent.update_accesses_with_locks_and_threads astate.threads_active astate.lockset astate.unlockset (Some thread)) callee_summary.accesses in
+  let edited_accesses_from_callee = AccessSet.map (AccessEvent.update_accesses_with_locks_and_threads
+            astate.threads_active astate.threads_joined astate.lockset astate.unlockset (Some thread)
+            callee_summary.threads_active callee_summary.threads_joined) callee_summary.accesses in
   (* replace actuals with formals *)
   let callee_formal = (* callee formal is the same every time: pthread_create(void *arg) *)
     match callee_formals with
@@ -1527,11 +1641,7 @@ let integrate_pthread_summary astate thread callee_pname loc callee_summary call
     (* return updated astate *)
     { astate with accesses=accesses_joined }
   in
-  F.printf "astate after pthread_summary:\n";
-  print_astate astate;
-  (* TODO I am not joining the abstract state -> locks and threads!!! *)
   integrate_summary_without_accesses astate callee_summary
-(*astate*)
 
 (* function integrates summary of callee to the current astate when function call occurs,
    it replaces all accesses to formals in callee_summary to accesses to actual *)
@@ -1545,7 +1655,9 @@ let integrate_summary astate callee_pname _loc callee_summary callee_formals act
       None
   in
   (* update accesses in callee_summary with the current lockset, unlockset, threads_active and thread *)
-  let edited_accesses_from_callee = AccessSet.map (AccessEvent.update_accesses_with_locks_and_threads astate.threads_active astate.lockset astate.unlockset current_thread) callee_summary.accesses in
+  let edited_accesses_from_callee = AccessSet.map (AccessEvent.update_accesses_with_locks_and_threads
+           astate.threads_active astate.threads_joined astate.lockset astate.unlockset current_thread
+           callee_summary.threads_active callee_summary.threads_joined) callee_summary.accesses in
   (* function replaces formal parameters in accesses with actual parameters *)
   let replace_formals_with_actuals formals actuals accesses =
     let cnt = ref 0 in
@@ -1649,8 +1761,8 @@ let leq ~lhs ~rhs = (<=) ~lhs ~rhs
   1. not renaming heap allocated variables when joining two astates
 *)
 let join astate1 astate2 =
-(*  F.printf "join\n";*)
   let threads_active = ThreadSet.union astate1.threads_active astate2.threads_active in
+  let threads_joined = ThreadSet.inter astate1.threads_joined astate2.threads_joined in
   let accesses = AccessSet.union astate1.accesses astate2.accesses in
   let lockset = Lockset.inter astate1.lockset astate2.lockset in
   let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in
@@ -1658,7 +1770,7 @@ let join astate1 astate2 =
   let load_aliases = LoadAliasesSet.union astate1.load_aliases astate2.load_aliases in
   let heap_points_to = HeapPointsToSet.union astate1.heap_points_to astate2.heap_points_to in
   let locals = LocalsSet.union astate1.locals astate2.locals in
-  { threads_active; accesses; lockset; unlockset; points_to; load_aliases; heap_points_to; locals }
+  { threads_active; threads_joined; accesses; lockset; unlockset; points_to; load_aliases; heap_points_to; locals }
 
 (* widening function *)
 let widen ~prev ~next ~num_iters:_ =

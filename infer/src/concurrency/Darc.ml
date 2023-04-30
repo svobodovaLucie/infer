@@ -117,15 +117,11 @@ let handle_store_after_malloc e1 typ e2 loc astate (extras : extras_t ref) pname
     | Some HilExp.AccessExpression th_ae -> Domain.remove_thread th_ae astate
     | _ -> astate
 
+  (* function removes load_aliases from astate *)
   let clear_load_aliases_if_new_loc astate (last_loc : Location.t) (loc : Location.t) =
     if (loc.line > last_loc.line) then
-      begin
         Domain.astate_with_clear_load_aliases astate (last_loc.line - 10) (* save load aliases of the last 10 loc *)
-      end
-    else
-      begin
-        astate
-      end
+    else astate
 
   (** Take an abstract state and instruction, produce a new abstract state *)
   let exec_instr (astate : Domain.t) ({interproc= {proc_desc; tenv; analyze_dependency}} as analysis_data) _ _ instr =
@@ -233,8 +229,6 @@ let add_locals_to_list proc_attributes_list pname =
 
 (* function adds non-pointer formals to the locals list *)
 let add_nonpointer_formals_to_list formals locals_set pname =
-  (* TODO predelat na access_expressions!!! *)
-(*  F.printf "formals...\n";*)
   let rec loop lst locals =
     match lst with
     | [] -> locals

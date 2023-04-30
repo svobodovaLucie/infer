@@ -159,9 +159,8 @@ module LoadAlias = struct
 
   (* function returns true id the line of the location in the load alias in lower than or equal to max *)
   (* used when experimenting with for optimisation  *)
-  let loc_leq_than_max (_, _, (_loc : Location.t)) _max =
-    (* loc.line <= max *)
-    true
+  let _loc_leq_than_max (_, _, (loc : Location.t)) max =
+     loc.line <= max
 
   (* pretty print function *)
   let pp fmt (f, s, loc) =
@@ -285,9 +284,9 @@ module AccessEvent = struct
   let update_accesses_with_locks_and_threads threads_active threads_joined lockset unlockset thread callee_threads_active callee_threads_joined access =
     let locked = Lockset.diff (Lockset.union lockset access.locked) access.unlocked in
     let unlocked = Lockset.union (Lockset.diff unlockset access.locked) access.unlocked in
-    let renamed_access_threads = replace_unknown_threads_with_actuals threads_active threads_joined callee_threads_active callee_threads_joined in
-    let threads_active = ThreadSet.diff (ThreadSet.union threads_active access.threads_active) renamed_access_threads in
-    let threads_joined = ThreadSet.union (ThreadSet.diff threads_joined access.threads_active) renamed_access_threads in
+    let renamed_access_threads_joined = replace_unknown_threads_with_actuals threads_active threads_joined callee_threads_active callee_threads_joined in
+    let threads_active = ThreadSet.union (ThreadSet.diff (ThreadSet.union threads_active access.threads_active) renamed_access_threads_joined) access.threads_active in
+    let threads_joined = renamed_access_threads_joined in
     let thread =
       match access.thread with
       | None -> thread
@@ -744,10 +743,12 @@ let resolve_load_alias_list exp e load_aliases ~add_deref : HilExp.AccessExpress
     | list -> get_list_of_final_vars list []
   )
 
-(* function deletes load_aliases  from astate *)
-let astate_with_clear_load_aliases astate loc_to_be_removed =
-  let load_aliases = LoadAliasesSet.filter (fun x -> LoadAlias.loc_leq_than_max x loc_to_be_removed) astate.load_aliases in
-  { astate with load_aliases }
+(* function deletes load_aliases from astate *)
+(* currently not used (used for experimenting with optimisation) *)
+let astate_with_clear_load_aliases astate _loc_to_be_removed =
+  (* let load_aliases = LoadAliasesSet.filter (fun x -> LoadAlias.loc_leq_than_max x loc_to_be_removed) astate.load_aliases in *)
+  (* { astate with load_aliases } *)
+  astate
 
 (* functions that handle heap aliases *)
 (* function removes all heap aliases with the same loc (used when free() is called) *)
@@ -1184,6 +1185,7 @@ let add_access_to_astate var access_type astate loc pname =
     in
     { var; loc; access_type; locked; unlocked; threads_active; threads_joined; thread }
   in
+  F.printf "ADDING ACCESS: %a\n" AccessEvent.pp new_access;
   let accesses = AccessSet.add new_access astate.accesses in
   { astate with accesses }
 

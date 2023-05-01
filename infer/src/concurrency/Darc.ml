@@ -88,7 +88,7 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
    )
 
   (* function creates new thread and integrates a summary of callee into the current abstract state *)
-  let handle_pthread_create _callee_pname pname loc actuals sil_actual_argument analyze_dependency astate =
+  let handle_pthread_create _callee_pname loc actuals analyze_dependency astate =
     (* get first argument - the thread to be added *)
     match List.nth actuals 0 with
     | Some HilExp.AccessExpression th_load_ae -> (
@@ -113,7 +113,7 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
             | None -> []
           in
           (* update callee accesses and add them to astate *)
-          Domain.integrate_pthread_summary astate_with_new_thread new_thread f loc summary callee_formals actuals sil_actual_argument pname
+          Domain.integrate_pthread_summary astate_with_new_thread new_thread f loc summary callee_formals actuals
         )
       )
       | _ -> astate
@@ -165,8 +165,8 @@ module TransferFunctions (CFG : ProcCfg.S) = struct
         (* handle the creation of a new thread *)
         let sil_actual_argument = List.nth sil_actuals 3 in (* variable passed to the function *)
         match sil_actual_argument with
-        | Some sil_actual ->
-          handle_pthread_create callee_pname pname loc hil_actuals sil_actual analyze_dependency astate
+        | Some _ ->
+          handle_pthread_create callee_pname loc hil_actuals analyze_dependency astate
         | None -> astate (* invalid argument *)
       )
       | "pthread_join" ->
@@ -309,7 +309,7 @@ let report {InterproceduralAnalysis.proc_desc; err_log; _} post =
 let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc) =
   let data = {interproc; extras = ref initial_extras} in
   let pname = Procdesc.get_proc_name proc_desc in
-  (* F.printf "\n\n----- DarC: analysis of %s START -----\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc)); *)
+  (* F.printf "\n\n---- DarC: analysis of %s START ----\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc)); *)
   (* create a list of locals and add all the locals and non-pointer formals to the list *)
   let proc_desc_locals = Procdesc.get_locals proc_desc in   (* locals declared in the function *)
   let locals_set = add_locals_to_list proc_desc_locals pname in
@@ -325,7 +325,7 @@ let checker ({InterproceduralAnalysis.proc_desc; tenv=_; err_log=_} as interproc
   let init_astate = add_formals_to_heap_aliases init_astate formals pname in
   (* compute function summary *)
   let result = Analyzer.compute_post data ~initial:init_astate proc_desc in
-  (* F.printf "\n\n----- Darc: function %s END -----\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc)); *)
+  (* F.printf "\n\n------ Darc: function %s END ------\n\n" (Procname.to_string (Procdesc.get_proc_name proc_desc)); *)
   (* compute and report data races in main *)
   if (phys_equal (String.compare (Procname.to_string (Procdesc.get_proc_name proc_desc)) "main") 0) then
     Option.iter result ~f:(fun post -> report interproc post);

@@ -43,7 +43,7 @@ module ThreadEvent = struct
     let loc_str =
       match Location.equal loc Location.dummy with
       | true -> ""
-      | false -> " created on " ^ (string_of_int (loc.line))
+      | false -> " created on line " ^ (string_of_int (loc.line))
     in
     let in_loop_str =
       match created_in_loop with
@@ -83,6 +83,7 @@ module PointsToSet = AbstractDomain.FiniteSet(PointsTo)
 (* module used for handling the heap points-to relation *)
 module HeapPointsTo = struct
   (* type of heap points-to relation *)
+  (* note: the bool is not used yet, it is prepared for handling memory allocation in loops *)
   type t = (HilExp.AccessExpression.t * Location.t * Bool.t)
 
   (* function compares two heap points-to relations *)
@@ -117,7 +118,8 @@ module HeapPointsToSet = AbstractDomain.FiniteSet(HeapPointsTo)
 
 (* module used for handling load aliases *)
 module LoadAlias = struct
-  (* type of LoadAlias *)
+  (* type of LoadAlias (e.g. (n$1, var, line 10) *)
+  (* note: the Location.t is not currently used, it can be used for experiments with optimisation *)
   type t = (HilExp.AccessExpression.t * HilExp.AccessExpression.t * Location.t)
 
   (* compare function *)
@@ -256,7 +258,7 @@ module AccessEvent = struct
 
   (* pretty print function - shorter version used for reporting *)
   let pp_report_short fmt t1 =
-    F.fprintf fmt "%s %a on %a on " (ReadWriteModels.access_to_string t1.access_type) HilExp.AccessExpression.pp t1.var
+    F.fprintf fmt "%s %a on %a on " (ReadWriteModels.to_report_string t1.access_type) HilExp.AccessExpression.pp t1.var
                                                                                                 Location.pp_line t1.loc;
     match t1.thread with
     | Some t -> F.fprintf fmt "%a" ThreadEvent.pp t
@@ -271,7 +273,7 @@ module AccessEvent = struct
       | Some t -> F.fprintf fmt "%a" ThreadEvent.pp t;
       | None -> F.fprintf fmt "unknown thread";
     in
-    F.fprintf fmt "\nactive threads: %a\n locks held: %a\n"
+    F.fprintf fmt "\nactive threads: %a\nlocks held: %a\n"
         ThreadSet.pp t1.threads_active Lockset.pp t1.locked
 
   (* function returns access.var *)
@@ -402,9 +404,9 @@ type t =
   lockset: Lockset.t;  (* Lockset from Deadlock.ml *)
   unlockset: Lockset.t;
   points_to: PointsToSet.t;
-  load_aliases: LoadAliasesSet.t;
   heap_points_to: HeapPointsToSet.t;
-  locals : LocalsSet.t;
+  load_aliases: LoadAliasesSet.t;
+  locals: LocalsSet.t;
 }
 
 (* empty type with locals *)
@@ -1657,7 +1659,7 @@ let join astate1 astate2 =
   let threads_joined = ThreadSet.inter astate1.threads_joined astate2.threads_joined in
   let accesses = AccessSet.union astate1.accesses astate2.accesses in
   let lockset = Lockset.inter astate1.lockset astate2.lockset in
-  let unlockset = Lockset.inter astate1.unlockset astate2.unlockset in
+  let unlockset = Lockset.union astate1.unlockset astate2.unlockset in
   let points_to = PointsToSet.union astate1.points_to astate2.points_to in
   let load_aliases = LoadAliasesSet.union astate1.load_aliases astate2.load_aliases in
   let heap_points_to = HeapPointsToSet.union astate1.heap_points_to astate2.heap_points_to in

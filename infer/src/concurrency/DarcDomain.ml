@@ -290,9 +290,9 @@ module AccessEvent = struct
     let unlocked = Lockset.union (Lockset.diff unlockset access.locked) access.unlocked in
     let renamed_access_threads_joined = replace_unknown_threads_with_actuals threads_active threads_joined
                                                                           callee_threads_active callee_threads_joined in
-    let threads_active = ThreadSet.union (ThreadSet.diff (ThreadSet.union threads_active access.threads_active)
-                                                                 renamed_access_threads_joined) access.threads_active in
-    let threads_joined = renamed_access_threads_joined in
+    let threads_active = ThreadSet.diff (ThreadSet.union threads_active access.threads_active)
+                                                                                        renamed_access_threads_joined in
+    let threads_joined = ThreadSet.union threads_joined renamed_access_threads_joined in
     let thread =
       match access.thread with
       | None -> thread
@@ -531,7 +531,7 @@ let add_new_alias astate alias =
       astate
     else
       begin
-        (* check if there exists fair (snd, &fst) (to stop recursion) *)
+        (* check if there exists a pair (snd, &fst) (to stop recursion) *)
         let fst_address_of =
           match HilExp.AccessExpression.address_of fst with
           | Some address_of -> address_of

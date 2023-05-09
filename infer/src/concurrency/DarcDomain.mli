@@ -112,7 +112,7 @@ val compute_data_races : summary -> (AccessEvent.t * AccessEvent.t) list
 val astate_with_clear_load_aliases : t -> int -> t
 
 (* function updates points-to and heap points-to relations *)
-val update_aliases : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> t -> t
+val update_aliases : HilExp.AccessExpression.t -> HilExp.AccessExpression.t -> t -> weak_update:bool -> t
 
 (* functions joins astate.heap_points_to with heap_aliases *)
 val add_heap_aliases_to_astate : t -> (HilExp.AccessExpression.t * Location.t * bool) list -> t

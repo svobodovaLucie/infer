@@ -512,7 +512,9 @@ let remove_all_var_aliases_from_aliases var_option astate =
     let points_to = PointsToSet.filter (fun elt -> PointsTo.fst_not_equals_var elt var) astate.points_to in
     let heap_points_to = HeapPointsToSet.filter (fun elt -> HeapPointsTo.fst_not_equals_var elt var)
                                                                                                 astate.heap_points_to in
-    {astate with points_to; heap_points_to}
+    let res = {astate with points_to; heap_points_to} in
+    F.printf "astate.points_to after removing var=%a: %a\n" HilExp.AccessExpression.pp var PointsToSet.pp res.points_to;
+    res
   )
 
 (* function adds new alias to astate.points_to *)
@@ -555,41 +557,69 @@ let create_new_alias fst snd =
   | _ -> None
 
 (* function finds all aliases of var *)
-let rec resolve_alias_list lhs lhs_current var aliases ~return_addressof_alias =
-  (* F.printf "resolve_alias_list: lhs=%a, lhs_current=%a, var=%a\n" HilExp.AccessExpression.pp lhs
-                                               HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var; *)
+let rec resolve_alias_list lhs lhs_current var aliases ~return_addressof_alias ~weak_update_flag =
+  F.printf "resolve_alias_list: lhs=%a, lhs_current=%a, var=%a, weak_update=%b\n" HilExp.AccessExpression.pp lhs
+                                      HilExp.AccessExpression.pp lhs_current HilExp.AccessExpression.pp var weak_update_flag;
   (* if lhs matches lhs_current, end the recursion and return final alias/var *)
   if (HilExp.AccessExpression.equal lhs lhs_current) then
     begin
       (* if lhs is dereference -> find new alias in aliases, else return var *)
       match lhs with
-      | HilExp.AccessExpression.Dereference lhs_without_dereference ->
-        find_alias_list lhs_without_dereference aliases ~add_deref:true [] (* e.g. None | Some (y, &k) *)
+      | HilExp.AccessExpression.Dereference lhs_without_dereference -> (
+        let aliases_list = find_alias_list lhs_without_dereference aliases ~add_deref:true [] in (* e.g. None | Some (y, &k) *)
+        (weak_update_flag, aliases_list)
+      )
       | _ -> (* lhs == lhs_current *)
         if return_addressof_alias then
+        begin
+          F.printf "1\n";
           (* return second member of alias if any alias found  *)
-          find_alias_list lhs aliases ~add_deref:false []
+          let aliases = find_alias_list lhs aliases ~add_deref:false [] in
+          (weak_update_flag, aliases)
+        end
         else
-          [] (* lhs was not aliased -> return empty list *)
+          begin
+          F.printf "2\n";
+          (weak_update_flag, []) (* lhs was not aliased -> return empty list *)
+          end
     end
   else
     begin
       (* find var in aliases and if found, continue recursion with the snd in alias *)
       let find_current_in_aliases = find_alias_list var aliases ~add_deref:false [] in (* e.g. None | Some (m, &y) *)
+      let num_aliases = List.length find_current_in_aliases in
+      F.printf "var=%a has %d aliases\n" HilExp.AccessExpression.pp var num_aliases;
+      let _change_flag =
+        if num_aliases > 1 then
+          F.printf "changing weak_update_flag from %b\n" weak_update_flag
+        else
+          F.printf "remain weak_update_flag %b\n" weak_update_flag
+      in
+      let weak_update_flag = if num_aliases > 1 then true else weak_update_flag in
+      let _p =
+        if weak_update_flag then
+          F.printf "------------------- WEAK UPDATE --------------------\n"
+        else
+          F.printf "------------------ STRONG UPDATE --------------------\n"
+      in
       let lhs_dereference = HilExp.AccessExpression.dereference lhs_current in (* *m *)
       match find_current_in_aliases with
-      | [] -> []
+      | [] -> (weak_update_flag, [])
       | list -> (
-        let rec resolve lst resolved_acc =
+        let rec resolve lst resolved_acc ~weak_update =
           match lst with
-          | [] -> resolved_acc
-          | (_, snd) :: t -> (
+          | [] -> (F.printf "3\n"; resolved_acc)
+          | (fst, snd) :: t -> (
+            F.printf "4 before: weak_update_flag=%b weak_update=%b, (%a,%a)\n" weak_update_flag weak_update HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;
             let snd_deref = HilExp.AccessExpression.dereference snd in
-            let resolved_for_one = resolve_alias_list lhs lhs_dereference snd_deref aliases ~return_addressof_alias in
-            resolve t (resolved_for_one @ resolved_acc)
+            let (weak_update_flag, resolved_for_one) = resolve_alias_list lhs lhs_dereference snd_deref aliases ~return_addressof_alias ~weak_update_flag:weak_update in
+            F.printf "4 after: weak_update_flag=%b weak_update=%b, (%a,%a)\n" weak_update_flag weak_update HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;
+            resolve t (resolved_for_one @ resolved_acc) ~weak_update:weak_update_flag
           )
         in
-        resolve list []
+        F.printf "weak_update_flag i =%b\n" weak_update_flag;
+        let aliases = resolve list [] ~weak_update:weak_update_flag in
+        (weak_update_flag, aliases)
       )
     end
 
@@ -749,8 +779,8 @@ let add_heap_aliases_to_astate astate heap_aliases =
 (* function returns first variable in a tuple or var if the tuple is None *)
 let get_option_fst var alias = (
   match alias with
-  | None -> Some var
-  | Some (fst, _) -> Some fst
+  | None -> (F.printf "get_option_fst: None -> Some %a\n" HilExp.AccessExpression.pp var; Some var)
+  | Some (fst, _) -> (F.printf "get_option_fst: Some %a\n" HilExp.AccessExpression.pp fst; Some fst)
 )
 
 (* function returns second variable in a tuple or None if the tuple is None *)
@@ -761,8 +791,90 @@ let get_option_snd alias = (
 )
 
 (* function updates points-to and heap points-to relations with (lhs = rhs) expression *)
-let update_aliases lhs rhs astate =
-(*  F.printf "update_aliases: lhs=%a, rhs=%a\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp rhs;*)
+let _update_aliases_list lhs rhs astate ~weak_update_flag42 =
+  F.printf "update_aliases_list: lhs=%a, rhs=%a, weak_update42=%b\n" HilExp.AccessExpression.pp lhs HilExp.AccessExpression.pp rhs weak_update_flag42;
+  let aliases = PointsToSet.elements astate.points_to in
+(*  (* lhs *)*)
+(*  (* find if there exists an alias for lhs variable and get the first var in the alias *)*)
+  let _lhs_alias = get_base_alias lhs aliases in
+  let lhs_base_ae = get_base_as_access_expression lhs in
+  let (_, result_list) = resolve_alias_list lhs lhs_base_ae lhs_base_ae aliases ~return_addressof_alias:true ~weak_update_flag:false in
+  let rec _pr lst =
+    match lst with
+    | [] -> F.printf "]\n";
+    | (fst,snd) :: t -> (
+      F.printf "zzz fst=%a, snd=%a" HilExp.AccessExpression.pp fst HilExp.AccessExpression.pp snd;
+      _pr t
+    )
+  in
+  _pr result_list;
+(*  F.printf "---WEAK_UPDATE_FLAG FOR REMOVE:%b---\n" weak_update_flag;*)
+(*  let rec _print lst =*)
+(*    match lst with*)
+(*    | [] -> F.printf "."*)
+(*    | h :: t -> ( *)
+(*      F.printf "%a, " PointsTo.pp h;*)
+(*      _print t*)
+(*    )*)
+(*  in*)
+(*  _print result_list;*)
+
+  let rec update_alias_for_each lst astate =
+    match lst with
+    | [] -> astate
+    | (fst, _) :: t -> (
+      F.printf "fst=%a\n" HilExp.AccessExpression.pp fst;
+      let lhs_alias_fst = (Some fst) in
+(*      let lhs_alias_fst = Some fst in*)
+(*      let lhs_alias_fst = Some fst in *)
+(*      let lhs_alias_fst = get_option_fst lhs lhs_alias in*)
+      F.printf "weak_update_flag42: %b\n" weak_update_flag42;
+      let res_astate =
+      (* rhs *)
+      match rhs with
+      | HilExp.AccessExpression.AddressOf _ -> (
+        (* create new alias: Some (lhs_alias_fst, &rhs) *)
+        let new_alias = create_new_alias lhs_alias_fst (Some rhs) in
+        (* remove existing lhs_alias and add the new alias to astate *)
+        let astate_alias_removed = remove_all_var_aliases_from_aliases lhs_alias_fst astate in
+        add_new_alias astate_alias_removed new_alias
+      )
+      | _ -> (  (* base, dereference etc. *)
+        (* check if there already is some alias for the rhs expression *)
+        let rhs_alias = get_base_alias rhs aliases in (* *q -> Some (x, &z) *)
+        match rhs_alias with
+        | Some _ -> ( (* alias was found *)
+          (* get the second variable in rhs_alias and create new alias *)
+          let rhs_alias_snd = get_option_snd rhs_alias in (* Some (x, &z) -> Some &z *)
+          let new_alias = create_new_alias lhs_alias_fst rhs_alias_snd in
+          (* remove existing lhs_alias and add the new alias to astate *)
+          let astate_alias_removed = remove_all_var_aliases_from_aliases lhs_alias_fst astate in
+          add_new_alias astate_alias_removed new_alias
+        )
+        | None -> ( (* alias wasn't found - try to find alias in heap aliases *)
+          (* find rhs in heap aliases *)
+          let rhs_heap_alias_loc = find_heap_alias_by_var rhs (HeapPointsToSet.elements astate.heap_points_to) in
+          match rhs_heap_alias_loc with
+          | Some loc -> (
+            (* remove existing alias from aliases and add the new alias to astate *)
+            let astate_alias_removed = remove_all_var_aliases_from_aliases lhs_alias_fst astate in
+            add_heap_alias lhs loc astate_alias_removed
+            )
+          | None -> astate (* alias doesn't exist *)
+        )
+      )
+    in
+    update_alias_for_each t res_astate
+    )
+  in update_alias_for_each result_list astate
+
+
+(* function updates points-to and heap points-to relations with (lhs = rhs) expression *)
+let update_aliases lhs rhs astate ~weak_update =
+(*  F.printf "TRY-----\n";*)
+(*  update_aliases_list lhs rhs astate;*)
+  F.printf "update_aliases: lhs=%a, rhs=%a, weak_update=%b\n" HilExp.AccessExpression.pp lhs
+                                                                          HilExp.AccessExpression.pp rhs weak_update;
   let aliases = PointsToSet.elements astate.points_to in
   (* lhs *)
   (* find if there exists an alias for lhs variable and get the first var in the alias *)
@@ -774,7 +886,12 @@ let update_aliases lhs rhs astate =
     (* create new alias: Some (lhs_alias_fst, &rhs) *)
     let new_alias = create_new_alias lhs_alias_fst (Some rhs) in
     (* remove existing lhs_alias and add the new alias to astate *)
-    let astate_alias_removed = remove_all_var_aliases_from_aliases lhs_alias_fst astate in
+    let astate_alias_removed =
+      if weak_update then
+        astate
+      else
+        remove_all_var_aliases_from_aliases lhs_alias_fst astate
+    in
     add_new_alias astate_alias_removed new_alias
   )
   | _ -> (  (* base, dereference etc. *)
@@ -786,7 +903,12 @@ let update_aliases lhs rhs astate =
       let rhs_alias_snd = get_option_snd rhs_alias in (* Some (x, &z) -> Some &z *)
       let new_alias = create_new_alias lhs_alias_fst rhs_alias_snd in
       (* remove existing lhs_alias and add the new alias to astate *)
-      let astate_alias_removed = remove_all_var_aliases_from_aliases lhs_alias_fst astate in
+      let astate_alias_removed =
+        if weak_update then
+          astate
+        else
+          remove_all_var_aliases_from_aliases lhs_alias_fst astate
+      in
       add_new_alias astate_alias_removed new_alias
     )
     | None -> ( (* alias wasn't found - try to find alias in heap aliases *)
@@ -795,7 +917,12 @@ let update_aliases lhs rhs astate =
       match rhs_heap_alias_loc with
       | Some loc -> (
         (* remove existing alias from aliases and add the new alias to astate *)
-        let astate_alias_removed = remove_all_var_aliases_from_aliases lhs_alias_fst astate in
+      let astate_alias_removed =
+        if weak_update then
+          astate
+        else
+          remove_all_var_aliases_from_aliases lhs_alias_fst astate
+        in
         add_heap_alias lhs loc astate_alias_removed
         )
       | None -> astate (* alias doesn't exist *)
@@ -805,7 +932,7 @@ let update_aliases lhs rhs astate =
 (* function returns alias of var if found in aliases, else returns var *)
 let replace_var_with_its_alias_list var aliases heap_aliases ~return_addressof_alias =
   let var_ae = get_base_as_access_expression var in
-  let result_list = resolve_alias_list var var_ae var_ae aliases ~return_addressof_alias in
+  let (weak_update_flag_res, result_list) = resolve_alias_list var var_ae var_ae aliases ~return_addressof_alias ~weak_update_flag:false in
   match result_list with
   | [] -> (* [var] (* alias not found -> return the original var *) *)
   (
@@ -819,7 +946,7 @@ let replace_var_with_its_alias_list var aliases heap_aliases ~return_addressof_a
       (* get the same format as the first expression (base, *, ** etc.) *)
       (* if the list is empty then return the original var *)
       match lst with
-      | [] -> [var]
+      | [] -> (weak_update_flag_res, [var])
       | lst -> (
         let rec for_each_in_list_get_right_format list acc =
           match list with
@@ -828,10 +955,12 @@ let replace_var_with_its_alias_list var aliases heap_aliases ~return_addressof_a
             let right_format_var = AccessEvent.replace_base_of_var_with_another_var var h in
             for_each_in_list_get_right_format t (right_format_var :: acc)
           )
-        in for_each_in_list_get_right_format lst []
+        in
+        let res_list = for_each_in_list_get_right_format lst [] in
+        (weak_update_flag_res, res_list)
       )
     )
-    | None -> [var] (* not found -> return original var *)
+    | None -> (weak_update_flag_res, [var]) (* not found -> return original var *)
   )
   | list -> (
     let rec get_list_of_snd lst acc =
@@ -840,7 +969,9 @@ let replace_var_with_its_alias_list var aliases heap_aliases ~return_addressof_a
       | (_, snd) :: t -> (
         get_list_of_snd t (snd :: acc) (* alias found -> return the alias *)
       )
-    in get_list_of_snd list []
+    in
+    let res_list = get_list_of_snd list [] in
+    (weak_update_flag_res, res_list)
   )
 
 (* function returns all aliases of var by going through the list of load_aliases, then the list of points-to relations,
@@ -849,12 +980,12 @@ let resolve_entire_aliasing_of_var_list e_ae e astate ~add_deref ~return_address
   (* get list of load aliases, e.g. (n$1, i), (n$1, j) *)
   let e_after_resolving_load_alias_list = resolve_load_alias_list e_ae e astate.load_aliases ~add_deref in
   (* for each load alias *)
-  let rec for_each_load_alias lst acc =
+  let rec for_each_load_alias lst acc ~weak_update_flag =
     match lst with
-    | [] -> acc
+    | [] -> (weak_update_flag, acc)
     | e_after_resolving_load_alias :: t -> (
       (* get list of all aliased variables *)
-      let e_final_list = replace_var_with_its_alias_list e_after_resolving_load_alias (PointsToSet.elements
+      let (weak_update_flag, e_final_list) = replace_var_with_its_alias_list e_after_resolving_load_alias (PointsToSet.elements
                            astate.points_to) (HeapPointsToSet.elements astate.heap_points_to) ~return_addressof_alias in
       (* create list of (e_after_resolving_load_alias, e_final) pairs *)
       let rec create_list_of_aliased_vars lst cacc =
@@ -865,17 +996,19 @@ let resolve_entire_aliasing_of_var_list e_ae e astate ~add_deref ~return_address
       (* if the list is empty try to find in heap_aliases *)
         match e_final_list with
         | [] -> (
-          let e_final_list_heap = replace_var_with_its_alias_list e_after_resolving_load_alias (PointsToSet.elements
+          let (weak_update_flag, e_final_list_heap) = replace_var_with_its_alias_list e_after_resolving_load_alias (PointsToSet.elements
                            astate.points_to) (HeapPointsToSet.elements astate.heap_points_to) ~return_addressof_alias in
           let new_heap_acc = create_list_of_aliased_vars e_final_list_heap acc in
-          for_each_load_alias t new_heap_acc
+          for_each_load_alias t new_heap_acc ~weak_update_flag
         )
         | _ -> (
           let new_acc = create_list_of_aliased_vars e_final_list acc in
-          for_each_load_alias t new_acc
+          for_each_load_alias t new_acc ~weak_update_flag
         )
     )
-  in for_each_load_alias e_after_resolving_load_alias_list []
+  in
+  let (weak_update_flag, res_list) = for_each_load_alias e_after_resolving_load_alias_list [] ~weak_update_flag:false in
+  (weak_update_flag, res_list)
 
 (* function returns all aliases of e_ae of the lfield type by going through the list of load_aliases,
    then the list of points-to relations, and finally by going through the list of heap points-to relations *)
@@ -883,7 +1016,7 @@ let resolve_entire_aliasing_of_var_for_lfield_list e_ae e astate ~add_deref ~ret
     match e_ae with
     | HilExp.AccessExpression.FieldOffset (fieldoffset_ae, fieldname)-> (
       (* get list of aliases of fieldoffset_ae *)
-      let lst = resolve_entire_aliasing_of_var_list fieldoffset_ae e astate ~add_deref ~return_addressof_alias in
+      let (_, lst) = resolve_entire_aliasing_of_var_list fieldoffset_ae e astate ~add_deref ~return_addressof_alias in
       (* for each member of the list of fieldoffset_ae create a field with the fieldname *)
       let rec for_each_create_fieldname fieldname lst acc =
         match lst with
@@ -1328,7 +1461,7 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
   match e with
   | Exp.Var _ -> (
     (* e is Var (e.g. n$0) -> it should already be present in load_aliases -> resolve it *)
-    let lst = resolve_entire_aliasing_of_var_list e_ae (Some e) astate ~add_deref:false ~return_addressof_alias:false in
+    let (_, lst) = resolve_entire_aliasing_of_var_list e_ae (Some e) astate ~add_deref:false ~return_addressof_alias:false in
     (* for each load alias *)
     add_load_alias_and_accesses lst astate
   )
@@ -1349,6 +1482,10 @@ let load id_ae e_ae e (_typ: Typ.t) loc astate pname =
 
 (* function handles the STORE instruction *)
 let store e1 typ e2 loc astate pname =
+  F.printf "store e1=%a e2=%a on line %a\n" Exp.pp e1 Exp.pp e2 Location.pp loc;
+  F.printf "store - points-to at the beginning: %a\n" PointsToSet.pp astate.points_to;
+  F.printf "store - heap-points-to at the beginning: %a\n" HeapPointsToSet.pp astate.heap_points_to;
+  let new_astate_after_store =
   (* transform e1 expression to the access expression *)
   let add_deref =
     match e1 with
@@ -1359,6 +1496,7 @@ let store e1 typ e2 loc astate pname =
   match e1_hil with
   | HilExp.AccessExpression ((FieldOffset _) as e1_ae ) -> (
     (* get list of all aliases of e1_ae (field offset) *)
+    F.printf "store1\n";
     let lst = resolve_entire_aliasing_of_var_for_lfield_list e1_ae (Some e1) astate ~add_deref:true
                                                                                         ~return_addressof_alias:false in
     (* function adds accesses for each var from the list of aliases *)
@@ -1373,8 +1511,13 @@ let store e1 typ e2 loc astate pname =
     in add_accesses_for_each_aliased_var lst astate
   )
   | AccessExpression e1_ae -> (
+    F.printf "store2\n";
     (* get list of all aliases of e1_ae *)
-    let lst =resolve_entire_aliasing_of_var_list e1_ae (Some e1) astate ~add_deref:true ~return_addressof_alias:false in
+    (* when resolving all aliases of var, get the information if the var has more aliases than one ->
+       -> if yes, weak update is performed (existing points-to relations are not removed from the set),
+          else strong update is performed *)
+    let (weak_update_flag, lst) = resolve_entire_aliasing_of_var_list e1_ae (Some e1) astate ~add_deref:true ~return_addressof_alias:false in
+    F.printf "/////////////////// WEAK UPDATE FLAG IN STORE: %b\n" weak_update_flag;
     let rec for_each lst astate =
       match lst with
       | [] -> astate
@@ -1384,6 +1527,7 @@ let store e1 typ e2 loc astate pname =
         (* if the type is pointer, add aliases to e2 *)
         if (Typ.is_pointer typ) then
           begin
+            F.printf "store3\n";
             (* check null on the rhs *)
             if (Exp.is_null_literal e2) then
               (* remove aliases of e1_aliased_final *)
@@ -1398,15 +1542,18 @@ let store e1 typ e2 loc astate pname =
                   (* handle aliasing of e2 *)
                   let astate =
                     match e2 with
-                    | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> update_aliases e1_aliased_final e2_ae astate
+                    | Exp.Lvar _ | Exp.Lfield _ | Exp.Lindex _ -> update_aliases e1_aliased_final e2_ae astate ~weak_update:weak_update_flag
                     | Exp.Var _ | _ ->  (
-                      let lst_e2 = resolve_entire_aliasing_of_var_list e2_ae (Some e2) astate ~add_deref:false
+                      F.printf "store4\n";
+                      let (_, lst_e2) = resolve_entire_aliasing_of_var_list e2_ae (Some e2) astate ~add_deref:false
                                                                                         ~return_addressof_alias:false in
                       let rec foreach lst astate =
                         match lst with
                         | [] -> astate
-                        | (_, e2_aliased_final) :: t ->
-                          foreach t (update_aliases e1_aliased_final e2_aliased_final astate)
+                        | (_, e2_aliased_final) :: t -> (
+                          F.printf "store5\n";
+                          foreach t (update_aliases e1_aliased_final e2_aliased_final astate ~weak_update:weak_update_flag)
+                        )
                       in foreach lst_e2 astate
                     )
                   in for_each t astate (* save alias to the aliases set *)
@@ -1420,6 +1567,9 @@ let store e1 typ e2 loc astate pname =
     in for_each lst astate
   )
   | _ -> astate
+  in
+  F.printf "store: points-to after store: %a\n" PointsToSet.pp new_astate_after_store.points_to;
+  new_astate_after_store
 
   (* function returns a list of accesses to each alias of actual *)
   let rec for_each_alias_of_actual_add_access formal_access_expression list_of_accesses_to_formal list_of_actual_aliases
@@ -1460,9 +1610,11 @@ let store e1 typ e2 loc astate pname =
             | HilExp.AccessExpression ((FieldOffset _) as actual_load) ->
               resolve_entire_aliasing_of_var_for_lfield_list actual_load None astate ~add_deref:false
                                                              ~return_addressof_alias:creating_thread
-            | HilExp.AccessExpression actual_load ->
-              resolve_entire_aliasing_of_var_list actual_load None astate ~add_deref:false
+            | HilExp.AccessExpression actual_load -> (
+              let (_, lst) = resolve_entire_aliasing_of_var_list actual_load None astate ~add_deref:false
                                                                                  ~return_addressof_alias:creating_thread
+              in lst
+            )
             | _ -> []
           in
           (* if flag is true then remove all aliases from locals of astate *)
